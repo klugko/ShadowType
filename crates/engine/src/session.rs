@@ -14,9 +14,10 @@ use crate::{
     stats::{Sample, Stats, Tally, sample_ends, words_per_minute},
 };
 
-/// How many characters may be typed past an uncorrected mistake before input
-/// is refused. Mistakes have to be fixed for a session to complete, so this
-/// keeps a typo from silently ruining the rest of the line.
+/// Longest run of characters, counted from the first uncorrected mistake and
+/// including it, that can be typed before further input is refused. Mistakes
+/// have to be fixed for a session to complete, so this keeps a typo from
+/// silently ruining the rest of the line.
 pub const ERROR_RUN_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -60,6 +61,16 @@ impl Entry {
             correct: true,
             auto: true,
         }
+    }
+
+    fn is_blank(&self) -> bool {
+        self.text.chars().all(char::is_whitespace)
+    }
+
+    /// Whether erasing this entry removes a line break: a typed newline, or
+    /// auto-filled indentation that goes away with the newline before it.
+    fn ends_line(&self) -> bool {
+        self.auto || self.text == "\n"
     }
 }
 
@@ -141,8 +152,9 @@ impl TypingSession {
     /// Types one character. Returns whether the input was accepted.
     ///
     /// Combining characters merge into the previous character. Input is refused
-    /// once the session is over, past the end of the text, or when the cursor
-    /// is [`ERROR_RUN_LIMIT`] characters past an uncorrected mistake.
+    /// once the session is over, past the end of the text, or once
+    /// [`ERROR_RUN_LIMIT`] characters have been typed from the first
+    /// uncorrected mistake onward.
     pub fn type_char(&mut self, ch: char, now: Instant) -> bool {
         self.update(now);
         if self.is_finished() || (ch.is_control() && ch != '\n') {
@@ -162,7 +174,9 @@ impl TypingSession {
         self.erase(now, Self::pop_entry)
     }
 
-    /// Removes the last typed word and the blanks that follow it.
+    /// Removes the last typed word and the blanks that follow it, like
+    /// Ctrl+Backspace in an editor: a line break is removed on its own, never
+    /// together with the line before it.
     pub fn delete_word(&mut self, now: Instant) -> bool {
         self.erase(now, Self::pop_word)
     }
@@ -226,10 +240,8 @@ impl TypingSession {
 
     /// Whether input is refused until the first mistake is corrected.
     pub fn is_blocked(&self) -> bool {
-        self.entries
-            .iter()
-            .position(|entry| !entry.correct)
-            .is_some_and(|first_error| self.cursor() - first_error >= ERROR_RUN_LIMIT)
+        self.first_mistake()
+            .is_some_and(|first| self.cursor() - first >= ERROR_RUN_LIMIT)
     }
 
     pub fn elapsed(&self, now: Instant) -> Duration {
@@ -273,13 +285,24 @@ impl TypingSession {
             .collect()
     }
 
+    /// Share of the time limit used, or of the text typed correctly up to the
+    /// first mistake, so that it reaches 1 only once the session is over.
     fn progress(&self, elapsed: Duration) -> f64 {
         let ratio = match self.options.time_limit {
             Some(limit) if !limit.is_zero() => elapsed.as_secs_f64() / limit.as_secs_f64(),
             _ if self.target.is_empty() => 0.0,
-            _ => self.cursor() as f64 / self.target.len() as f64,
+            _ => self.correct_prefix() as f64 / self.target.len() as f64,
         };
         ratio.clamp(0.0, 1.0)
+    }
+
+    /// Characters typed correctly before the first uncorrected mistake.
+    fn correct_prefix(&self) -> usize {
+        self.first_mistake().unwrap_or(self.cursor())
+    }
+
+    fn first_mistake(&self) -> Option<usize> {
+        self.entries.iter().position(|entry| !entry.correct)
     }
 
     fn push_char(&mut self, ch: char, now: Instant) -> bool {
@@ -389,12 +412,16 @@ impl TypingSession {
     fn pop_word(&mut self) {
         let mut removed_word = false;
         while let Some(last) = self.entries.last() {
-            let blank = last.text.chars().all(char::is_whitespace);
+            let blank = last.is_blank();
             if blank && removed_word {
                 break;
             }
+            let ends_line = last.ends_line();
             removed_word |= !blank;
             self.pop_entry();
+            if ends_line {
+                break;
+            }
         }
     }
 
@@ -547,6 +574,20 @@ mod tests {
         type_text(&mut session, "ab", now);
         assert_eq!(session.status(), Status::Completed);
         assert_eq!(session.stats(now).errors, 1);
+    }
+
+    #[test]
+    fn progress_stays_below_one_until_the_text_is_correct() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("abcd", SessionOptions::default());
+        type_text(&mut session, "abxd", now);
+        assert_eq!(session.status(), Status::Running);
+        assert_eq!(session.stats(now).progress, 0.5, "up to the first mistake");
+        session.backspace(now);
+        session.backspace(now);
+        type_text(&mut session, "cd", now);
+        assert_eq!(session.status(), Status::Completed);
+        assert_eq!(session.stats(now).progress, 1.0);
     }
 
     #[test]
@@ -837,6 +878,51 @@ mod tests {
         assert!(session.delete_word(now));
         assert_eq!(session.cursor(), 0);
         assert!(!session.delete_word(now));
+    }
+
+    #[test]
+    fn delete_word_after_an_auto_indented_newline_keeps_the_previous_line() {
+        let now = Instant::now();
+        let mut session = auto_indented("fn main() {\n    x\n}");
+        type_text(&mut session, "fn main() {\n", now);
+        assert_eq!(session.cursor(), 16);
+        assert!(session.delete_word(now));
+        assert_eq!(
+            session.cursor(),
+            11,
+            "only the line break and its indentation go"
+        );
+        assert_eq!(session.typed(10), Some("{"));
+    }
+
+    #[test]
+    fn delete_word_never_crosses_a_line_break() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("ab\n  cd ef", SessionOptions::default());
+        type_text(&mut session, "ab\n  cd", now);
+        assert!(session.delete_word(now));
+        assert_eq!(
+            session.cursor(),
+            5,
+            "the word, not the indentation before it"
+        );
+        assert!(session.delete_word(now));
+        assert_eq!(
+            session.cursor(),
+            2,
+            "the typed indentation and its line break"
+        );
+        assert!(session.delete_word(now));
+        assert_eq!(session.cursor(), 0);
+    }
+
+    #[test]
+    fn delete_word_right_after_a_newline_removes_only_the_newline() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("ab\ncd", SessionOptions::default());
+        type_text(&mut session, "ab\n", now);
+        assert!(session.delete_word(now));
+        assert_eq!(session.cursor(), 2);
     }
 
     #[test]

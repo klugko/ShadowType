@@ -75,7 +75,9 @@ pub struct Stats {
     pub indentation: usize,
     #[serde(with = "duration_seconds")]
     pub elapsed: Duration,
-    /// Completion between 0 and 1.
+    /// Completion between 0 and 1: the share of the time limit used, or of
+    /// the text typed correctly up to the first mistake. It reaches 1 only
+    /// once the session is over.
     pub progress: f64,
 }
 
