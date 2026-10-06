@@ -16,14 +16,30 @@ use tokio_tungstenite::{
     tungstenite::{self, Message, protocol::WebSocketConfig},
 };
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const OUTGOING_CAPACITY: usize = 64;
 const EVENT_CAPACITY: usize = 256;
 const CONNECTION_LOST: &str = "connection lost";
 const CLOSED_BY_CLIENT: &str = "connection closed by the client";
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// How long the connection waits on the server.
+#[derive(Debug, Clone, Copy)]
+struct Timeouts {
+    /// Reaching the server and upgrading to WebSocket.
+    connect: Duration,
+    /// Getting the welcome once the hello is sent.
+    handshake: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            connect: Duration::from_secs(5),
+            handshake: Duration::from_secs(5),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InvalidServerUrl {
@@ -117,10 +133,20 @@ impl Connection {
     ///
     /// Outside of a runtime the connection is born closed.
     pub fn open(url: String, username: Username) -> Self {
+        Self::open_with(url, username, Timeouts::default())
+    }
+
+    fn open_with(url: String, username: Username, timeouts: Timeouts) -> Self {
         let (outgoing, outgoing_receiver) = mpsc::channel(OUTGOING_CAPACITY);
         let (event_sender, events) = mpsc::channel(EVENT_CAPACITY);
         let task = match Handle::try_current() {
-            Ok(runtime) => Some(runtime.spawn(run(url, username, outgoing_receiver, event_sender))),
+            Ok(runtime) => Some(runtime.spawn(run(
+                url,
+                username,
+                outgoing_receiver,
+                event_sender,
+                timeouts,
+            ))),
             Err(error) => {
                 let reason = error.to_string();
                 let _ = event_sender.try_send(NetworkEvent::Closed { reason });
@@ -160,8 +186,9 @@ async fn run(
     username: Username,
     mut outgoing: mpsc::Receiver<ClientMessage>,
     events: mpsc::Sender<NetworkEvent>,
+    timeouts: Timeouts,
 ) {
-    let reason = match connect(&url, username).await {
+    let reason = match connect(&url, username, timeouts).await {
         Ok((socket, player_id)) => {
             if events
                 .send(NetworkEvent::Connected(player_id))
@@ -177,19 +204,23 @@ async fn run(
     let _ = events.send(NetworkEvent::Closed { reason }).await;
 }
 
-async fn connect(url: &str, username: Username) -> Result<(Socket, PlayerId), String> {
+async fn connect(
+    url: &str,
+    username: Username,
+    timeouts: Timeouts,
+) -> Result<(Socket, PlayerId), String> {
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE_BYTES))
         .max_frame_size(Some(MAX_MESSAGE_BYTES));
     let unreachable = |detail: String| format!("cannot reach {url}: {detail}");
     let (mut socket, _) = timeout(
-        CONNECT_TIMEOUT,
+        timeouts.connect,
         connect_async_with_config(url, Some(config), true),
     )
     .await
     .map_err(|_| unreachable("timed out".to_owned()))?
     .map_err(|error| unreachable(describe(&error)))?;
-    let player_id = timeout(HANDSHAKE_TIMEOUT, handshake(&mut socket, username))
+    let player_id = timeout(timeouts.handshake, handshake(&mut socket, username))
         .await
         .map_err(|_| format!("{url} did not answer the handshake"))??;
     Ok((socket, player_id))
@@ -322,6 +353,8 @@ mod tests {
     use super::*;
 
     const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
+    /// Replaces a production timeout that a test waits for on purpose.
+    const SHORT_TIMEOUT: Duration = Duration::from_millis(100);
 
     fn username() -> Username {
         "Tester".parse().expect("valid name")
@@ -457,7 +490,11 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let url = format!("ws://{}", listener.local_addr().expect("address"));
 
-        let mut connection = Connection::open(url.clone(), username());
+        let timeouts = Timeouts {
+            connect: SHORT_TIMEOUT,
+            ..Timeouts::default()
+        };
+        let mut connection = Connection::open_with(url.clone(), username(), timeouts);
 
         assert_eq!(
             closed_reason(&mut connection).await,
@@ -717,7 +754,11 @@ mod tests {
             })
             .await;
 
-            let mut connection = Connection::open(url.clone(), username());
+            let timeouts = Timeouts {
+                handshake: SHORT_TIMEOUT,
+                ..Timeouts::default()
+            };
+            let mut connection = Connection::open_with(url.clone(), username(), timeouts);
 
             assert_eq!(
                 closed_reason(&mut connection).await,
