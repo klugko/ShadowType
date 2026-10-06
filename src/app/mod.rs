@@ -375,7 +375,12 @@ impl App {
         }
     }
 
+    /// Shows `buffer` in the editor. A field being typed in another buffer
+    /// is cancelled: hidden, it would still take every key.
     fn open(&mut self, buffer: Buffer) {
+        if buffer != self.buffer {
+            self.editing = None;
+        }
         self.buffer = buffer;
         self.focus = Focus::Editor;
     }

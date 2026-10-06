@@ -2,14 +2,16 @@
 
 use std::time::Instant;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{
     Activity, App, Buffer, FieldEdit, Focus, Message, Prompt, TextField, command,
     form::{Cursor, Step},
     help,
     input::{Edit, TextInput, control_letter, erases_word, normalized, typed_char},
-    practice, race, settings,
+    practice,
+    race::{self, RoomRequest},
+    settings,
 };
 use code_racer_protocol::Phase;
 
@@ -232,25 +234,25 @@ impl App {
         true
     }
 
+    /// Room keys. A held key repeats the request only once: the server
+    /// limits how many messages a player sends.
     fn room_key(&mut self, key: KeyEvent, phase: Option<Phase>, now: Instant) -> bool {
-        match (phase, key.code) {
+        let request = match (phase, key.code) {
+            (_, KeyCode::Esc) => {
+                self.leave_session(now);
+                return true;
+            }
             (Some(Phase::Lobby), KeyCode::Char('r' | ' ') | KeyCode::Enter) => {
-                if let Some(client) = self.race() {
-                    client.toggle_ready();
-                }
+                RoomRequest::ToggleReady
             }
-            (Some(Phase::Lobby), KeyCode::Char('s')) => {
-                if let Some(Err(reason)) = self.race().map(race::RaceClient::start_race) {
-                    self.error(reason);
-                }
-            }
+            (Some(Phase::Lobby), KeyCode::Char('s')) => RoomRequest::Start,
             (Some(Phase::Finished), KeyCode::Char('r' | 'l') | KeyCode::Enter) => {
-                if let Some(Err(reason)) = self.race().map(race::RaceClient::return_to_lobby) {
-                    self.info(reason);
-                }
+                RoomRequest::Again
             }
-            (_, KeyCode::Esc) => self.leave_session(now),
             _ => return false,
+        };
+        if key.kind != KeyEventKind::Repeat {
+            self.request_room(request);
         }
         true
     }

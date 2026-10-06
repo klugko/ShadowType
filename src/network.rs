@@ -196,6 +196,16 @@ impl Connection {
     }
 }
 
+#[cfg(test)]
+impl Connection {
+    /// A connection to nowhere that hands the messages sent to the test.
+    pub(crate) fn loopback() -> (Self, mpsc::Receiver<ClientMessage>) {
+        let (outgoing, sent) = mpsc::channel(OUTGOING_CAPACITY);
+        let (_, events) = mpsc::channel(EVENT_CAPACITY);
+        (Self { outgoing, events }, sent)
+    }
+}
+
 /// The background task of a [`Connection`]. Connecting is abandoned as soon
 /// as the connection is dropped: nobody would hear of the result.
 async fn run(

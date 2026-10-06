@@ -9,7 +9,7 @@ use super::{
     command::{Command, Page},
     keys::SessionEdit,
     practice::{CustomText, Plan, SoloRun},
-    race::{Intent, RaceClient},
+    race::{Intent, RaceClient, RoomRequest},
 };
 use crate::{
     cli::Launch,
@@ -58,6 +58,9 @@ impl App {
     }
 
     fn start_solo(&mut self, plan: Plan) {
+        if self.refuse_while_in_room() {
+            return;
+        }
         self.end_activity();
         let run = SoloRun::start(plan, rand::random());
         self.activity = Some(Activity::Solo(Box::new(run)));
@@ -98,6 +101,9 @@ impl App {
     }
 
     fn connect(&mut self, intent: Intent) {
+        if self.refuse_while_in_room() {
+            return;
+        }
         let Some(username) = self.config.username() else {
             self.open(Buffer::Settings);
             self.begin_edit(TextField::Username);
@@ -116,6 +122,32 @@ impl App {
         let client = RaceClient::connect(server, username, intent);
         self.activity = Some(Activity::Race(Box::new(client)));
         self.open(Buffer::Session);
+    }
+
+    /// Whether the player is in a room, which starting anything else would
+    /// leave: that is refused, as leaving takes Esc, twice during a race.
+    fn refuse_while_in_room(&mut self) -> bool {
+        let Some(client) = self.race() else {
+            return false;
+        };
+        let refusal = match &client.room {
+            Some(room) => format!("leave room {} first with Esc", room.code),
+            None => "cancel the connection first with Esc".to_owned(),
+        };
+        self.error(refusal);
+        true
+    }
+
+    /// Asks the room for `request`, telling why when it cannot be made.
+    pub(super) fn request_room(&mut self, request: RoomRequest) {
+        let Some(Activity::Race(client)) = &mut self.activity else {
+            return;
+        };
+        match (request, client.request(request)) {
+            (_, Ok(())) => {}
+            (RoomRequest::Again, Err(reason)) => self.info(reason),
+            (_, Err(reason)) => self.error(reason),
+        }
     }
 
     /// Abandons the solo session or leaves the room. While the player is
@@ -245,6 +277,9 @@ impl App {
     /// Switches the solo settings to `mode`, adjusted by `change`, saves
     /// them and starts a session with them.
     fn practise(&mut self, mode: Mode, change: impl FnOnce(&mut Practice)) {
+        if self.refuse_while_in_room() {
+            return;
+        }
         self.config.practice.mode = mode;
         change(&mut self.config.practice);
         self.save_config();

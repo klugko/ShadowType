@@ -41,6 +41,7 @@ impl App {
                     "in room {code}, share the code with your teammates"
                 ));
             }
+            Outcome::Starting => self.show_race(),
             Outcome::Failure(text) => self.error(text),
             Outcome::Closed(reason) => {
                 self.activity = None;
@@ -70,6 +71,16 @@ impl App {
             None => {}
         }
         self.quiet_if_typing_stopped(was_typing, now);
+    }
+
+    /// Brings the player to the race text when the countdown begins,
+    /// wherever they were: a command line or a field being typed would
+    /// otherwise take the first keystrokes of the race.
+    fn show_race(&mut self) {
+        self.prompt = None;
+        self.editing = None;
+        self.open(Buffer::Session);
+        self.info("the race is starting");
     }
 
     pub(super) fn save_record(&mut self, record: Record) {

@@ -431,6 +431,189 @@ fn server_errors_are_shown_and_a_closed_room_is_left() {
 }
 
 #[test]
+fn the_countdown_brings_the_player_back_to_the_race_text() {
+    use code_racer_protocol::{PlayerProgress, ServerMessage};
+    let now = Instant::now();
+    let mut app = room::joined(now);
+    press(&mut app, KeyCode::Char('?'));
+    press(&mut app, KeyCode::Char(':'));
+    type_text(&mut app, "wq");
+    room::deliver(
+        &mut app,
+        ServerMessage::Countdown {
+            text: room::TEXT.to_owned(),
+            duration_ms: 3_000,
+        },
+        now,
+    );
+    assert!(app.prompt.is_none(), "the command line is cancelled");
+    assert_eq!((app.buffer, app.focus), (Buffer::Session, Focus::Editor));
+    let counting_down = room::view(Phase::Countdown, PlayerProgress::default());
+    room::deliver(&mut app, ServerMessage::Room(counting_down), now);
+    assert!(app.is_typing());
+    let start = now + Duration::from_secs(3);
+    let racing = room::view(Phase::Racing, PlayerProgress::default());
+    room::deliver(&mut app, ServerMessage::Room(racing), start);
+    type_text_at(&mut app, "Simp", start);
+    assert_eq!(session(&app).cursor(), 4);
+    assert!(!app.should_quit());
+}
+
+#[test]
+fn the_countdown_cancels_a_field_being_typed() {
+    use code_racer_protocol::ServerMessage;
+    let now = Instant::now();
+    let mut app = room::joined(now);
+    press(&mut app, KeyCode::Char('m'));
+    press(&mut app, KeyCode::Enter);
+    assert!(app.editing.is_some());
+    room::deliver(
+        &mut app,
+        ServerMessage::Countdown {
+            text: room::TEXT.to_owned(),
+            duration_ms: 3_000,
+        },
+        now,
+    );
+    assert!(app.editing.is_none());
+    assert_eq!(app.buffer, Buffer::Session);
+}
+
+#[test]
+fn entering_a_room_cancels_a_field_left_open_while_connecting() {
+    use code_racer_protocol::{PlayerProgress, ServerMessage};
+    let now = Instant::now();
+    let mut app = app();
+    command(&mut app, "create");
+    press(&mut app, KeyCode::Char('m'));
+    press(&mut app, KeyCode::Enter);
+    assert!(app.editing.is_some());
+    app.handle_network(crate::network::NetworkEvent::Connected(room::ME), now);
+    let lobby = room::view(Phase::Lobby, PlayerProgress::default());
+    room::deliver(&mut app, ServerMessage::Room(lobby), now);
+    assert_eq!(app.buffer, Buffer::Session);
+    assert!(app.editing.is_none());
+    assert_eq!(app.editor_mode(), EditorMode::Normal);
+}
+
+#[test]
+fn a_race_is_recorded_once_as_soon_as_the_server_times_the_finish() {
+    use code_racer_protocol::{PlayerProgress, ServerMessage};
+    let now = Instant::now();
+    let mut app = room::racing(now);
+    let typed_at = now + Duration::from_secs(10);
+    type_remaining_at(&mut app, typed_at);
+    assert!(
+        app.history.records().is_empty(),
+        "not timed by the server yet"
+    );
+    let finished = PlayerProgress {
+        typed: 27,
+        correct: 27,
+        errors: 0,
+        wpm: 32.4,
+        accuracy: 100.0,
+        finish_ms: Some(10_000),
+    };
+    let racing = room::view(Phase::Racing, finished);
+    room::deliver(&mut app, ServerMessage::Room(racing), typed_at);
+    let records = app.history.records();
+    assert_eq!(records.len(), 1, "recorded while others still race");
+    assert_eq!(
+        (records[0].mode.as_str(), records[0].language.as_str()),
+        ("race", "english")
+    );
+    assert_eq!((records[0].duration, records[0].wpm), (10.0, 32.4));
+    assert_eq!(records[0].text_length, room::TEXT.len());
+    let over = room::view(Phase::Finished, finished);
+    room::deliver(&mut app, ServerMessage::Room(over), typed_at);
+    assert_eq!(app.history.records().len(), 1, "never twice");
+    press_at(&mut app, KeyCode::Esc, typed_at + AFTER_QUIET);
+    assert!(
+        app.activity.is_none(),
+        "a finished player leaves with one Esc"
+    );
+}
+
+#[test]
+fn a_race_where_nothing_was_typed_is_not_recorded() {
+    use code_racer_protocol::{PlayerProgress, ServerMessage};
+    let now = Instant::now();
+    let mut app = room::racing(now);
+    let over = room::view(Phase::Finished, PlayerProgress::default());
+    room::deliver(&mut app, ServerMessage::Room(over), now);
+    assert!(app.history.records().is_empty());
+    assert!(app.race().is_some(), "the results are shown");
+}
+
+#[test]
+fn starting_something_else_in_a_room_is_refused() {
+    let directory = TempDir::new();
+    let file = directory.join("notes.txt");
+    std::fs::write(&file, "some text").expect("write");
+    let now = Instant::now();
+    let mut app = room::joined(now);
+    let practice = app.config.practice;
+    let refused = Some(Message::error("leave room FK72AD first with Esc"));
+    press(&mut app, KeyCode::Char('?'));
+    for key in ['s', 'c'] {
+        press(&mut app, KeyCode::Char(key));
+        assert!(app.race().is_some(), "{key}");
+        assert_eq!(app.message, refused, "{key}");
+    }
+    let edit = format!("e {}", file.display());
+    for line in [
+        "solo",
+        "words 10",
+        "quote",
+        "code rust",
+        "create",
+        "join ABCDEF",
+        &edit,
+    ] {
+        command(&mut app, line);
+        assert!(app.race().is_some(), "{line}");
+        assert_eq!(app.message, refused, "{line}");
+    }
+    assert_eq!(
+        app.config.practice, practice,
+        "refused commands change nothing"
+    );
+}
+
+#[test]
+fn holding_the_ready_key_sends_one_request() {
+    use code_racer_protocol::{ClientMessage, PlayerProgress, ServerMessage};
+    use crossterm::event::KeyEventKind;
+    let now = Instant::now();
+    let (mut app, mut sent) = room::joined_over_loopback(now);
+    assert!(matches!(
+        sent.try_recv(),
+        Ok(ClientMessage::JoinRoom { .. })
+    ));
+    let ready = KeyEvent::from(KeyCode::Char('r'));
+    let held = KeyEvent {
+        kind: KeyEventKind::Repeat,
+        ..ready
+    };
+    app.handle_key(ready, now);
+    assert!(matches!(
+        sent.try_recv(),
+        Ok(ClientMessage::SetReady { .. })
+    ));
+    let answer = room::view(Phase::Lobby, PlayerProgress::default());
+    room::deliver(&mut app, ServerMessage::Room(answer), now);
+    app.handle_key(held, now);
+    app.handle_key(held, now);
+    assert!(sent.try_recv().is_err(), "auto-repeat is ignored");
+    app.handle_key(ready, now);
+    assert!(matches!(
+        sent.try_recv(),
+        Ok(ClientMessage::SetReady { .. })
+    ));
+}
+
+#[test]
 fn a_failed_save_is_the_message_left_on_screen() {
     let directory = TempDir::new();
     let not_a_directory = directory.join("file");
@@ -551,8 +734,14 @@ mod room {
     use code_racer_engine::TextSource;
     use code_racer_protocol::{PlayerId, PlayerProgress, PlayerView, RoomView, ServerMessage};
 
+    use code_racer_protocol::ClientMessage;
+    use tokio::sync::mpsc;
+
     use super::*;
-    use crate::network::NetworkEvent;
+    use crate::{
+        app::race::Intent,
+        network::{Connection, NetworkEvent},
+    };
 
     pub const ME: PlayerId = PlayerId(1);
     pub const TEXT: &str = "Simplicity is prerequisite.";
@@ -617,6 +806,23 @@ mod room {
         app
     }
 
+    /// In the lobby over a connection that hands what is sent to the test.
+    pub fn joined_over_loopback(at: Instant) -> (App, mpsc::Receiver<ClientMessage>) {
+        let (connection, sent) = Connection::loopback();
+        let code = "FK72AD".parse().expect("code");
+        let client = RaceClient::over(connection, "ws://test".to_owned(), Intent::Join(code));
+        let mut app = app();
+        app.activity = Some(Activity::Race(Box::new(client)));
+        app.open(Buffer::Session);
+        app.handle_network(NetworkEvent::Connected(ME), at);
+        deliver(
+            &mut app,
+            ServerMessage::Room(view(Phase::Lobby, PlayerProgress::default())),
+            at,
+        );
+        (app, sent)
+    }
+
     pub fn racing(at: Instant) -> App {
         let mut app = counting_down(at);
         deliver(
@@ -636,7 +842,10 @@ mod multiplayer {
 
     use super::*;
 
-    const WAIT: Duration = Duration::from_secs(5);
+    /// Longer than the client's own connection and handshake timeouts, five
+    /// seconds each, so that a test fails on its assertions rather than on
+    /// this limit.
+    const WAIT: Duration = Duration::from_secs(15);
 
     async fn server() -> (String, oneshot::Sender<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -840,7 +1049,10 @@ mod multiplayer {
 
     #[tokio::test]
     async fn an_unreachable_server_is_reported() {
-        let mut app = player("dave", "ws://127.0.0.1:9");
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let address = listener.local_addr().expect("address");
+        drop(listener);
+        let mut app = player("dave", &format!("ws://{address}"));
         command(&mut app, "create");
         let waited = timeout(WAIT, async {
             while let Some(connection) = app.connection_mut() {

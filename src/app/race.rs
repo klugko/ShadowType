@@ -94,9 +94,21 @@ pub enum Stage {
 pub enum Outcome {
     Nothing,
     Entered(RoomCode),
+    /// The countdown of a race began: the player should see its text.
+    Starting,
     Failure(String),
     Closed(String),
+    /// The player's own race is over, with this record to keep.
     Finished(Record),
+}
+
+/// What the player asks of the room from the lobby or the results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoomRequest {
+    ToggleReady,
+    Start,
+    /// Back to the lobby for another race, host only.
+    Again,
 }
 
 /// The race currently typed by the player.
@@ -117,18 +129,29 @@ pub struct RaceClient {
     pub race: Option<LiveRace>,
     intent: Option<Intent>,
     reported: Option<(Instant, Progress)>,
+    /// Whether a room request is still unanswered. The server answers each
+    /// with the new room view or an error, and only then can the next one
+    /// be decided: a held key would otherwise flood the server, and
+    /// toggling twice would ask for the same state twice.
+    awaiting_answer: bool,
 }
 
 impl RaceClient {
     pub fn connect(server: String, username: Username, intent: Intent) -> Self {
+        let connection = Connection::open(server.clone(), username);
+        Self::over(connection, server, intent)
+    }
+
+    pub(super) fn over(connection: Connection, server: String, intent: Intent) -> Self {
         Self {
-            connection: Connection::open(server.clone(), username),
+            connection,
             server,
             player: None,
             room: None,
             race: None,
             intent: Some(intent),
             reported: None,
+            awaiting_answer: false,
         }
     }
 
@@ -232,7 +255,7 @@ impl RaceClient {
         }
     }
 
-    /// Sends progress at most every [`PROGRESS_INTERVAL`], and immediately on completion.
+    /// Sends the player's progress when [`progress_due`] says so.
     pub fn report_progress(&mut self, now: Instant) {
         let Some(race) = &self.race else {
             return;
@@ -241,22 +264,35 @@ impl RaceClient {
             return;
         }
         let progress = progress(race.session.cursor(), &race.session.stats(now));
-        let due = self.reported.is_none_or(|(at, last)| {
-            last != progress
-                && (race.session.is_finished() || now.duration_since(at) >= PROGRESS_INTERVAL)
-        });
+        let due = progress_due(self.reported, progress, race.session.is_finished(), now);
         if due && self.connection.send(ClientMessage::Progress(progress)) {
             self.reported = Some((now, progress));
         }
     }
 
-    pub fn toggle_ready(&self) {
-        let ready = self.me().is_some_and(|me| me.ready);
-        self.connection
-            .send(ClientMessage::SetReady { ready: !ready });
+    /// Sends `request`, unless the previous one is still unanswered. Returns
+    /// why it cannot be made, if it cannot.
+    pub fn request(&mut self, request: RoomRequest) -> Result<(), String> {
+        let message = match request {
+            RoomRequest::ToggleReady => ClientMessage::SetReady {
+                ready: !self.me().is_some_and(|me| me.ready),
+            },
+            RoomRequest::Start => {
+                self.check_start()?;
+                ClientMessage::StartRace
+            }
+            RoomRequest::Again if self.is_host() => ClientMessage::ReturnToLobby,
+            RoomRequest::Again => {
+                return Err("waiting for the host to start another race".to_owned());
+            }
+        };
+        if !self.awaiting_answer {
+            self.awaiting_answer = self.connection.send(message);
+        }
+        Ok(())
     }
 
-    pub fn start_race(&self) -> Result<(), String> {
+    fn check_start(&self) -> Result<(), String> {
         let room = self.room.as_ref().ok_or("not in a room")?;
         if !self.is_host() {
             return Err("only the host can start the race".to_owned());
@@ -264,15 +300,6 @@ impl RaceClient {
         if !room.everyone_ready() {
             return Err("waiting for every player to be ready".to_owned());
         }
-        self.connection.send(ClientMessage::StartRace);
-        Ok(())
-    }
-
-    pub fn return_to_lobby(&self) -> Result<(), String> {
-        if !self.is_host() {
-            return Err("waiting for the host to start another race".to_owned());
-        }
-        self.connection.send(ClientMessage::ReturnToLobby);
         Ok(())
     }
 
@@ -296,11 +323,14 @@ impl RaceClient {
     }
 
     fn handle_message(&mut self, message: ServerMessage, now: Instant) -> Outcome {
+        if matches!(message, ServerMessage::Room(_) | ServerMessage::Error(_)) {
+            self.awaiting_answer = false;
+        }
         match message {
             ServerMessage::Room(room) => self.apply_room(room, now),
             ServerMessage::Countdown { text, duration_ms } => {
                 self.begin_countdown(&text, duration_ms, now);
-                Outcome::Nothing
+                Outcome::Starting
             }
             ServerMessage::Error(error) if self.room.is_none() => Outcome::Closed(error.message),
             ServerMessage::Error(error) if error.code == ErrorCode::RoomNotFound => {
@@ -325,7 +355,7 @@ impl RaceClient {
     }
 
     fn apply_room(&mut self, room: RoomView, now: Instant) -> Outcome {
-        let entered = self.room.is_none();
+        let entered = (self.room.is_none()).then(|| room.code.clone());
         let phase = room.phase;
         self.room = Some(room);
         match phase {
@@ -335,22 +365,30 @@ impl RaceClient {
                     race.session.start(now);
                 }
             }
-            Phase::Countdown => {}
-            Phase::Finished => {
-                if let Some(record) = self.conclude(now) {
-                    return Outcome::Finished(record);
-                }
-            }
+            Phase::Countdown | Phase::Finished => {}
         }
-        match &self.room {
-            Some(room) if entered => Outcome::Entered(room.code.clone()),
-            _ => Outcome::Nothing,
+        if let Some(record) = self.conclude(now) {
+            return Outcome::Finished(record);
         }
+        entered.map_or(Outcome::Nothing, Outcome::Entered)
     }
 
-    /// The record of the race, once: the server's figures where it has
-    /// them, as in the standings, and the local ones otherwise.
+    /// Whether the player's race is over: the server timed their finish,
+    /// or the race ended, finished or not.
+    fn is_over_for_me(&self) -> bool {
+        self.phase() == Some(Phase::Finished)
+            || self.me().is_some_and(|me| me.progress.is_finished())
+    }
+
+    /// The record of the race once it is over for the player, and only
+    /// once: as soon as the server timed their finish, so that leaving
+    /// before the slowest player finishes keeps it. It takes the server's
+    /// figures where it has them, as in the standings, and the local ones
+    /// otherwise. A race where nothing was typed is not recorded.
     fn conclude(&mut self, now: Instant) -> Option<Record> {
+        if !self.is_over_for_me() {
+            return None;
+        }
         let progress = self.me()?.progress;
         let language = Plan::Text(self.room.as_ref()?.text).language_label();
         let race = self.race.as_mut()?;
@@ -369,6 +407,20 @@ impl RaceClient {
             ..Record::from_stats(RACE_RECORD_MODE.to_owned(), language, &stats)
         })
     }
+}
+
+/// Whether `progress` should be sent: the first report at once, then only
+/// a changed one, at most every [`PROGRESS_INTERVAL`] but at once when the
+/// text is complete, so that the server times the finish exactly.
+fn progress_due(
+    last: Option<(Instant, Progress)>,
+    progress: Progress,
+    complete: bool,
+    now: Instant,
+) -> bool {
+    last.is_none_or(|(at, sent)| {
+        sent != progress && (complete || now.duration_since(at) >= PROGRESS_INTERVAL)
+    })
 }
 
 fn progress(cursor: usize, stats: &Stats) -> Progress {
@@ -410,6 +462,91 @@ mod tests {
             ));
         }
         assert_eq!(section(Field::Text(TextSetting::Mode)), Some("create"));
+    }
+
+    fn typed(count: u32) -> Progress {
+        Progress {
+            typed: count,
+            correct: count,
+            keystrokes: count,
+            ..Progress::default()
+        }
+    }
+
+    #[test]
+    fn progress_is_sent_at_once_then_throttled() {
+        let start = Instant::now();
+        let soon = start + PROGRESS_INTERVAL / 2;
+        let later = start + PROGRESS_INTERVAL;
+        assert!(progress_due(None, typed(0), false, start), "first report");
+        let last = Some((start, typed(1)));
+        assert!(!progress_due(last, typed(1), false, later), "unchanged");
+        assert!(!progress_due(last, typed(2), false, soon), "too soon");
+        assert!(progress_due(last, typed(2), false, later));
+        assert!(progress_due(last, typed(2), true, soon), "completion");
+        assert!(!progress_due(last, typed(1), true, soon), "completion sent");
+    }
+
+    fn lobby(ready: bool) -> RoomView {
+        let me = code_racer_protocol::PlayerView {
+            id: PlayerId(1),
+            name: "jean".parse().expect("name"),
+            ready,
+            connected: true,
+            progress: code_racer_protocol::PlayerProgress::default(),
+        };
+        RoomView {
+            code: "FK72AD".parse().expect("code"),
+            host: PlayerId(1),
+            text: TextSource::Quote {
+                language: code_racer_engine::Language::English,
+            },
+            text_length: 0,
+            phase: Phase::Lobby,
+            max_players: 8,
+            players: vec![me],
+        }
+    }
+
+    #[test]
+    fn one_room_request_at_a_time() {
+        let (connection, mut sent) = Connection::loopback();
+        let code: RoomCode = "FK72AD".parse().expect("code");
+        let mut client = RaceClient::over(connection, "ws://test".to_owned(), Intent::Join(code));
+        let now = Instant::now();
+        client.handle(NetworkEvent::Connected(PlayerId(1)), now);
+        client.handle(
+            NetworkEvent::Message(ServerMessage::Room(lobby(false))),
+            now,
+        );
+        assert!(matches!(
+            sent.try_recv(),
+            Ok(ClientMessage::JoinRoom { .. })
+        ));
+
+        for _ in 0..3 {
+            client.request(RoomRequest::ToggleReady).expect("allowed");
+        }
+        assert_eq!(sent.try_recv(), Ok(ClientMessage::SetReady { ready: true }));
+        assert!(sent.try_recv().is_err(), "held until the server answers");
+
+        client.handle(NetworkEvent::Message(ServerMessage::Room(lobby(true))), now);
+        client.request(RoomRequest::ToggleReady).expect("allowed");
+        assert_eq!(
+            sent.try_recv(),
+            Ok(ClientMessage::SetReady { ready: false })
+        );
+
+        let refusal = ServerMessage::error(ErrorCode::InvalidMessage, "no");
+        client.handle(NetworkEvent::Message(refusal), now);
+        client
+            .request(RoomRequest::Start)
+            .expect("everyone is ready");
+        assert_eq!(
+            sent.try_recv(),
+            Ok(ClientMessage::StartRace),
+            "an error answers too"
+        );
     }
 
     #[test]
