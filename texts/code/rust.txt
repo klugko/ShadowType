@@ -1,4 +1,0 @@
-fn calculate_speed(chars: usize, seconds: f64) -> f64 {
-    let minutes = seconds / 60.0;
-    chars as f64 / 5.0 / minutes
-}

@@ -1,4 +1,0 @@
-function calculateSpeed(chars: number, seconds: number): number {
-    const minutes = seconds / 60;
-    return chars / 5 / minutes;
-}

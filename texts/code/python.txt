@@ -1,3 +1,0 @@
-def calculate_speed(chars, seconds):
-    minutes = seconds / 60.0
-    return chars / 5.0 / minutes

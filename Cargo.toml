@@ -1,44 +1,82 @@
 [workspace]
-members = ["crates/protocol", "crates/server"]
-resolver = "2"
+members = ["crates/engine", "crates/protocol", "crates/server"]
+resolver = "3"
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/klugko/ShadowType"
+
+[workspace.dependencies]
+code-racer-engine = { path = "crates/engine" }
+code-racer-protocol = { path = "crates/protocol" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rand = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = "0.30"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-normalization = "0.1"
+unicode-segmentation = "1"
+unicode-width = "0.2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+unwrap_used = "warn"
+todo = "warn"
 
 [package]
 name = "code-racer"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
+description = "A typing trainer that looks like your code editor, with LAN races"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 default-run = "code-racer"
 
-[[bin]]
-name = "code-racer"
-path = "crates/client/src/main.rs"
-
-[workspace.dependencies]
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
-futures-util = "0.3"
-clap = { version = "4", features = ["derive"] }
-unicode-segmentation = "1"
-uuid = { version = "1", features = ["v4", "serde"] }
-rand = "0.9"
-
 [dependencies]
-code-racer-protocol = { path = "crates/protocol" }
+code-racer-engine.workspace = true
+code-racer-protocol.workspace = true
 anyhow.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+clap.workspace = true
+crossterm = { version = "0.29", features = ["event-stream"] }
+directories = "6"
+futures-util.workspace = true
+rand.workspace = true
+ratatui = "0.30"
+# Crypto provider for wss:// servers; rustls needs exactly one to be enabled.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
-tokio-tungstenite.workspace = true
-futures-util.workspace = true
-clap.workspace = true
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
+toml = "1"
+tracing.workspace = true
+tracing-subscriber.workspace = true
 unicode-segmentation.workspace = true
-ratatui = "0.29"
-crossterm = { version = "0.28", features = ["event-stream"] }
-unicode-width = "0.2"
-directories = "6"
-toml = "0.9"
-chrono = { version = "0.4", features = ["serde"] }
-rand.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+code-racer-server = { path = "crates/server" }
+
+[lints]
+workspace = true
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
