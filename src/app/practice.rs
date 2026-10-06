@@ -1,0 +1,508 @@
+//! Solo practice: the settings form and the session being typed.
+
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
+
+use code_racer_engine::{
+    CodeLanguage, Language, Sample, SessionOptions, Stats, TextSource, TypingSession, WordOptions,
+    WordStream, consistency, graphemes, normalize,
+};
+use thiserror::Error;
+
+use crate::{
+    app::form::{Row, Step, Value, choices, cycle, cycle_preset},
+    config::{Mode, Practice},
+    history::{History, Record},
+};
+
+const TIMED_INITIAL_WORDS: usize = 80;
+const TIMED_REFILL_WORDS: usize = 40;
+const TIMED_REFILL_BELOW: usize = 120;
+const MAX_FILE_GRAPHEMES: usize = 3_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Mode,
+    Language,
+    Words,
+    Duration,
+    Punctuation,
+    Numbers,
+    Start,
+}
+
+/// Lines of the practice form for the current mode.
+pub fn fields(practice: &Practice) -> Vec<Field> {
+    let mut fields = vec![Field::Mode, Field::Language];
+    match practice.mode {
+        Mode::Words => fields.extend([Field::Words, Field::Punctuation, Field::Numbers]),
+        Mode::Time => fields.extend([Field::Duration, Field::Punctuation, Field::Numbers]),
+        Mode::Quote | Mode::Code => {}
+    }
+    fields.push(Field::Start);
+    fields
+}
+
+pub fn row(practice: &Practice, field: Field) -> Row {
+    match field {
+        Field::Mode => {
+            Row::new("mode", Value::Text(practice.mode.to_string())).hint(choices(Mode::ALL))
+        }
+        Field::Language if practice.mode == Mode::Code => {
+            Row::new("language", Value::Text(practice.code_language.to_string()))
+                .hint(choices(CodeLanguage::ALL))
+        }
+        Field::Language => Row::new("language", Value::Text(practice.language.to_string()))
+            .hint(choices(Language::ALL)),
+        Field::Words => Row::new("words", Value::Number(practice.word_count.into()))
+            .hint(choices(Practice::WORD_COUNTS)),
+        Field::Duration => Row::new("seconds", Value::Number(practice.duration.into()))
+            .hint(choices(Practice::DURATIONS)),
+        Field::Punctuation => Row::new("punctuation", Value::Bool(practice.punctuation))
+            .hint("capitals, commas, quotes, full stops"),
+        Field::Numbers => {
+            Row::new("numbers", Value::Bool(practice.numbers)).hint("digits mixed with words")
+        }
+        Field::Start => Row::action("start session"),
+    }
+}
+
+pub fn adjust(practice: &mut Practice, field: Field, step: Step) {
+    match field {
+        Field::Mode => practice.mode = cycle(&Mode::ALL, practice.mode, step),
+        Field::Language if practice.mode == Mode::Code => {
+            practice.code_language = cycle(&CodeLanguage::ALL, practice.code_language, step);
+        }
+        Field::Language => practice.language = cycle(&Language::ALL, practice.language, step),
+        Field::Words => {
+            practice.word_count = cycle_preset(&Practice::WORD_COUNTS, practice.word_count, step);
+        }
+        Field::Duration => {
+            practice.duration = cycle_preset(&Practice::DURATIONS, practice.duration, step);
+        }
+        Field::Punctuation => practice.punctuation = !practice.punctuation,
+        Field::Numbers => practice.numbers = !practice.numbers,
+        Field::Start => {}
+    }
+}
+
+/// What a solo session is made of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Plan {
+    Text(TextSource),
+    Timed {
+        language: Language,
+        options: WordOptions,
+        seconds: u16,
+    },
+    File(CustomText),
+}
+
+/// The content of a file chosen with `:edit` or `--file`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomText {
+    pub name: String,
+    pub text: String,
+    pub language: Option<CodeLanguage>,
+}
+
+#[derive(Debug, Error)]
+pub enum FileError {
+    #[error("cannot read {path}: {source}")]
+    Unreadable { path: String, source: io::Error },
+    #[error("{0} is not a text file")]
+    Binary(String),
+    #[error("{0} is empty")]
+    Empty(String),
+}
+
+impl CustomText {
+    /// Loads a file, keeping at most the first few thousand characters, cut at a line break.
+    pub fn load(path: &Path) -> Result<Self, FileError> {
+        let display = path.display().to_string();
+        let bytes = fs::read(path).map_err(|source| FileError::Unreadable {
+            path: display.clone(),
+            source,
+        })?;
+        let raw = String::from_utf8(bytes).map_err(|_| FileError::Binary(display.clone()))?;
+        if raw.contains('\0') {
+            return Err(FileError::Binary(display));
+        }
+        let text = truncate_at_line(&normalize(&raw), MAX_FILE_GRAPHEMES);
+        if text.is_empty() {
+            return Err(FileError::Empty(display));
+        }
+        Ok(Self {
+            name: file_name(path),
+            text,
+            language: path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .and_then(CodeLanguage::from_extension),
+        })
+    }
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map_or_else(|| PathBuf::from("untitled"), PathBuf::from)
+        .display()
+        .to_string()
+}
+
+fn truncate_at_line(text: &str, limit: usize) -> String {
+    let graphemes = graphemes(text);
+    if graphemes.len() <= limit {
+        return text.to_owned();
+    }
+    let cut = graphemes[..limit]
+        .iter()
+        .rposition(|grapheme| grapheme == "\n")
+        .unwrap_or(limit);
+    graphemes[..cut].concat()
+}
+
+impl Plan {
+    pub fn from_practice(practice: &Practice) -> Self {
+        practice.text_source().map_or(
+            Self::Timed {
+                language: practice.language,
+                options: practice.word_options(),
+                seconds: practice.duration,
+            },
+            Self::Text,
+        )
+    }
+
+    /// File name shown in the editor for this session.
+    pub fn title(&self) -> String {
+        match self {
+            Self::Text(TextSource::Words { .. }) => "notes.md".to_owned(),
+            Self::Timed { .. } => "scratch.txt".to_owned(),
+            Self::Text(TextSource::Quote { .. }) => "README.md".to_owned(),
+            Self::Text(TextSource::Code { language }) => code_file_name(*language),
+            Self::File(custom) => custom.name.clone(),
+        }
+    }
+
+    /// Short description such as `words 50 · english · punctuation`.
+    pub fn label(&self) -> String {
+        let mut parts = vec![self.mode_label(), self.language_label()];
+        if let Self::Text(TextSource::Words { options, .. }) | Self::Timed { options, .. } = self {
+            if options.punctuation {
+                parts.push("punctuation".to_owned());
+            }
+            if options.numbers {
+                parts.push("numbers".to_owned());
+            }
+        }
+        parts.join(" · ")
+    }
+
+    pub fn syntax(&self) -> Option<CodeLanguage> {
+        match self {
+            Self::Text(TextSource::Code { language }) => Some(*language),
+            Self::File(custom) => custom.language,
+            _ => None,
+        }
+    }
+
+    pub fn mode_label(&self) -> String {
+        match self {
+            Self::Text(TextSource::Words { count, .. }) => format!("words {count}"),
+            Self::Timed { seconds, .. } => format!("time {seconds}"),
+            Self::Text(TextSource::Quote { .. }) => "quote".to_owned(),
+            Self::Text(TextSource::Code { .. }) => "code".to_owned(),
+            Self::File(_) => "file".to_owned(),
+        }
+    }
+
+    pub fn language_label(&self) -> String {
+        match self {
+            Self::Text(TextSource::Words { language, .. } | TextSource::Quote { language })
+            | Self::Timed { language, .. } => language.to_string(),
+            Self::Text(TextSource::Code { language }) => language.to_string(),
+            Self::File(custom) => custom
+                .language
+                .map_or_else(|| "text".to_owned(), |language| language.to_string()),
+        }
+    }
+}
+
+pub fn code_file_name(language: CodeLanguage) -> String {
+    let stem = match language {
+        CodeLanguage::Rust => "main",
+        CodeLanguage::Python => "app",
+        CodeLanguage::TypeScript | CodeLanguage::JavaScript => "index",
+        CodeLanguage::Sql => "query",
+    };
+    format!("{stem}.{}", language.extension())
+}
+
+/// A solo session in progress or just finished.
+#[derive(Debug)]
+pub struct SoloRun {
+    pub plan: Plan,
+    pub session: TypingSession,
+    pub attribution: Option<String>,
+    pub result: Option<SoloResult>,
+    feed: Option<WordStream>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoloResult {
+    pub stats: Stats,
+    pub samples: Vec<Sample>,
+    pub consistency: f64,
+    pub previous_best: Option<f64>,
+}
+
+impl SoloResult {
+    pub fn is_personal_best(&self) -> bool {
+        self.previous_best.is_none_or(|best| self.stats.wpm > best)
+    }
+}
+
+impl SoloRun {
+    pub fn start(plan: Plan, seed: u64) -> Self {
+        let code_like = plan.syntax().is_some() || matches!(plan, Plan::File(_));
+        let auto_indent = SessionOptions {
+            auto_indent: code_like,
+            ..SessionOptions::default()
+        };
+        let (session, attribution, feed) = match &plan {
+            Plan::Text(source) => {
+                let generated = source.generate(seed);
+                let session = TypingSession::new(&generated.text, auto_indent);
+                (session, generated.attribution, None)
+            }
+            Plan::Timed {
+                language,
+                options,
+                seconds,
+            } => {
+                let mut feed = WordStream::new(*language, *options, seed);
+                let limit = SessionOptions {
+                    time_limit: Some(Duration::from_secs(u64::from(*seconds))),
+                    auto_indent: false,
+                };
+                let session = TypingSession::new(&feed.phrase(TIMED_INITIAL_WORDS), limit);
+                (session, None, Some(feed))
+            }
+            Plan::File(custom) => (TypingSession::new(&custom.text, auto_indent), None, None),
+        };
+        Self {
+            plan,
+            session,
+            attribution,
+            result: None,
+            feed,
+        }
+    }
+
+    pub fn type_char(&mut self, ch: char, now: Instant) {
+        if self.session.type_char(ch, now) {
+            self.refill();
+        }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.session.is_finished()
+    }
+
+    /// Computes the result and stores it in the history, once.
+    pub fn conclude(&mut self, history: &mut History, now: Instant) -> io::Result<()> {
+        if self.result.is_some() || !self.session.is_finished() {
+            return Ok(());
+        }
+        let stats = self.session.stats(now);
+        let samples = self.session.samples(now);
+        let mode = self.plan.mode_label();
+        let language = self.plan.language_label();
+        let result = SoloResult {
+            consistency: consistency(&samples),
+            previous_best: history.personal_best(&mode, &language),
+            stats,
+            samples,
+        };
+        self.result = Some(result);
+        history.add(record(mode, language, &stats))
+    }
+
+    fn refill(&mut self) {
+        let Some(feed) = &mut self.feed else {
+            return;
+        };
+        if self.session.remaining() < TIMED_REFILL_BELOW {
+            self.session
+                .extend(&format!(" {}", feed.phrase(TIMED_REFILL_WORDS)));
+        }
+    }
+}
+
+pub fn record(mode: String, language: String, stats: &Stats) -> Record {
+    Record {
+        date: chrono::Local::now(),
+        mode,
+        language,
+        duration: stats.elapsed.as_secs_f64(),
+        wpm: stats.wpm,
+        raw_wpm: stats.raw_wpm,
+        accuracy: stats.accuracy,
+        errors: stats.errors,
+        text_length: stats.correct_chars + stats.incorrect_chars,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use code_racer_engine::Status;
+
+    use super::*;
+
+    fn practice(mode: Mode) -> Practice {
+        Practice {
+            mode,
+            ..Practice::default()
+        }
+    }
+
+    fn type_all(run: &mut SoloRun, now: Instant) {
+        let text = run.session.target().concat();
+        for ch in text.chars() {
+            run.type_char(ch, now);
+        }
+    }
+
+    #[test]
+    fn form_shows_only_relevant_fields() {
+        assert_eq!(
+            fields(&practice(Mode::Words)),
+            [
+                Field::Mode,
+                Field::Language,
+                Field::Words,
+                Field::Punctuation,
+                Field::Numbers,
+                Field::Start
+            ]
+        );
+        assert_eq!(
+            fields(&practice(Mode::Code)),
+            [Field::Mode, Field::Language, Field::Start]
+        );
+    }
+
+    #[test]
+    fn language_field_follows_the_mode() {
+        let mut settings = practice(Mode::Code);
+        adjust(&mut settings, Field::Language, Step::Next);
+        assert_eq!(settings.code_language, CodeLanguage::Python);
+        assert_eq!(settings.language, Language::English);
+        settings.mode = Mode::Words;
+        adjust(&mut settings, Field::Language, Step::Next);
+        assert_eq!(settings.language, Language::French);
+    }
+
+    #[test]
+    fn plan_reflects_the_settings() {
+        let mut settings = practice(Mode::Words);
+        settings.word_count = 25;
+        settings.punctuation = true;
+        let plan = Plan::from_practice(&settings);
+        assert_eq!(plan.label(), "words 25 · english · punctuation");
+        assert_eq!(plan.title(), "notes.md");
+        settings.mode = Mode::Code;
+        settings.code_language = CodeLanguage::Sql;
+        assert_eq!(Plan::from_practice(&settings).title(), "query.sql");
+        assert_eq!(
+            Plan::from_practice(&settings).syntax(),
+            Some(CodeLanguage::Sql)
+        );
+    }
+
+    #[test]
+    fn words_session_has_the_requested_length() {
+        let mut settings = practice(Mode::Words);
+        settings.word_count = 10;
+        let run = SoloRun::start(Plan::from_practice(&settings), 3);
+        let text = run.session.target().concat();
+        assert_eq!(text.split(' ').count(), 10);
+    }
+
+    #[test]
+    fn timed_session_never_runs_out_of_text() {
+        let mut settings = practice(Mode::Time);
+        settings.duration = 15;
+        let mut run = SoloRun::start(Plan::from_practice(&settings), 5);
+        let now = Instant::now();
+        for _ in 0..3_000 {
+            let next = run.session.target()[run.session.cursor()].clone();
+            for ch in next.chars() {
+                run.type_char(ch, now);
+            }
+        }
+        assert!(run.session.remaining() >= TIMED_REFILL_BELOW / 2);
+        assert_eq!(run.session.status(), Status::Running);
+    }
+
+    #[test]
+    fn code_sessions_auto_indent() {
+        let run = SoloRun::start(
+            Plan::Text(TextSource::Code {
+                language: CodeLanguage::Rust,
+            }),
+            1,
+        );
+        assert!(run.session.options().auto_indent);
+    }
+
+    #[test]
+    fn conclusion_is_recorded_once_with_personal_best() {
+        let mut history = History::in_memory();
+        let now = Instant::now();
+        let mut run = SoloRun::start(
+            Plan::Text(TextSource::Quote {
+                language: Language::English,
+            }),
+            2,
+        );
+        run.session.start(now);
+        type_all(&mut run, now + Duration::from_secs(30));
+        assert!(run.is_finished());
+        run.conclude(&mut history, now + Duration::from_secs(30))
+            .expect("in-memory history");
+        run.conclude(&mut history, now + Duration::from_secs(31))
+            .expect("second call is a no-op");
+        assert_eq!(history.records().len(), 1);
+        let result = run.result.as_ref().expect("result");
+        assert!(result.is_personal_best());
+        assert_eq!(history.records()[0].mode, "quote");
+        assert_eq!(history.records()[0].language, "english");
+    }
+
+    #[test]
+    fn custom_files_are_normalised_and_typed_with_syntax() {
+        let directory = std::env::temp_dir().join(format!("code-racer-{}", std::process::id()));
+        fs::create_dir_all(&directory).expect("temp dir");
+        let path = directory.join("lib.rs");
+        fs::write(&path, "fn main() {\r\n\tlet x = 1;   \r\n}\r\n").expect("write");
+        let custom = CustomText::load(&path).expect("load");
+        assert_eq!(custom.text, "fn main() {\n    let x = 1;\n}");
+        assert_eq!(custom.language, Some(CodeLanguage::Rust));
+        assert_eq!(Plan::File(custom).title(), "lib.rs");
+        fs::write(&path, [0u8, 159, 146, 150]).expect("write binary");
+        assert!(matches!(CustomText::load(&path), Err(FileError::Binary(_))));
+        fs::remove_dir_all(&directory).expect("cleanup");
+    }
+
+    #[test]
+    fn long_files_are_cut_at_a_line_break() {
+        let text = "abc\n".repeat(1_000);
+        assert_eq!(truncate_at_line(&text, 10), "abc\nabc");
+        assert_eq!(truncate_at_line("short", 10), "short");
+    }
+}
