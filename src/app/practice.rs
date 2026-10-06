@@ -1,16 +1,18 @@
 //! Solo practice: the settings form and the session being typed.
 
 use std::{
-    fs, io,
+    fs::{self, File},
+    io::{self, Read},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 use code_racer_engine::{
     CodeLanguage, Language, Sample, SessionOptions, Stats, TextSource, TypingSession, WordOptions,
-    WordStream, consistency, graphemes, normalize,
+    WordStream, consistency, normalize,
 };
 use thiserror::Error;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     app::form::{Row, Step, Value, choices, cycle, cycle_preset},
@@ -22,6 +24,9 @@ const TIMED_INITIAL_WORDS: usize = 80;
 const TIMED_REFILL_WORDS: usize = 40;
 const TIMED_REFILL_BELOW: usize = 120;
 const MAX_FILE_GRAPHEMES: usize = 3_000;
+/// Bytes read from a file at most: plenty for [`MAX_FILE_GRAPHEMES`], and
+/// a huge file or an endless device cannot freeze the interface.
+const MAX_FILE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -113,6 +118,8 @@ pub struct CustomText {
 pub enum FileError {
     #[error("cannot read {path}: {source}")]
     Unreadable { path: String, source: io::Error },
+    #[error("{0} is not a regular file")]
+    NotAFile(String),
     #[error("{0} is not a text file")]
     Binary(String),
     #[error("{0} is empty")]
@@ -123,21 +130,16 @@ impl CustomText {
     /// Loads a file, keeping at most the first few thousand characters, cut at a line break.
     pub fn load(path: &Path) -> Result<Self, FileError> {
         let display = path.display().to_string();
-        let bytes = fs::read(path).map_err(|source| FileError::Unreadable {
-            path: display.clone(),
-            source,
-        })?;
-        let raw = String::from_utf8(bytes).map_err(|_| FileError::Binary(display.clone()))?;
-        if raw.contains('\0') {
-            return Err(FileError::Binary(display));
-        }
-        let text = truncate_at_line(&normalize(&raw), MAX_FILE_GRAPHEMES);
+        let bytes = read_start(path, &display)?;
+        let raw = decode(&bytes).ok_or_else(|| FileError::Binary(display.clone()))?;
+        let normalized = normalize(raw);
+        let text = truncate_at_line(&normalized, MAX_FILE_GRAPHEMES);
         if text.is_empty() {
             return Err(FileError::Empty(display));
         }
         Ok(Self {
             name: file_name(path),
-            text,
+            text: text.to_owned(),
             language: path
                 .extension()
                 .and_then(|extension| extension.to_str())
@@ -153,16 +155,55 @@ fn file_name(path: &Path) -> String {
         .to_string()
 }
 
-fn truncate_at_line(text: &str, limit: usize) -> String {
-    let graphemes = graphemes(text);
-    if graphemes.len() <= limit {
-        return text.to_owned();
+/// The first [`MAX_FILE_BYTES`] of a regular file, cut after a line break
+/// when the file is longer.
+///
+/// The type is checked before opening: opening a FIFO waits for a writer,
+/// and reading a terminal or `/dev/zero` never ends.
+fn read_start(path: &Path, display: &str) -> Result<Vec<u8>, FileError> {
+    let unreadable = |source| FileError::Unreadable {
+        path: display.to_owned(),
+        source,
+    };
+    if !fs::metadata(path).map_err(unreadable)?.is_file() {
+        return Err(FileError::NotAFile(display.to_owned()));
     }
-    let cut = graphemes[..limit]
-        .iter()
-        .rposition(|grapheme| grapheme == "\n")
-        .unwrap_or(limit);
-    graphemes[..cut].concat()
+    let mut bytes = Vec::new();
+    File::open(path)
+        .and_then(|file| file.take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes))
+        .map_err(unreadable)?;
+    if bytes.len() > MAX_FILE_BYTES {
+        let cut = bytes[..MAX_FILE_BYTES]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .unwrap_or(MAX_FILE_BYTES);
+        bytes.truncate(cut);
+    }
+    Ok(bytes)
+}
+
+/// The text in `bytes`, `None` when they are not text. A character cut in
+/// two by [`read_start`] at the end is dropped rather than making a valid
+/// file look binary.
+fn decode(bytes: &[u8]) -> Option<&str> {
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) if error.error_len().is_none() => {
+            std::str::from_utf8(&bytes[..error.valid_up_to()]).ok()?
+        }
+        Err(_) => return None,
+    };
+    (!text.contains('\0')).then_some(text)
+}
+
+/// The first `limit` characters of `text`, cut after the last line break
+/// among them when the text is longer.
+fn truncate_at_line(text: &str, limit: usize) -> &str {
+    let Some((end, _)) = text.grapheme_indices(true).nth(limit) else {
+        return text;
+    };
+    let kept = &text[..end];
+    kept.rfind('\n').map_or(kept, |cut| &kept[..cut])
 }
 
 impl Plan {
@@ -362,6 +403,7 @@ mod tests {
     use code_racer_engine::Status;
 
     use super::*;
+    use crate::persist::scratch::TempDir;
 
     fn practice(mode: Mode) -> Practice {
         Practice {
@@ -486,8 +528,7 @@ mod tests {
 
     #[test]
     fn custom_files_are_normalised_and_typed_with_syntax() {
-        let directory = std::env::temp_dir().join(format!("code-racer-{}", std::process::id()));
-        fs::create_dir_all(&directory).expect("temp dir");
+        let directory = TempDir::new();
         let path = directory.join("lib.rs");
         fs::write(&path, "fn main() {\r\n\tlet x = 1;   \r\n}\r\n").expect("write");
         let custom = CustomText::load(&path).expect("load");
@@ -496,7 +537,6 @@ mod tests {
         assert_eq!(Plan::File(custom).title(), "lib.rs");
         fs::write(&path, [0u8, 159, 146, 150]).expect("write binary");
         assert!(matches!(CustomText::load(&path), Err(FileError::Binary(_))));
-        fs::remove_dir_all(&directory).expect("cleanup");
     }
 
     #[test]
@@ -504,5 +544,59 @@ mod tests {
         let text = "abc\n".repeat(1_000);
         assert_eq!(truncate_at_line(&text, 10), "abc\nabc");
         assert_eq!(truncate_at_line("short", 10), "short");
+    }
+
+    #[test]
+    fn huge_files_are_read_only_up_to_the_limit() {
+        let directory = TempDir::new();
+        let path = directory.join("huge.log");
+        fs::write(&path, "abc\n".repeat(MAX_FILE_BYTES)).expect("write");
+        let custom = CustomText::load(&path).expect("load");
+        assert!(custom.text.ends_with("abc"), "whole lines are kept");
+        assert!(custom.text.graphemes(true).count() <= MAX_FILE_GRAPHEMES);
+    }
+
+    #[test]
+    fn a_character_cut_by_the_byte_limit_does_not_make_the_file_binary() {
+        let directory = TempDir::new();
+        let path = directory.join("accents.txt");
+        let text = format!("a{}", "é".repeat(MAX_FILE_BYTES));
+        assert!(!text.is_char_boundary(MAX_FILE_BYTES));
+        fs::write(&path, text).expect("write");
+        let custom = CustomText::load(&path).expect("load");
+        assert!(custom.text.starts_with("aé"));
+    }
+
+    #[test]
+    fn only_regular_files_are_read() {
+        let directory = TempDir::new();
+        assert!(matches!(
+            CustomText::load(directory.path()),
+            Err(FileError::NotAFile(_))
+        ));
+        assert!(matches!(
+            CustomText::load(&directory.join("missing.rs")),
+            Err(FileError::Unreadable { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn devices_and_pipes_are_refused_without_blocking() {
+        let directory = TempDir::new();
+        let fifo = directory.join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|status| status.success());
+        let mut refused = vec![Path::new("/dev/zero").to_owned()];
+        refused.extend(made.then_some(fifo));
+        for path in refused {
+            assert!(
+                matches!(CustomText::load(&path), Err(FileError::NotAFile(_))),
+                "{}",
+                path.display()
+            );
+        }
     }
 }

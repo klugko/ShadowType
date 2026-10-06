@@ -9,6 +9,7 @@ use crate::{
     cli::Launch,
     config::{Config, Mode, Practice, Theme},
     history::History,
+    persist::scratch::TempDir,
 };
 
 fn configured(username: &str) -> Config {
@@ -235,8 +236,7 @@ fn pasting_is_refused_while_typing() {
 
 #[test]
 fn altgr_characters_are_typed_but_shortcuts_are_not() {
-    let directory = std::env::temp_dir().join(format!("code-racer-app-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).expect("temp dir");
+    let directory = TempDir::new();
     let path = directory.join("snippet.txt");
     std::fs::write(&path, "@a").expect("write");
     let mut app = app();
@@ -245,7 +245,6 @@ fn altgr_characters_are_typed_but_shortcuts_are_not() {
     assert_eq!(session(&app).cursor(), 0, "Ctrl+A is not text");
     press_with(&mut app, '@', KeyModifiers::CONTROL | KeyModifiers::ALT);
     assert_eq!(session(&app).cursor(), 1, "AltGr+0 types @ on AZERTY");
-    std::fs::remove_dir_all(&directory).expect("cleanup");
 }
 
 #[test]
