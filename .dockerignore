@@ -1,5 +1,6 @@
-target
-.git
-.github
-tests
-*.log
+# The server image needs only the workspace manifests and crates/: an allowlist keeps
+# local build output, editor and tool directories out of the build context.
+*
+!Cargo.toml
+!Cargo.lock
+!crates
