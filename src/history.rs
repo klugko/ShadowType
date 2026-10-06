@@ -1,0 +1,567 @@
+//! Results of finished sessions, stored in `history.json`.
+//!
+//! The file is a JSON array of records, oldest first. Files written by
+//! code-racer 0.1 are understood and migrated on the next save.
+
+use std::{
+    io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
+use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
+
+use crate::persist::{self, Loaded};
+
+/// Records kept on disk; the oldest ones are dropped first.
+pub const MAX_RECORDS: usize = 2000;
+
+/// Sessions averaged into [`Summary::recent_wpm`].
+pub const RECENT_SESSIONS: usize = 10;
+
+/// One finished solo session or race.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Record {
+    pub date: DateTime<Local>,
+    /// What was practised: `words 50`, `time 30`, `quote`, `code rust` or `race`.
+    pub mode: String,
+    pub language: String,
+    /// Length of the session, in seconds.
+    pub duration: f64,
+    pub wpm: f64,
+    pub raw_wpm: f64,
+    pub accuracy: f64,
+    pub errors: usize,
+    /// Characters in the text that was typed.
+    pub text_length: usize,
+}
+
+/// Totals over the whole history.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Summary {
+    pub sessions: usize,
+    pub best_wpm: f64,
+    pub average_wpm: f64,
+    /// Average speed of the last [`RECENT_SESSIONS`] sessions.
+    pub recent_wpm: f64,
+    pub best_accuracy: f64,
+    pub total_time: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct History {
+    records: Vec<Record>,
+    path: Option<PathBuf>,
+}
+
+impl History {
+    /// Reads the history saved at `path`, which later additions are written to.
+    ///
+    /// A missing file gives an empty history. An invalid one is moved aside,
+    /// explained in the warning, and replaced by an empty history.
+    pub fn load(path: &Path) -> Loaded<Self> {
+        persist::read_or_recover(path, "starting a new history", parse_records).map(|records| {
+            Self {
+                records: records.unwrap_or_default(),
+                path: Some(path.to_owned()),
+            }
+        })
+    }
+
+    /// A history that lives only as long as the program and never touches the disk.
+    pub fn in_memory() -> Self {
+        Self {
+            records: Vec::new(),
+            path: None,
+        }
+    }
+
+    /// Every record, oldest first.
+    pub fn records(&self) -> &[Record] {
+        &self.records
+    }
+
+    /// Appends a record and saves the history.
+    ///
+    /// On a write error the record stays in memory and the error is returned.
+    pub fn add(&mut self, record: Record) -> io::Result<()> {
+        self.records.push(record.sanitized());
+        keep_newest(&mut self.records);
+        match &self.path {
+            Some(path) => self.save(path),
+            None => Ok(()),
+        }
+    }
+
+    pub fn summary(&self) -> Summary {
+        let speeds = self.records.iter().map(|record| record.wpm);
+        Summary {
+            sessions: self.records.len(),
+            best_wpm: maximum(speeds.clone()),
+            average_wpm: mean(speeds),
+            recent_wpm: mean(
+                self.records
+                    .iter()
+                    .rev()
+                    .take(RECENT_SESSIONS)
+                    .map(|record| record.wpm),
+            ),
+            best_accuracy: maximum(self.records.iter().map(|record| record.accuracy)),
+            total_time: total_time(&self.records),
+        }
+    }
+
+    /// Best speed ever reached in this mode and language.
+    pub fn personal_best(&self, mode: &str, language: &str) -> Option<f64> {
+        self.records
+            .iter()
+            .filter(|record| record.mode == mode && record.language == language)
+            .map(|record| record.wpm)
+            .reduce(f64::max)
+    }
+
+    fn save(&self, path: &Path) -> io::Result<()> {
+        let json = serde_json::to_vec_pretty(&self.records).map_err(io::Error::other)?;
+        persist::write_atomically(path, &json)
+    }
+}
+
+impl Record {
+    /// JSON cannot store NaN or infinities, which would make the whole file
+    /// unreadable, and negative amounts are meaningless: both become zero, so
+    /// that no summary can come out as NaN.
+    fn sanitized(self) -> Self {
+        Self {
+            duration: non_negative(self.duration),
+            wpm: non_negative(self.wpm),
+            raw_wpm: non_negative(self.raw_wpm),
+            accuracy: non_negative(self.accuracy),
+            ..self
+        }
+    }
+}
+
+fn non_negative(value: f64) -> f64 {
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        0.0
+    }
+}
+
+fn keep_newest(records: &mut Vec<Record>) {
+    let excess = records.len().saturating_sub(MAX_RECORDS);
+    records.drain(..excess);
+}
+
+fn maximum(values: impl Iterator<Item = f64>) -> f64 {
+    values.fold(0.0, f64::max)
+}
+
+fn mean(values: impl Iterator<Item = f64>) -> f64 {
+    let (sum, count) = values.fold((0.0, 0_u32), |(sum, count), value| (sum + value, count + 1));
+    if count == 0 {
+        0.0
+    } else {
+        sum / f64::from(count)
+    }
+}
+
+fn total_time(records: &[Record]) -> Duration {
+    let seconds: f64 = records.iter().map(|record| record.duration).sum();
+    Duration::try_from_secs_f64(seconds).unwrap_or_default()
+}
+
+fn parse_records(contents: &str) -> Result<Vec<Record>, String> {
+    let stored: Vec<StoredRecord> =
+        serde_json::from_str(contents).map_err(|error| error.to_string())?;
+    let mut records: Vec<Record> = stored
+        .into_iter()
+        .map(|stored| Record::from(stored).sanitized())
+        .collect();
+    keep_newest(&mut records);
+    Ok(records)
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredRecord {
+    Current(Record),
+    Legacy(LegacyRecord),
+}
+
+/// A record as written by code-racer 0.1.
+#[derive(Deserialize)]
+struct LegacyRecord {
+    date: DateTime<Local>,
+    /// `words/50`, `time/30`, `quote/50`, `code/50` or `multiplayer`.
+    mode: String,
+    /// A natural language, or the programming language in code mode.
+    language: String,
+    stats: LegacyStats,
+}
+
+#[derive(Deserialize)]
+struct LegacyStats {
+    wpm: f64,
+    raw_wpm: f64,
+    accuracy: f64,
+    errors: usize,
+    length: usize,
+    /// Seconds.
+    elapsed: f64,
+}
+
+impl From<StoredRecord> for Record {
+    fn from(stored: StoredRecord) -> Self {
+        match stored {
+            StoredRecord::Current(record) => record,
+            StoredRecord::Legacy(legacy) => Self {
+                mode: legacy_mode(&legacy.mode, &legacy.language),
+                date: legacy.date,
+                language: legacy.language,
+                duration: legacy.stats.elapsed,
+                wpm: legacy.stats.wpm,
+                raw_wpm: legacy.stats.raw_wpm,
+                accuracy: legacy.stats.accuracy,
+                errors: legacy.stats.errors,
+                text_length: legacy.stats.length,
+            },
+        }
+    }
+}
+
+fn legacy_mode(mode: &str, language: &str) -> String {
+    match mode.split_once('/') {
+        Some((kind @ ("words" | "time"), amount)) => format!("{kind} {amount}"),
+        Some(("quote", _)) => "quote".to_owned(),
+        Some(("code", _)) => format!("code {language}"),
+        _ if mode == "multiplayer" => "race".to_owned(),
+        _ => mode.replace('/', " "),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    use crate::persist::scratch::TempDir;
+
+    fn record(mode: &str, language: &str, wpm: f64, accuracy: f64) -> Record {
+        Record {
+            date: DateTime::parse_from_rfc3339("2026-03-14T15:09:26+01:00")
+                .expect("valid date")
+                .with_timezone(&Local),
+            mode: mode.to_owned(),
+            language: language.to_owned(),
+            duration: 30.0,
+            wpm,
+            raw_wpm: wpm + 5.0,
+            accuracy,
+            errors: 2,
+            text_length: 250,
+        }
+    }
+
+    fn with_speeds(speeds: impl IntoIterator<Item = f64>) -> History {
+        let mut history = History::in_memory();
+        for wpm in speeds {
+            history
+                .add(record("words 50", "english", wpm, 95.0))
+                .expect("in-memory add");
+        }
+        history
+    }
+
+    #[test]
+    fn records_survive_a_reload_oldest_first() {
+        let dir = TempDir::new();
+        let path = dir.join("data/history.json");
+        let mut history = History::load(&path).value;
+        history
+            .add(record("words 50", "english", 61.5, 97.0))
+            .expect("add");
+        history
+            .add(record("code rust", "rust", 48.0, 91.0))
+            .expect("add");
+
+        let reloaded = History::load(&path);
+
+        assert_eq!(reloaded.warning, None);
+        assert_eq!(reloaded.value.records(), history.records());
+        assert_eq!(reloaded.value.records()[0].mode, "words 50");
+    }
+
+    #[test]
+    fn dates_are_stored_as_rfc3339() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let mut history = History::load(&path).value;
+        history
+            .add(record("quote", "french", 70.0, 99.0))
+            .expect("add");
+
+        let json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        let date = json[0]["date"].as_str().expect("date string");
+
+        assert_eq!(
+            DateTime::parse_from_rfc3339(date).expect("rfc 3339"),
+            history.records()[0].date
+        );
+    }
+
+    #[test]
+    fn missing_file_is_an_empty_history() {
+        let dir = TempDir::new();
+        let loaded = History::load(&dir.join("history.json"));
+        assert_eq!(loaded.warning, None);
+        assert!(loaded.value.records().is_empty());
+    }
+
+    #[test]
+    fn in_memory_history_never_writes() {
+        let mut history = History::in_memory();
+        history
+            .add(record("time 30", "english", 80.0, 96.0))
+            .expect("add");
+        assert_eq!(history.records().len(), 1);
+        assert_eq!(history.path, None);
+    }
+
+    #[test]
+    fn only_the_newest_records_are_kept() {
+        let history = with_speeds((0..MAX_RECORDS + 5).map(|index| index as f64));
+        assert_eq!(history.records().len(), MAX_RECORDS);
+        assert_eq!(history.records()[0].wpm, 5.0);
+        assert_eq!(
+            history.records().last().map(|record| record.wpm),
+            Some((MAX_RECORDS + 4) as f64)
+        );
+    }
+
+    #[test]
+    fn oversized_files_are_trimmed_on_load() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let records: Vec<Record> = (0..MAX_RECORDS + 3)
+            .map(|index| record("quote", "english", index as f64, 90.0))
+            .collect();
+        fs::write(&path, serde_json::to_vec(&records).expect("json")).expect("write");
+
+        let history = History::load(&path).value;
+
+        assert_eq!(history.records().len(), MAX_RECORDS);
+        assert_eq!(history.records()[0].wpm, 3.0);
+    }
+
+    #[test]
+    fn empty_history_summary_is_all_zeros() {
+        let summary = History::in_memory().summary();
+        assert_eq!(summary, Summary::default());
+        assert!(!summary.average_wpm.is_nan() && !summary.recent_wpm.is_nan());
+    }
+
+    #[test]
+    fn summary_aggregates_speed_accuracy_and_time() {
+        let mut history = with_speeds([10.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
+        history
+            .add(Record {
+                duration: 90.0,
+                accuracy: 99.5,
+                ..record("quote", "french", 35.0, 0.0)
+            })
+            .expect("add");
+
+        let summary = history.summary();
+
+        assert_eq!(summary.sessions, 7);
+        assert_eq!(summary.best_wpm, 60.0);
+        assert_eq!(summary.average_wpm, 35.0);
+        assert_eq!(summary.best_accuracy, 99.5);
+        assert_eq!(summary.total_time, Duration::from_secs(6 * 30 + 90));
+    }
+
+    #[test]
+    fn recent_speed_only_counts_the_last_ten_sessions() {
+        let history = with_speeds([1000.0, 1000.0].into_iter().chain([50.0; RECENT_SESSIONS]));
+        let summary = history.summary();
+        assert_eq!(summary.recent_wpm, 50.0);
+        assert!(summary.average_wpm > 50.0);
+    }
+
+    #[test]
+    fn personal_best_matches_mode_and_language() {
+        let mut history = History::in_memory();
+        for (mode, language, wpm) in [
+            ("words 50", "english", 70.0),
+            ("words 50", "english", 82.0),
+            ("words 50", "french", 95.0),
+            ("words 25", "english", 99.0),
+        ] {
+            history.add(record(mode, language, wpm, 95.0)).expect("add");
+        }
+
+        assert_eq!(history.personal_best("words 50", "english"), Some(82.0));
+        assert_eq!(history.personal_best("words 50", "french"), Some(95.0));
+        assert_eq!(history.personal_best("code rust", "rust"), None);
+    }
+
+    #[test]
+    fn non_finite_numbers_are_stored_as_zero() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let mut history = History::load(&path).value;
+        history
+            .add(Record {
+                raw_wpm: f64::INFINITY,
+                accuracy: f64::NAN,
+                ..record("words 10", "english", 40.0, 0.0)
+            })
+            .expect("add");
+
+        let reloaded = History::load(&path);
+
+        assert_eq!(reloaded.warning, None);
+        let saved = &reloaded.value.records()[0];
+        assert_eq!((saved.wpm, saved.raw_wpm, saved.accuracy), (40.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn hand_edited_numbers_keep_the_summary_finite() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let records = [
+            Record {
+                duration: -30.0,
+                accuracy: -5.0,
+                ..record("words 50", "english", -50.0, 0.0)
+            },
+            Record {
+                duration: 30.0,
+                ..record("words 50", "english", 80.0, 96.0)
+            },
+        ];
+        fs::write(&path, serde_json::to_vec(&records).expect("json")).expect("write");
+
+        let summary = History::load(&path).value.summary();
+
+        assert_eq!(summary.average_wpm, 40.0);
+        assert_eq!(summary.best_wpm, 80.0);
+        assert_eq!(summary.best_accuracy, 96.0);
+        assert_eq!(summary.total_time, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn failed_save_keeps_the_record_in_memory() {
+        let dir = TempDir::new();
+        fs::write(dir.join("not-a-directory"), "").expect("write");
+        let mut history = History::load(&dir.join("not-a-directory/history.json")).value;
+
+        let saved = history.add(record("quote", "english", 66.0, 97.0));
+
+        assert!(saved.is_err());
+        assert_eq!(history.records().len(), 1);
+        assert_eq!(history.personal_best("quote", "english"), Some(66.0));
+    }
+
+    #[test]
+    fn version_one_entries_are_migrated() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let legacy_stats = r#"{"wpm":62.5,"raw_wpm":70.0,"accuracy":96.0,"errors":4,
+            "correct":240,"attempts":250,"position":250,"length":250,"elapsed":48.0}"#;
+        let entries: Vec<String> = [
+            ("words/50", "english"),
+            ("time/30", "french"),
+            ("quote/50", "english"),
+            ("code/50", "rust"),
+            ("multiplayer", "english"),
+        ]
+        .iter()
+        .map(|(mode, language)| {
+            format!(
+                r#"{{"date":"2025-05-01T10:00:00.123456+00:00","mode":"{mode}","language":"{language}","stats":{legacy_stats}}}"#
+            )
+        })
+        .collect();
+        fs::write(&path, format!("[{}]", entries.join(","))).expect("write");
+
+        let loaded = History::load(&path);
+
+        assert_eq!(loaded.warning, None);
+        let modes: Vec<&str> = loaded
+            .value
+            .records()
+            .iter()
+            .map(|record| record.mode.as_str())
+            .collect();
+        assert_eq!(modes, ["words 50", "time 30", "quote", "code rust", "race"]);
+        let first = &loaded.value.records()[0];
+        assert_eq!(
+            (first.wpm, first.raw_wpm, first.accuracy, first.errors),
+            (62.5, 70.0, 96.0, 4)
+        );
+        assert_eq!((first.duration, first.text_length), (48.0, 250));
+        assert_eq!(
+            first.date,
+            DateTime::parse_from_rfc3339("2025-05-01T10:00:00.123456Z").expect("date")
+        );
+    }
+
+    #[test]
+    fn migrated_history_is_saved_in_the_current_format() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let legacy = r#"[{"date":"2025-05-01T10:00:00+00:00","mode":"words/25","language":"french",
+            "stats":{"wpm":50.0,"raw_wpm":55.0,"accuracy":93.0,"errors":7,"length":140,"elapsed":30.5}}]"#;
+        fs::write(&path, legacy).expect("write");
+
+        let mut history = History::load(&path).value;
+        history
+            .add(record("words 25", "french", 52.0, 94.0))
+            .expect("add");
+
+        let saved: Vec<Record> = serde_json::from_str(&fs::read_to_string(&path).expect("read"))
+            .expect("current format");
+        assert_eq!(saved.len(), 2);
+        assert_eq!(saved[0].mode, "words 25");
+        assert_eq!(saved[0].duration, 30.5);
+    }
+
+    #[test]
+    fn invalid_file_is_moved_aside_and_a_new_history_starts() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        fs::write(&path, r#"[{"date":"yesterday"}]"#).expect("write");
+
+        let loaded = History::load(&path);
+
+        let warning = loaded.warning.expect("warning");
+        assert!(
+            warning.starts_with("history.json was invalid ("),
+            "{warning}"
+        );
+        assert!(
+            warning.contains("starting a new history, backup at"),
+            "{warning}"
+        );
+        assert!(dir.join("history.json.bak").exists());
+
+        let mut history = loaded.value;
+        assert!(history.records().is_empty());
+        history
+            .add(record("quote", "english", 66.0, 97.0))
+            .expect("add");
+        assert_eq!(History::load(&path).value.records().len(), 1);
+    }
+
+    #[test]
+    fn unknown_legacy_modes_lose_their_slash() {
+        assert_eq!(legacy_mode("zen/0", "english"), "zen 0");
+        assert_eq!(legacy_mode("multiplayer", "english"), "race");
+        assert_eq!(legacy_mode("code/100", "python"), "code python");
+    }
+}

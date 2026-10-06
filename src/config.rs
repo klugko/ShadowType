@@ -1,0 +1,587 @@
+//! User settings stored in `config.toml`.
+//!
+//! The file is meant to be edited by hand too: missing keys take their
+//! default, unknown keys are ignored and a file that cannot be parsed is moved
+//! aside rather than overwritten.
+
+use std::{
+    fmt, io,
+    ops::RangeInclusive,
+    path::{Path, PathBuf},
+};
+
+use clap::ValueEnum;
+use code_racer_engine::{CodeLanguage, Language, TextSource, WORD_COUNTS, WordOptions};
+use code_racer_protocol::{RACE_WORD_COUNTS, Username};
+use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
+
+use crate::persist;
+pub use crate::persist::Loaded;
+
+/// Color scheme of the interface.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    /// The default code editor look.
+    #[default]
+    Editor,
+    /// A dark background whatever the terminal's own.
+    Dark,
+    /// Monochrome, for terminals without colors.
+    Mono,
+}
+
+impl Theme {
+    pub const ALL: [Self; 3] = [Self::Editor, Self::Dark, Self::Mono];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Editor => "editor",
+            Self::Dark => "dark",
+            Self::Mono => "mono",
+        }
+    }
+}
+
+/// What a practice session asks to type.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    /// A fixed number of common words.
+    #[default]
+    Words,
+    /// As many words as possible before the timer runs out, solo only.
+    Time,
+    /// A passage of literature.
+    Quote,
+    /// A snippet of source code.
+    Code,
+}
+
+impl Mode {
+    pub const ALL: [Self; 4] = [Self::Words, Self::Time, Self::Quote, Self::Code];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Words => "words",
+            Self::Time => "time",
+            Self::Quote => "quote",
+            Self::Code => "code",
+        }
+    }
+}
+
+macro_rules! display_by_name {
+    ($($kind:ty),+) => {$(
+        impl fmt::Display for $kind {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str(self.name())
+            }
+        }
+    )+};
+}
+
+display_by_name!(Theme, Mode);
+
+/// Settings of the last solo session or race, reused as the next defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Practice {
+    #[serde(rename = "default_mode")]
+    pub mode: Mode,
+    pub language: Language,
+    pub code_language: CodeLanguage,
+    pub word_count: u16,
+    /// Length of a time session, in seconds.
+    pub duration: u16,
+    pub punctuation: bool,
+    pub numbers: bool,
+}
+
+impl Practice {
+    /// Word counts offered by the interface.
+    pub const WORD_COUNTS: [u16; 4] = [10, 25, 50, 100];
+    /// Time session lengths offered by the interface, in seconds.
+    pub const DURATIONS: [u16; 4] = [15, 30, 60, 120];
+    /// Accepted time session lengths, in seconds.
+    pub const DURATION_LIMITS: RangeInclusive<u16> = 5..=600;
+
+    /// Brings hand-edited counts back into the supported ranges.
+    pub fn sanitized(self) -> Self {
+        Self {
+            word_count: clamp_to(self.word_count, &WORD_COUNTS),
+            duration: clamp_to(self.duration, &Self::DURATION_LIMITS),
+            ..self
+        }
+    }
+
+    /// The same settings for a race: time mode becomes words mode, which
+    /// races can use, and the word count is brought into [`RACE_WORD_COUNTS`].
+    pub fn for_race(self) -> Self {
+        Self {
+            mode: match self.mode {
+                Mode::Time => Mode::Words,
+                mode => mode,
+            },
+            word_count: clamp_to(self.word_count, &RACE_WORD_COUNTS),
+            ..self
+        }
+    }
+
+    /// The finite text these settings describe, `None` in time mode where
+    /// words keep coming until the timer runs out.
+    pub fn text_source(&self) -> Option<TextSource> {
+        match self.mode {
+            Mode::Words => Some(TextSource::Words {
+                language: self.language,
+                count: self.word_count,
+                options: self.word_options(),
+            }),
+            Mode::Time => None,
+            Mode::Quote => Some(TextSource::Quote {
+                language: self.language,
+            }),
+            Mode::Code => Some(TextSource::Code {
+                language: self.code_language,
+            }),
+        }
+    }
+
+    pub const fn word_options(&self) -> WordOptions {
+        WordOptions {
+            punctuation: self.punctuation,
+            numbers: self.numbers,
+        }
+    }
+}
+
+impl Default for Practice {
+    fn default() -> Self {
+        Self {
+            mode: Mode::default(),
+            language: Language::default(),
+            code_language: CodeLanguage::default(),
+            word_count: 50,
+            duration: 30,
+            punctuation: false,
+            numbers: false,
+        }
+    }
+}
+
+pub(crate) fn clamp_to(value: u16, range: &RangeInclusive<u16>) -> u16 {
+    value.clamp(*range.start(), *range.end())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Multiplayer {
+    /// Address of the race server, normalised by `network::server_url` when used.
+    pub server: String,
+}
+
+impl Multiplayer {
+    pub const DEFAULT_SERVER: &'static str = "ws://127.0.0.1:8080";
+}
+
+impl Default for Multiplayer {
+    fn default() -> Self {
+        Self {
+            server: Self::DEFAULT_SERVER.to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Config {
+    pub username: String,
+    pub theme: Theme,
+    #[serde(flatten)]
+    pub practice: Practice,
+    pub multiplayer: Multiplayer,
+}
+
+impl Config {
+    /// The configured name, `None` when it is missing or invalid.
+    pub fn username(&self) -> Option<Username> {
+        self.username.parse().ok()
+    }
+}
+
+/// Where code-racer keeps its files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paths {
+    pub config_file: PathBuf,
+    pub history_file: PathBuf,
+    pub log_file: PathBuf,
+}
+
+impl Paths {
+    /// Platform directories for the current user, `None` when the home
+    /// directory cannot be determined.
+    pub fn discover() -> Option<Self> {
+        let directories = ProjectDirs::from("", "", "code-racer")?;
+        let data = directories.data_local_dir();
+        Some(Self {
+            config_file: directories.config_dir().join("config.toml"),
+            history_file: data.join("history.json"),
+            log_file: directories
+                .state_dir()
+                .unwrap_or(data)
+                .join("code-racer.log"),
+        })
+    }
+}
+
+/// Reads the configuration, falling back to defaults when the file is missing
+/// or invalid. An invalid file is moved aside and explained in the warning.
+pub fn load_config(path: &Path) -> Loaded<Config> {
+    persist::read_or_recover(path, "defaults loaded", parse_config).map(Option::unwrap_or_default)
+}
+
+pub fn save_config(path: &Path, config: &Config) -> io::Result<()> {
+    let contents = toml::to_string(config).map_err(io::Error::other)?;
+    persist::write_atomically(path, contents.as_bytes())
+}
+
+fn parse_config(contents: &str) -> Result<Config, String> {
+    let config: Config = toml::from_str(contents).map_err(|error| describe(&error, contents))?;
+    Ok(Config {
+        practice: config.practice.sanitized(),
+        ..config
+    })
+}
+
+fn describe(error: &toml::de::Error, contents: &str) -> String {
+    let message = error
+        .message()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    match error.span() {
+        Some(span) => {
+            let line = contents
+                .bytes()
+                .take(span.start)
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            format!("line {line}: {message}")
+        }
+        None => message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    use crate::persist::scratch::TempDir;
+
+    const DOCUMENTED_EXAMPLE: &str = r#"username = "Jean"
+language = "french"
+theme = "dark"
+default_mode = "words"
+word_count = 50
+[multiplayer]
+server = "ws://127.0.0.1:8080"
+"#;
+
+    fn write_config(dir: &TempDir, contents: &str) -> PathBuf {
+        let path = dir.join("config.toml");
+        fs::write(&path, contents).expect("write config");
+        path
+    }
+
+    #[test]
+    fn documented_example_is_understood() {
+        let dir = TempDir::new();
+        let loaded = load_config(&write_config(&dir, DOCUMENTED_EXAMPLE));
+
+        assert_eq!(
+            loaded,
+            Loaded::clean(Config {
+                username: "Jean".to_owned(),
+                theme: Theme::Dark,
+                practice: Practice {
+                    mode: Mode::Words,
+                    language: Language::French,
+                    word_count: 50,
+                    ..Practice::default()
+                },
+                multiplayer: Multiplayer {
+                    server: "ws://127.0.0.1:8080".to_owned(),
+                },
+            })
+        );
+        assert_eq!(
+            loaded.value.username().map(String::from),
+            Some("Jean".to_owned())
+        );
+    }
+
+    #[test]
+    fn documented_example_survives_a_save() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, DOCUMENTED_EXAMPLE);
+        let loaded = load_config(&path).value;
+
+        save_config(&path, &loaded).expect("save");
+
+        assert_eq!(load_config(&path), Loaded::clean(loaded));
+    }
+
+    #[test]
+    fn discovered_paths_use_the_documented_file_names() {
+        let Some(paths) = Paths::discover() else {
+            return;
+        };
+        let name = |path: &Path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        };
+        assert_eq!(name(&paths.config_file).as_deref(), Some("config.toml"));
+        assert_eq!(name(&paths.history_file).as_deref(), Some("history.json"));
+        assert_eq!(name(&paths.log_file).as_deref(), Some("code-racer.log"));
+    }
+
+    #[test]
+    fn missing_keys_default_and_unknown_keys_are_ignored() {
+        let dir = TempDir::new();
+        let contents = "editor = \"vim\"\ndefault_mode = \"code\"\n[multiplayer]\nretries = 3\n";
+        let loaded = load_config(&write_config(&dir, contents));
+
+        assert_eq!(loaded.warning, None);
+        assert_eq!(
+            loaded.value,
+            Config {
+                practice: Practice {
+                    mode: Mode::Code,
+                    ..Practice::default()
+                },
+                ..Config::default()
+            }
+        );
+    }
+
+    #[test]
+    fn missing_file_gives_defaults_without_creating_it() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        assert_eq!(load_config(&path), Loaded::clean(Config::default()));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn saved_settings_load_back_identically() {
+        let dir = TempDir::new();
+        let path = dir.join("settings/config.toml");
+        let config = Config {
+            username: "Élodie".to_owned(),
+            theme: Theme::Mono,
+            practice: Practice {
+                mode: Mode::Time,
+                language: Language::French,
+                code_language: CodeLanguage::Sql,
+                word_count: 25,
+                duration: 120,
+                punctuation: true,
+                numbers: true,
+            },
+            multiplayer: Multiplayer {
+                server: "ws://192.168.1.20:9000".to_owned(),
+            },
+        };
+
+        save_config(&path, &config).expect("save");
+
+        assert_eq!(load_config(&path), Loaded::clean(config));
+    }
+
+    #[test]
+    fn saved_file_keeps_the_documented_key_names() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        save_config(&path, &Config::default()).expect("save");
+        let saved = fs::read_to_string(&path).expect("read");
+
+        for line in [
+            "default_mode = \"words\"",
+            "word_count = 50",
+            "theme = \"editor\"",
+            "[multiplayer]",
+        ] {
+            assert!(
+                saved.lines().any(|saved_line| saved_line == line),
+                "{line} in {saved}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_toml_is_backed_up_and_replaced_by_defaults() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, "username = \"Jean\"\ntheme = \n");
+
+        let loaded = load_config(&path);
+
+        assert_eq!(loaded.value, Config::default());
+        let warning = loaded.warning.expect("warning");
+        let backup = dir.join("config.toml.bak");
+        assert!(
+            warning.starts_with("config.toml was invalid (line 2: "),
+            "{warning}"
+        );
+        assert!(
+            warning.ends_with(&format!(
+                "); defaults loaded, backup at {}",
+                backup.display()
+            )),
+            "{warning}"
+        );
+        assert_eq!(
+            fs::read_to_string(backup).expect("backup"),
+            "username = \"Jean\"\ntheme = \n"
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn unknown_theme_names_the_offending_line() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, "username = \"Jean\"\n\ntheme = \"solarized\"\n");
+
+        let warning = load_config(&path).warning.expect("warning");
+
+        assert!(warning.contains("(line 3: "), "{warning}");
+        assert!(warning.contains("solarized"), "{warning}");
+        assert!(!warning.contains('\n'), "{warning}");
+    }
+
+    #[test]
+    fn out_of_range_counts_are_clamped_on_load() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, "word_count = 9000\nduration = 1\n");
+
+        let practice = load_config(&path).value.practice;
+
+        assert_eq!(practice.word_count, *WORD_COUNTS.end());
+        assert_eq!(practice.duration, *Practice::DURATION_LIMITS.start());
+    }
+
+    #[test]
+    fn sanitizing_keeps_values_already_in_range() {
+        let practice = Practice {
+            word_count: 0,
+            duration: 10_000,
+            ..Practice::default()
+        }
+        .sanitized();
+        assert_eq!(practice.word_count, *WORD_COUNTS.start());
+        assert_eq!(practice.duration, *Practice::DURATION_LIMITS.end());
+
+        let valid = Practice {
+            word_count: 100,
+            duration: 15,
+            ..Practice::default()
+        };
+        assert_eq!(valid.sanitized(), valid);
+    }
+
+    #[test]
+    fn race_settings_never_use_time_mode_and_bound_the_count() {
+        let solo = Practice {
+            mode: Mode::Time,
+            word_count: 500,
+            language: Language::French,
+            ..Practice::default()
+        };
+        let race = solo.for_race();
+        assert_eq!(race.mode, Mode::Words);
+        assert_eq!(race.word_count, *RACE_WORD_COUNTS.end());
+        assert_eq!(race.language, Language::French);
+        assert!(
+            race.text_source()
+                .is_some_and(|text| code_racer_protocol::is_raceable(&text))
+        );
+
+        let quote = Practice {
+            mode: Mode::Quote,
+            word_count: 1,
+            ..Practice::default()
+        };
+        assert_eq!(quote.for_race().mode, Mode::Quote);
+        assert_eq!(quote.for_race().word_count, *RACE_WORD_COUNTS.start());
+    }
+
+    #[test]
+    fn username_is_only_given_when_valid() {
+        let named = |username: &str| Config {
+            username: username.to_owned(),
+            ..Config::default()
+        };
+        assert_eq!(named("").username(), None);
+        assert_eq!(named("   ").username(), None);
+        assert_eq!(named("Bob\u{7}").username(), None);
+        assert_eq!(named(&"x".repeat(25)).username(), None);
+        assert_eq!(
+            named("  Jean ").username().map(String::from),
+            Some("Jean".to_owned())
+        );
+    }
+
+    #[test]
+    fn text_source_follows_the_mode() {
+        let practice = Practice {
+            language: Language::French,
+            code_language: CodeLanguage::Python,
+            word_count: 25,
+            punctuation: true,
+            ..Practice::default()
+        };
+        let with_mode = |mode| Practice { mode, ..practice }.text_source();
+
+        assert_eq!(
+            with_mode(Mode::Words),
+            Some(TextSource::Words {
+                language: Language::French,
+                count: 25,
+                options: WordOptions {
+                    punctuation: true,
+                    numbers: false,
+                },
+            })
+        );
+        assert_eq!(with_mode(Mode::Time), None);
+        assert_eq!(
+            with_mode(Mode::Quote),
+            Some(TextSource::Quote {
+                language: Language::French
+            })
+        );
+        assert_eq!(
+            with_mode(Mode::Code),
+            Some(TextSource::Code {
+                language: CodeLanguage::Python
+            })
+        );
+    }
+
+    #[test]
+    fn names_match_the_serialized_and_command_line_forms() {
+        for theme in Theme::ALL {
+            let value = theme.to_possible_value().expect("possible value");
+            assert_eq!(value.get_name(), theme.name());
+            assert_eq!(Theme::from_str(theme.name(), true), Ok(theme));
+        }
+        for mode in Mode::ALL {
+            let value = mode.to_possible_value().expect("possible value");
+            assert_eq!(value.get_name(), mode.to_string());
+        }
+    }
+}
