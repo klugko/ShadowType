@@ -78,8 +78,8 @@ pub fn read_existing(path: &Path) -> io::Result<Option<String>> {
     }
 }
 
-/// Why a file that does not hold what it should is refused rather than
-/// overwritten: the user may want to repair it.
+/// The error for a file that does not hold what it should. Such a file is
+/// refused rather than overwritten, so that the user can repair it.
 pub fn invalid_contents(problem: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidData,

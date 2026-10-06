@@ -196,6 +196,8 @@ impl Connection {
     }
 }
 
+/// The background task of a [`Connection`]. Connecting is abandoned as soon
+/// as the connection is dropped: nobody would hear of the result.
 async fn run(
     url: String,
     username: Username,
