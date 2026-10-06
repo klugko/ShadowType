@@ -6,9 +6,10 @@
 mod config;
 mod connection;
 mod hub;
+mod peers;
 mod room;
 
-use std::{future::Future, io, sync::Arc, time::Duration};
+use std::{future::Future, io, net::IpAddr, sync::Arc, time::Duration};
 
 use code_racer_protocol::{ErrorCode, PlayerId, ServerError};
 use tokio::{
@@ -21,7 +22,10 @@ use tracing::{debug, warn};
 
 pub use config::ServerConfig;
 
-use crate::hub::{Command, Hub};
+use crate::{
+    hub::{Command, Hub},
+    peers::PeerSlots,
+};
 
 const COMMAND_QUEUE: usize = 1024;
 /// Connections being turned away at once; further ones are dropped without a word.
@@ -40,7 +44,7 @@ pub async fn serve(
     shutdown: impl Future<Output = ()>,
 ) -> io::Result<()> {
     let (commands, receiver) = mpsc::channel(COMMAND_QUEUE);
-    let admission = Admission::new(config.max_connections);
+    let admission = Admission::new(&config);
     let mut hub = tokio::spawn(hub::run(Hub::new(config), receiver));
     let mut connections = JoinSet::new();
     let mut last_id = 0;
@@ -58,7 +62,8 @@ pub async fn serve(
                 Ok((stream, address)) => {
                     debug!(%address, "connection accepted");
                     last_id += 1;
-                    admission.admit(&mut connections, stream, PlayerId(last_id), &commands);
+                    let id = PlayerId(last_id);
+                    admission.admit(&mut connections, stream, address.ip(), id, &commands);
                 }
                 Err(error) => {
                     warn!(%error, "cannot accept a connection");
@@ -76,39 +81,50 @@ fn hub_failure(stopped: Result<(), JoinError>) -> io::Error {
     io::Error::other(format!("the room hub stopped unexpectedly: {stopped:?}"))
 }
 
-/// Bounds how many players are served, and how many are being refused, at once.
+/// Bounds how many players are served, how many are being refused, and how
+/// many connections one address holds, at once.
 #[derive(Debug)]
 struct Admission {
     players: Arc<Semaphore>,
     refusals: Arc<Semaphore>,
+    peers: Arc<PeerSlots>,
 }
 
 impl Admission {
-    fn new(max_connections: usize) -> Self {
+    fn new(config: &ServerConfig) -> Self {
+        let players = config.max_connections.min(Semaphore::MAX_PERMITS);
         Self {
-            players: Arc::new(Semaphore::new(max_connections.min(Semaphore::MAX_PERMITS))),
+            players: Arc::new(Semaphore::new(players)),
             refusals: Arc::new(Semaphore::new(MAX_REFUSALS)),
+            peers: Arc::new(PeerSlots::new(config.max_connections_per_address)),
         }
     }
 
+    /// Serves or refuses a new connection. A peer over its share is dropped
+    /// without a word, so that it cannot fill the refusal slots either.
     fn admit(
         &self,
         connections: &mut JoinSet<()>,
         stream: TcpStream,
+        peer: IpAddr,
         id: PlayerId,
         commands: &mpsc::Sender<Command>,
     ) {
+        let Some(slot) = self.peers.claim(peer) else {
+            debug!(%peer, "connection dropped, this address holds too many already");
+            return;
+        };
         if let Ok(permit) = Arc::clone(&self.players).try_acquire_owned() {
             let hub = commands.clone();
             connections.spawn(async move {
-                let _permit = permit;
+                let _held = (permit, slot);
                 connection::serve_player(stream, id, hub).await;
             });
         } else if let Ok(permit) = Arc::clone(&self.refusals).try_acquire_owned() {
             let full =
                 ServerError::new(ErrorCode::ServerFull, "the server is full, try again later");
             connections.spawn(async move {
-                let _permit = permit;
+                let _held = (permit, slot);
                 connection::turn_away(stream, full).await;
             });
         } else {

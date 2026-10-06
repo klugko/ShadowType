@@ -1,6 +1,6 @@
 //! End-to-end tests against a real server listening on a loopback port.
 
-use std::{io, time::Duration};
+use std::{io, num::NonZeroUsize, time::Duration};
 
 use code_racer_engine::{Language, TextSource, WordOptions, grapheme_count};
 use code_racer_protocol::{
@@ -380,6 +380,35 @@ async fn connections_beyond_the_limit_are_refused() {
     };
     assert_eq!(error.code, ErrorCode::ServerFull);
     assert_closed(&mut socket).await;
+}
+
+#[tokio::test]
+async fn an_address_holds_no_more_than_its_share_of_connections() {
+    let config = ServerConfig {
+        max_connections_per_address: NonZeroUsize::new(1),
+        ..ServerConfig::default()
+    };
+    let server = start(config).await;
+    let alice = Client::connect(&server.url, "Alice").await;
+    assert!(
+        connect_async(&server.url).await.is_err(),
+        "a second connection from the same address is dropped"
+    );
+
+    drop(alice);
+    let reconnected = timeout(PATIENCE, async {
+        loop {
+            if connect_async(&server.url).await.is_ok() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        reconnected.is_ok(),
+        "the slot is given back once Alice left"
+    );
 }
 
 #[tokio::test]

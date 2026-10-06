@@ -1,6 +1,6 @@
 //! Command line entry point of the race server.
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use anyhow::Context;
 use clap::Parser;
@@ -31,6 +31,10 @@ struct Args {
     /// Seconds of countdown before a race starts.
     #[arg(long, value_name = "SECONDS", default_value_t = 3, value_parser = clap::value_parser!(u64).range(1..=10))]
     countdown: u64,
+    /// Connections one IP address may hold at once; 0 lifts the limit, for
+    /// example behind a proxy or port forward that hides client addresses.
+    #[arg(long, value_name = "COUNT", default_value_t = 16)]
+    max_connections_per_address: usize,
 }
 
 impl Args {
@@ -40,6 +44,7 @@ impl Args {
             room_ttl: Duration::from_secs(self.room_ttl),
             race_timeout: Duration::from_secs(self.race_timeout),
             countdown: Duration::from_secs(self.countdown),
+            max_connections_per_address: NonZeroUsize::new(self.max_connections_per_address),
             ..ServerConfig::default()
         }
     }
