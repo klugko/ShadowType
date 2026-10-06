@@ -8,9 +8,11 @@ use std::{
 };
 
 use anyhow::Context;
+use tracing::Subscriber;
 use tracing_subscriber::{
     EnvFilter,
     filter::{LevelFilter, ParseError},
+    util::SubscriberInitExt,
 };
 
 /// Environment variable holding the log filter, such as `debug` or
@@ -23,17 +25,29 @@ pub const FILTER_VARIABLE: &str = "CODE_RACER_LOG";
 /// already installed. An invalid filter is reported in the log file itself.
 pub fn init(path: &Path) -> anyhow::Result<()> {
     let file = open_for_append(path)?;
-    let (filter, rejected) = parse_filter(&env::var(FILTER_VARIABLE).unwrap_or_default());
-    tracing_subscriber::fmt()
-        .with_writer(Mutex::new(file))
-        .with_ansi(false)
-        .with_env_filter(filter)
+    let (logger, rejected) = file_logger(file, &env::var(FILTER_VARIABLE).unwrap_or_default());
+    logger
         .try_init()
         .map_err(|error| anyhow::anyhow!("cannot install the logger: {error}"))?;
     if let Some(error) = rejected {
         tracing::warn!(%error, "ignoring {FILTER_VARIABLE}, logging at the info level");
     }
     Ok(())
+}
+
+/// A logger that writes the events selected by `directives` to `file` as
+/// plain text, with the reason the directives were rejected, if they were.
+fn file_logger(
+    file: File,
+    directives: &str,
+) -> (impl Subscriber + Send + Sync, Option<ParseError>) {
+    let (filter, rejected) = parse_filter(directives);
+    let logger = tracing_subscriber::fmt()
+        .with_writer(Mutex::new(file))
+        .with_ansi(false)
+        .with_env_filter(filter)
+        .finish();
+    (logger, rejected)
 }
 
 fn open_for_append(path: &Path) -> anyhow::Result<File> {
@@ -67,23 +81,39 @@ mod tests {
     use super::*;
     use crate::persist::scratch::TempDir;
 
+    /// The logger is installed for this thread only: a global one would also
+    /// collect the events of the other tests running in this binary.
     #[test]
-    fn events_are_appended_to_the_file_and_a_second_logger_is_refused() {
+    fn events_are_appended_to_the_file_as_plain_text() {
         let dir = TempDir::new();
         let path = dir.join("state/code-racer.log");
         fs::create_dir_all(dir.join("state")).expect("create directory");
         fs::write(&path, "previous run\n").expect("seed log");
+        let file = open_for_append(&path).expect("open the log");
 
-        init(&path).expect("first logger");
-        tracing::error!(attempt = 3, "network task stopped");
-        let second = init(&dir.join("other.log"));
+        let (logger, rejected) = file_logger(file, "");
+        tracing::subscriber::with_default(logger, || {
+            tracing::debug!("below the default level");
+            tracing::error!(attempt = 3, "network task stopped");
+        });
 
         let contents = fs::read_to_string(&path).expect("read log");
+        assert!(rejected.is_none());
         assert!(contents.starts_with("previous run\n"), "{contents}");
         assert!(contents.contains("network task stopped"), "{contents}");
         assert!(contents.contains("attempt=3"), "{contents}");
+        assert!(!contents.contains("below the default level"), "{contents}");
         assert!(!contents.contains('\u{1b}'), "ANSI escapes in {contents}");
-        assert!(second.is_err());
+    }
+
+    #[test]
+    fn missing_log_directories_are_created() {
+        let dir = TempDir::new();
+        let path = dir.join("state/code-racer/code-racer.log");
+
+        open_for_append(&path).expect("open the log");
+
+        assert!(path.exists());
     }
 
     #[test]
@@ -110,6 +140,6 @@ mod tests {
     #[test]
     fn unopenable_file_is_an_error() {
         let dir = TempDir::new();
-        assert!(init(dir.path()).is_err());
+        assert!(open_for_append(dir.path()).is_err());
     }
 }
