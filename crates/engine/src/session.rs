@@ -52,17 +52,35 @@ struct Keystroke {
     correct: bool,
 }
 
+/// How some input compares with the character expected at its position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Judgement {
+    Correct,
+    /// The beginning of the expected character, such as `e` on the way to `é`.
+    Partial,
+    Wrong,
+}
+
 /// Tracks what a player types against a target text.
 ///
 /// Texts are compared grapheme by grapheme after Unicode NFC normalisation, so
 /// `é` matches whether it was typed precomposed or as `e` followed by a
 /// combining accent, and an emoji made of several code points is a single
 /// character. All time-dependent methods take the current instant explicitly.
+///
+/// A keystroke that only begins the expected character, such as `e` for `é`,
+/// counts as correct while the accent may still follow, and becomes an error
+/// once the player moves on, erases it or runs out of time. Errors therefore
+/// never decrease, which race servers rely on to validate progress.
 #[derive(Debug, Clone)]
 pub struct TypingSession {
     target: Vec<String>,
     entries: Vec<Entry>,
     keystrokes: Vec<Keystroke>,
+    /// First keystroke of the last character while it is only the beginning
+    /// of the expected one. Those keystrokes count as correct until the
+    /// character is completed, and become errors if it is left unfinished.
+    pending_since: Option<usize>,
     auto_filled: usize,
     options: SessionOptions,
     started_at: Option<Instant>,
@@ -76,6 +94,7 @@ impl TypingSession {
             target: graphemes(text),
             entries: Vec::new(),
             keystrokes: Vec::new(),
+            pending_since: None,
             auto_filled: 0,
             options,
             started_at: None,
@@ -111,11 +130,11 @@ impl TypingSession {
             return false;
         }
         self.start(now);
-        let expected = &self.target[self.cursor()];
+        self.abandon_pending();
         let text = ch.to_string();
-        let correct = same_text(&text, expected);
-        let acceptable = correct || is_partial(&text, expected);
-        self.record_keystroke(acceptable, now);
+        let judgement = judge(&text, &self.target[self.cursor()]);
+        let correct = judgement == Judgement::Correct;
+        self.record_keystroke(judgement, now);
         self.entries.push(Entry {
             text,
             correct,
@@ -132,7 +151,11 @@ impl TypingSession {
     /// together with the newline that produced it.
     pub fn backspace(&mut self, now: Instant) -> bool {
         self.update(now);
-        !self.is_finished() && self.pop_entry()
+        if self.is_finished() {
+            return false;
+        }
+        self.abandon_pending();
+        self.pop_entry()
     }
 
     /// Removes the last typed word and the blanks that follow it.
@@ -141,6 +164,7 @@ impl TypingSession {
         if self.is_finished() {
             return false;
         }
+        self.abandon_pending();
         let mut removed_any = false;
         let mut removed_word = false;
         while let Some(last) = self.entries.last() {
@@ -162,6 +186,7 @@ impl TypingSession {
         if self.finished_at.is_none() && now.saturating_duration_since(started_at) >= limit {
             self.finished_at = Some(started_at + limit);
             self.timed_out = true;
+            self.abandon_pending();
         }
     }
 
@@ -303,22 +328,38 @@ impl TypingSession {
         if entry.auto || merged.graphemes(true).count() != 1 {
             return false;
         }
-        let expected = &self.target[index];
-        let correct = same_text(&merged, expected);
-        let acceptable = correct || is_partial(&merged, expected);
-        self.record_keystroke(acceptable, now);
+        let judgement = judge(&merged, &self.target[index]);
+        self.record_keystroke(judgement, now);
         self.entries[index] = Entry {
             text: merged,
-            correct,
+            correct: judgement == Judgement::Correct,
             auto: false,
         };
         self.complete_if_done(now);
         true
     }
 
-    fn record_keystroke(&mut self, correct: bool, now: Instant) {
+    fn record_keystroke(&mut self, judgement: Judgement, now: Instant) {
         let at = self.elapsed(now);
-        self.keystrokes.push(Keystroke { at, correct });
+        let index = self.keystrokes.len();
+        self.keystrokes.push(Keystroke {
+            at,
+            correct: judgement != Judgement::Wrong,
+        });
+        if judgement == Judgement::Partial {
+            self.pending_since.get_or_insert(index);
+        } else {
+            self.pending_since = None;
+        }
+    }
+
+    /// Turns the keystrokes of a character left unfinished into errors.
+    fn abandon_pending(&mut self) {
+        if let Some(first) = self.pending_since.take() {
+            for keystroke in &mut self.keystrokes[first..] {
+                keystroke.correct = false;
+            }
+        }
     }
 
     fn fill_indentation(&mut self) {
@@ -364,6 +405,16 @@ pub fn graphemes(text: &str) -> Vec<String> {
 pub fn grapheme_count(text: &str) -> usize {
     let composed: String = text.nfc().collect();
     composed.graphemes(true).count()
+}
+
+fn judge(typed: &str, expected: &str) -> Judgement {
+    if same_text(typed, expected) {
+        Judgement::Correct
+    } else if is_partial(typed, expected) {
+        Judgement::Partial
+    } else {
+        Judgement::Wrong
+    }
 }
 
 fn same_text(typed: &str, expected: &str) -> bool {
@@ -481,6 +532,100 @@ mod tests {
         type_text(&mut session, "cafe\u{301}", now);
         assert_eq!(session.status(), Status::Completed);
         assert_eq!(session.stats(now).accuracy, 100.0);
+        assert_eq!(session.stats(now).errors, 0);
+    }
+
+    #[test]
+    fn a_bare_letter_for_an_accented_one_is_an_error_once_the_player_moves_on() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("été ok", SessionOptions::default());
+        type_text(&mut session, "ete o", now);
+        let stats = session.stats(now);
+        assert_eq!(stats.errors, 2);
+        assert!(stats.accuracy < 100.0);
+    }
+
+    #[test]
+    fn retyping_a_missing_accent_keeps_the_error() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("été ok", SessionOptions::default());
+        type_text(&mut session, "ete ok", now);
+        for _ in 0..6 {
+            session.backspace(now);
+        }
+        type_text(&mut session, "été ok", now);
+        assert_eq!(session.status(), Status::Completed);
+        assert_eq!(session.stats(now).errors, 2);
+    }
+
+    #[test]
+    fn erasing_an_unfinished_accent_counts_it_as_an_error() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("é", SessionOptions::default());
+        session.type_char('e', now);
+        assert_eq!(session.stats(now).errors, 0, "the accent may still come");
+        session.backspace(now);
+        assert_eq!(session.stats(now).errors, 1);
+    }
+
+    #[test]
+    fn an_accent_still_missing_at_the_time_limit_is_an_error() {
+        let start = Instant::now();
+        let options = SessionOptions {
+            time_limit: Some(Duration::from_secs(5)),
+            ..SessionOptions::default()
+        };
+        let mut session = TypingSession::new("café", options);
+        type_text(&mut session, "cafe", start);
+        session.update(at(start, 5_000));
+        assert_eq!(session.status(), Status::TimeUp);
+        assert_eq!(session.stats(at(start, 5_000)).errors, 1);
+    }
+
+    #[test]
+    fn a_wrong_accent_is_a_single_error() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("é", SessionOptions::default());
+        type_text(&mut session, "e\u{300}", now);
+        assert_eq!(session.mark(0), Mark::Incorrect);
+        assert_eq!(session.stats(now).errors, 1);
+        session.backspace(now);
+        assert_eq!(session.stats(now).errors, 1);
+    }
+
+    #[test]
+    fn errors_never_decrease() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("été où ça", SessionOptions::default());
+        let mut highest = 0;
+        let mut check = |session: &TypingSession| {
+            let errors = session.stats(now).errors;
+            assert!(errors >= highest, "{errors} < {highest}");
+            highest = errors;
+        };
+        for ch in "e\u{301}tex o\u{300}".chars() {
+            session.type_char(ch, now);
+            check(&session);
+        }
+        while session.backspace(now) {
+            check(&session);
+        }
+        for ch in "ete ou c".chars() {
+            session.type_char(ch, now);
+            check(&session);
+        }
+        assert!(session.delete_word(now));
+        check(&session);
+        assert_eq!(highest, 9);
+    }
+
+    #[test]
+    fn an_emoji_typed_code_point_by_code_point_has_no_errors() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("👩‍💻!", SessionOptions::default());
+        type_text(&mut session, "👩\u{200D}💻!", now);
+        assert_eq!(session.status(), Status::Completed);
+        assert_eq!(session.stats(now).errors, 0);
     }
 
     #[test]
