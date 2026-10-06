@@ -779,7 +779,7 @@ mod tests {
     }
 
     #[test]
-    fn progress_after_the_race_timeout_is_refused_and_the_results_shown_without_a_tick() {
+    fn progress_arriving_after_the_race_timeout_is_ignored_and_the_results_shown_at_once() {
         let config = ServerConfig {
             race_timeout: Duration::from_secs(60),
             ..ServerConfig::default()
@@ -787,7 +787,13 @@ mod tests {
         let mut harness = Harness::new(config);
         harness.racing_room(0);
         harness.send(BOB, progress(5), 63_000);
-        assert_eq!(harness.errors(BOB), [ErrorCode::RaceNotRunning]);
+        let messages = harness.received(BOB);
+        assert!(
+            messages
+                .iter()
+                .all(|message| matches!(message, ServerMessage::Room(_))),
+            "no error for a report that was on its way: {messages:?}"
+        );
         let view = harness.last_view(ALICE);
         assert_eq!(view.phase, Phase::Finished);
         assert_eq!(

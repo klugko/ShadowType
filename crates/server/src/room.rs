@@ -247,8 +247,9 @@ impl Room {
     /// Records a player's typing counters and derives their speed, accuracy
     /// and finishing time from the server clock.
     ///
-    /// Reports of players who already finished are ignored. Implausible
-    /// reports are rejected and leave the room unchanged.
+    /// Reports of players who already finished are ignored, and so are those
+    /// arriving after the race ended, which were on their way when it did.
+    /// Implausible reports are rejected and leave the room unchanged.
     pub fn report_progress(
         &mut self,
         by: PlayerId,
@@ -257,11 +258,15 @@ impl Room {
     ) -> Result<(), ServerError> {
         let index = self.member_index(by)?;
         self.start_race_if_due(now);
-        let Stage::Racing(race) = &self.stage else {
-            return Err(ServerError::new(
-                ErrorCode::RaceNotRunning,
-                format!("room {} is not racing", self.code),
-            ));
+        let race = match &self.stage {
+            Stage::Racing(race) => race,
+            Stage::Finished(_) => return Ok(()),
+            Stage::Lobby | Stage::Countdown(_) => {
+                return Err(ServerError::new(
+                    ErrorCode::RaceNotRunning,
+                    format!("room {} is not racing", self.code),
+                ));
+            }
         };
         let member = &mut self.members[index];
         if member.progress.is_finished() {
@@ -980,10 +985,9 @@ mod tests {
         assert!(!room.advance(clock.racing(299_999), TIMEOUT));
         assert!(room.advance(clock.racing(300_000), TIMEOUT));
         assert_eq!(room.view().phase, Phase::Finished);
-        assert_eq!(
-            error_code(room.report_progress(BOB, clean(50), clock.racing(300_001))),
-            Some(ErrorCode::RaceNotRunning)
-        );
+        room.report_progress(BOB, clean(50), clock.racing(300_001))
+            .expect("a report sent before the end is ignored");
+        assert_eq!(player(&room, BOB).progress.correct, 40);
     }
 
     #[test]
