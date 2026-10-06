@@ -73,3 +73,21 @@ pub const LINES: &[Line] = &[
     Text("Mistakes must be fixed to finish a text. Typing stops 10 characters"),
     Text("after an uncorrected mistake, so a typo never ruins a whole line."),
 ];
+
+#[cfg(test)]
+mod tests {
+    use code_racer_engine::ERROR_RUN_LIMIT;
+
+    use super::*;
+
+    #[test]
+    fn the_typing_limit_is_the_engine_one() {
+        let limit = format!("Typing stops {ERROR_RUN_LIMIT} characters");
+        assert!(
+            LINES
+                .iter()
+                .any(|line| matches!(line, Text(text) if text.contains(&limit))),
+            "{limit}"
+        );
+    }
+}

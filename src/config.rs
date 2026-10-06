@@ -102,10 +102,11 @@ pub struct Practice {
 }
 
 impl Practice {
-    /// Word counts offered by the interface.
-    pub const WORD_COUNTS: [u16; 4] = [10, 25, 50, 100];
-    /// Time session lengths offered by the interface, in seconds.
-    pub const DURATIONS: [u16; 4] = [15, 30, 60, 120];
+    /// Word counts offered by the forms, solo and in races. Other counts in
+    /// [`WORD_COUNTS`], or [`RACE_WORD_COUNTS`] for races, can be set by hand.
+    pub const WORD_COUNT_PRESETS: [u16; 4] = [10, 25, 50, 100];
+    /// Time session lengths offered by the forms, in seconds.
+    pub const DURATION_PRESETS: [u16; 4] = [15, 30, 60, 120];
     /// Accepted time session lengths, in seconds.
     pub const DURATION_LIMITS: RangeInclusive<u16> = 5..=600;
 
@@ -134,19 +135,30 @@ impl Practice {
     /// The finite text these settings describe, `None` in time mode where
     /// words keep coming until the timer runs out.
     pub fn text_source(&self) -> Option<TextSource> {
-        match self.mode {
-            Mode::Words => Some(TextSource::Words {
+        (self.mode != Mode::Time).then(|| self.text_in(self.mode))
+    }
+
+    /// The text of a race created with these settings, which
+    /// [`Practice::for_race`] makes raceable.
+    pub fn race_text_source(self) -> TextSource {
+        let race = self.for_race();
+        race.text_in(race.mode)
+    }
+
+    /// The text of `mode`, where a timed session types words.
+    fn text_in(&self, mode: Mode) -> TextSource {
+        match mode {
+            Mode::Words | Mode::Time => TextSource::Words {
                 language: self.language,
                 count: self.word_count,
                 options: self.word_options(),
-            }),
-            Mode::Time => None,
-            Mode::Quote => Some(TextSource::Quote {
+            },
+            Mode::Quote => TextSource::Quote {
                 language: self.language,
-            }),
-            Mode::Code => Some(TextSource::Code {
+            },
+            Mode::Code => TextSource::Code {
                 language: self.code_language,
-            }),
+            },
         }
     }
 
@@ -738,10 +750,7 @@ server = "ws://127.0.0.1:8080"
         assert_eq!(race.mode, Mode::Words);
         assert_eq!(race.word_count, *RACE_WORD_COUNTS.end());
         assert_eq!(race.language, Language::French);
-        assert!(
-            race.text_source()
-                .is_some_and(|text| code_racer_protocol::is_raceable(&text))
-        );
+        assert!(code_racer_protocol::is_raceable(&solo.race_text_source()));
 
         let quote = Practice {
             mode: Mode::Quote,
@@ -750,6 +759,33 @@ server = "ws://127.0.0.1:8080"
         };
         assert_eq!(quote.for_race().mode, Mode::Quote);
         assert_eq!(quote.for_race().word_count, *RACE_WORD_COUNTS.start());
+    }
+
+    #[test]
+    fn every_race_text_is_raceable() {
+        for mode in Mode::ALL {
+            for word_count in [0, 1, 30, 1_000] {
+                let settings = Practice {
+                    mode,
+                    word_count,
+                    ..Practice::default()
+                };
+                assert!(code_racer_protocol::is_raceable(
+                    &settings.race_text_source()
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn presets_are_within_the_solo_and_race_limits() {
+        for preset in Practice::WORD_COUNT_PRESETS {
+            assert!(WORD_COUNTS.contains(&preset), "{preset}");
+            assert!(RACE_WORD_COUNTS.contains(&preset), "{preset}");
+        }
+        for preset in Practice::DURATION_PRESETS {
+            assert!(Practice::DURATION_LIMITS.contains(&preset), "{preset}");
+        }
     }
 
     #[test]

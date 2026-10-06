@@ -2,8 +2,6 @@
 
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
-
 /// Characters in a "standard word" when converting characters to words.
 pub const CHARS_PER_WORD: f64 = 5.0;
 
@@ -54,7 +52,7 @@ impl Tally {
 }
 
 /// A snapshot of how a session is going.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Stats {
     /// Correctly typed characters per minute, divided by five; see [`Tally::wpm`].
     pub wpm: f64,
@@ -73,7 +71,6 @@ pub struct Stats {
     pub typed_chars: usize,
     /// Characters of `correct_chars` that auto-indentation filled in.
     pub indentation: usize,
-    #[serde(with = "duration_seconds")]
     pub elapsed: Duration,
     /// Completion between 0 and 1: the share of the time limit used, or of
     /// the text typed correctly up to the first mistake. It reaches 1 only
@@ -100,7 +97,7 @@ impl Stats {
 }
 
 /// Speed and errors during about one second of a session.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sample {
     /// Position of the sample, from 1. Every sample covers one second except
     /// the last, which covers whatever remains, up to a second and a half.
@@ -163,21 +160,6 @@ pub(crate) fn sample_ends(elapsed: Duration) -> Vec<Duration> {
         _ => {}
     }
     ends
-}
-
-mod duration_seconds {
-    use std::time::Duration;
-
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_f64(duration.as_secs_f64())
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
-        let seconds = f64::deserialize(deserializer)?;
-        Ok(Duration::try_from_secs_f64(seconds).unwrap_or_default())
-    }
 }
 
 #[cfg(test)]
@@ -275,18 +257,6 @@ mod tests {
     fn fewer_than_two_samples_are_consistent() {
         assert_eq!(consistency(&[]), 100.0);
         assert_eq!(consistency(&[sample(1, 70.0)]), 100.0);
-    }
-
-    #[test]
-    fn stats_round_trip_with_fractional_seconds() {
-        let stats = Stats {
-            wpm: 71.5,
-            elapsed: Duration::from_millis(12_340),
-            ..Stats::default()
-        };
-        let json = serde_json::to_string(&stats).expect("serialize");
-        let back: Stats = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(back, stats);
     }
 
     fn sample(second: u32, raw_wpm: f64) -> Sample {

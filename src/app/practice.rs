@@ -8,14 +8,17 @@ use std::{
 };
 
 use code_racer_engine::{
-    CodeLanguage, Language, Sample, SessionOptions, Stats, TextSource, TypingSession, WordOptions,
-    WordStream, consistency, normalize,
+    CodeLanguage, Language, Sample, SessionOptions, Stats, Status, TextSource, TypingSession,
+    WordOptions, WordStream, consistency, normalize,
 };
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    app::form::{Row, Step, Value, choices, cycle, cycle_preset},
+    app::{
+        form::{Row, Step},
+        text_settings::{self, TextSetting},
+    },
     config::{Mode, Practice},
     history::{History, Record},
 };
@@ -28,69 +31,32 @@ const MAX_FILE_GRAPHEMES: usize = 3_000;
 /// a huge file or an endless device cannot freeze the interface.
 const MAX_FILE_BYTES: usize = 64 * 1024;
 
+/// A line of `practice.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
-    Mode,
-    Language,
-    Words,
-    Duration,
-    Punctuation,
-    Numbers,
+    Text(TextSetting),
     Start,
 }
 
 /// Lines of the practice form for the current mode.
 pub fn fields(practice: &Practice) -> Vec<Field> {
-    let mut fields = vec![Field::Mode, Field::Language];
-    match practice.mode {
-        Mode::Words => fields.extend([Field::Words, Field::Punctuation, Field::Numbers]),
-        Mode::Time => fields.extend([Field::Duration, Field::Punctuation, Field::Numbers]),
-        Mode::Quote | Mode::Code => {}
-    }
-    fields.push(Field::Start);
-    fields
+    text_settings::settings(practice)
+        .into_iter()
+        .map(Field::Text)
+        .chain([Field::Start])
+        .collect()
 }
 
 pub fn row(practice: &Practice, field: Field) -> Row {
     match field {
-        Field::Mode => {
-            Row::new("mode", Value::Text(practice.mode.to_string())).hint(choices(Mode::ALL))
-        }
-        Field::Language if practice.mode == Mode::Code => {
-            Row::new("language", Value::Text(practice.code_language.to_string()))
-                .hint(choices(CodeLanguage::ALL))
-        }
-        Field::Language => Row::new("language", Value::Text(practice.language.to_string()))
-            .hint(choices(Language::ALL)),
-        Field::Words => Row::new("words", Value::Number(practice.word_count.into()))
-            .hint(choices(Practice::WORD_COUNTS)),
-        Field::Duration => Row::new("seconds", Value::Number(practice.duration.into()))
-            .hint(choices(Practice::DURATIONS)),
-        Field::Punctuation => Row::new("punctuation", Value::Bool(practice.punctuation))
-            .hint("capitals, commas, quotes, full stops"),
-        Field::Numbers => {
-            Row::new("numbers", Value::Bool(practice.numbers)).hint("digits mixed with words")
-        }
+        Field::Text(setting) => text_settings::row(practice, setting, &Mode::ALL),
         Field::Start => Row::action("start session"),
     }
 }
 
 pub fn adjust(practice: &mut Practice, field: Field, step: Step) {
-    match field {
-        Field::Mode => practice.mode = cycle(&Mode::ALL, practice.mode, step),
-        Field::Language if practice.mode == Mode::Code => {
-            practice.code_language = cycle(&CodeLanguage::ALL, practice.code_language, step);
-        }
-        Field::Language => practice.language = cycle(&Language::ALL, practice.language, step),
-        Field::Words => {
-            practice.word_count = cycle_preset(&Practice::WORD_COUNTS, practice.word_count, step);
-        }
-        Field::Duration => {
-            practice.duration = cycle_preset(&Practice::DURATIONS, practice.duration, step);
-        }
-        Field::Punctuation => practice.punctuation = !practice.punctuation,
-        Field::Numbers => practice.numbers = !practice.numbers,
-        Field::Start => {}
+    if let Field::Text(setting) = field {
+        text_settings::adjust(practice, setting, step, &Mode::ALL);
     }
 }
 
@@ -354,6 +320,11 @@ impl SoloRun {
         self.session.is_finished()
     }
 
+    /// Whether typing has started and is not over.
+    pub fn is_in_progress(&self) -> bool {
+        self.session.status() == Status::Running
+    }
+
     /// Computes the result and stores it in the history, once.
     pub fn conclude(&mut self, history: &mut History, now: Instant) -> io::Result<()> {
         if self.result.is_some() || !self.session.is_finished() {
@@ -370,7 +341,7 @@ impl SoloRun {
             samples,
         };
         self.result = Some(result);
-        history.add(record(mode, language, &stats))
+        history.add(Record::from_stats(mode, language, &stats))
     }
 
     fn refill(&mut self) {
@@ -384,24 +355,8 @@ impl SoloRun {
     }
 }
 
-pub fn record(mode: String, language: String, stats: &Stats) -> Record {
-    Record {
-        date: chrono::Local::now(),
-        mode,
-        language,
-        duration: stats.elapsed.as_secs_f64(),
-        wpm: stats.wpm,
-        raw_wpm: stats.raw_wpm,
-        accuracy: stats.accuracy,
-        errors: stats.errors,
-        text_length: stats.correct_chars + stats.incorrect_chars,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use code_racer_engine::Status;
-
     use super::*;
     use crate::persist::scratch::TempDir;
 
@@ -420,33 +375,21 @@ mod tests {
     }
 
     #[test]
-    fn form_shows_only_relevant_fields() {
+    fn form_ends_with_the_start_line_and_offers_time_mode() {
+        let fields = fields(&practice(Mode::Code));
         assert_eq!(
-            fields(&practice(Mode::Words)),
+            fields,
             [
-                Field::Mode,
-                Field::Language,
-                Field::Words,
-                Field::Punctuation,
-                Field::Numbers,
+                Field::Text(TextSetting::Mode),
+                Field::Text(TextSetting::Language),
                 Field::Start
             ]
         );
-        assert_eq!(
-            fields(&practice(Mode::Code)),
-            [Field::Mode, Field::Language, Field::Start]
-        );
-    }
-
-    #[test]
-    fn language_field_follows_the_mode() {
-        let mut settings = practice(Mode::Code);
-        adjust(&mut settings, Field::Language, Step::Next);
-        assert_eq!(settings.code_language, CodeLanguage::Python);
-        assert_eq!(settings.language, Language::English);
-        settings.mode = Mode::Words;
-        adjust(&mut settings, Field::Language, Step::Next);
-        assert_eq!(settings.language, Language::French);
+        let mut settings = practice(Mode::Words);
+        adjust(&mut settings, Field::Text(TextSetting::Mode), Step::Next);
+        assert_eq!(settings.mode, Mode::Time);
+        adjust(&mut settings, Field::Start, Step::Next);
+        assert_eq!(settings.mode, Mode::Time, "the start line has no value");
     }
 
     #[test]

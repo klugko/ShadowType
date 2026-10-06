@@ -35,14 +35,9 @@ pub fn render(
     palette: &Palette,
     now: Instant,
 ) {
-    let Some(room) = &client.room else {
-        connecting(frame, area, client, palette);
-        return;
-    };
-    match client.stage(now) {
-        Stage::Connecting | Stage::Joining => connecting(frame, area, client, palette),
-        Stage::Lobby => lobby(frame, area, client, room, palette),
-        Stage::Countdown(left) => race(
+    match (&client.room, client.stage(now)) {
+        (Some(room), Stage::Lobby) => lobby(frame, area, client, room, palette),
+        (Some(room), Stage::Countdown(left)) => race(
             frame,
             area,
             app,
@@ -51,8 +46,9 @@ pub fn render(
             Some(left.as_secs() + 1),
             palette,
         ),
-        Stage::Racing => race(frame, area, app, client, room, None, palette),
-        Stage::Finished => results(frame, area, client, room, palette),
+        (Some(room), Stage::Racing) => race(frame, area, app, client, room, None, palette),
+        (Some(room), Stage::Finished) => results(frame, area, client, room, palette),
+        _ => connecting(frame, area, client, palette),
     }
 }
 

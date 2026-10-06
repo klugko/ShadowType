@@ -2,16 +2,17 @@
 
 use std::time::{Duration, Instant};
 
-use code_racer_engine::{CodeLanguage, Language, SessionOptions, Stats, TextSource, TypingSession};
+use code_racer_engine::{CodeLanguage, SessionOptions, Stats, TextSource, TypingSession};
 use code_racer_protocol::{
-    ClientMessage, ErrorCode, Phase, PlayerId, PlayerView, Progress, RACE_WORD_COUNTS, RoomCode,
-    RoomView, ServerMessage, Username,
+    ClientMessage, ErrorCode, Phase, PlayerId, PlayerView, Progress, RoomCode, RoomView,
+    ServerMessage, Username,
 };
 
 use crate::{
     app::{
-        form::{Row, Step, Value, choices, cycle, cycle_preset},
+        form::{Row, Step, Value},
         practice::{Plan, code_file_name},
+        text_settings::{self, TextSetting},
     },
     config::{Mode, Practice},
     history::Record,
@@ -20,34 +21,37 @@ use crate::{
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 const LEAVE_CONFIRMATION: Duration = Duration::from_secs(2);
+/// Modes a race can use: time mode is solo only.
 const RACE_MODES: [Mode; 3] = [Mode::Words, Mode::Quote, Mode::Code];
+/// [`Record::mode`] of races.
+const RACE_RECORD_MODE: &str = "race";
 
+/// A line of `race.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Room,
     Join,
-    Mode,
-    Language,
-    Words,
-    Punctuation,
-    Numbers,
+    Text(TextSetting),
     Create,
 }
 
 pub fn fields(settings: &Practice) -> Vec<Field> {
-    let mut fields = vec![Field::Room, Field::Join, Field::Mode, Field::Language];
-    if settings.mode == Mode::Words {
-        fields.extend([Field::Words, Field::Punctuation, Field::Numbers]);
-    }
-    fields.push(Field::Create);
-    fields
+    [Field::Room, Field::Join]
+        .into_iter()
+        .chain(
+            text_settings::settings(settings)
+                .into_iter()
+                .map(Field::Text),
+        )
+        .chain([Field::Create])
+        .collect()
 }
 
 /// TOML table header printed above a field.
 pub fn section(field: Field) -> Option<&'static str> {
     match field {
         Field::Room => Some("join"),
-        Field::Mode => Some("create"),
+        Field::Text(TextSetting::Mode) => Some("create"),
         _ => None,
     }
 }
@@ -57,46 +61,15 @@ pub fn row(settings: &Practice, room_code: &str, field: Field) -> Row {
         Field::Room => Row::new("room", Value::Text(room_code.to_owned()))
             .hint("code shared by the host, Enter to type it"),
         Field::Join => Row::action("join room"),
-        Field::Mode => {
-            Row::new("mode", Value::Text(settings.mode.to_string())).hint(choices(RACE_MODES))
-        }
-        Field::Language if settings.mode == Mode::Code => {
-            Row::new("language", Value::Text(settings.code_language.to_string()))
-                .hint(choices(CodeLanguage::ALL))
-        }
-        Field::Language => Row::new("language", Value::Text(settings.language.to_string()))
-            .hint(choices(Language::ALL)),
-        Field::Words => Row::new("words", Value::Number(settings.word_count.into())).hint(format!(
-            "{} to {}",
-            RACE_WORD_COUNTS.start(),
-            RACE_WORD_COUNTS.end()
-        )),
-        Field::Punctuation => Row::new("punctuation", Value::Bool(settings.punctuation)),
-        Field::Numbers => Row::new("numbers", Value::Bool(settings.numbers)),
+        Field::Text(setting) => text_settings::row(settings, setting, &RACE_MODES),
         Field::Create => Row::action("create room"),
     }
 }
 
 pub fn adjust(settings: &mut Practice, field: Field, step: Step) {
-    match field {
-        Field::Mode => settings.mode = cycle(&RACE_MODES, settings.mode, step),
-        Field::Language if settings.mode == Mode::Code => {
-            settings.code_language = cycle(&CodeLanguage::ALL, settings.code_language, step);
-        }
-        Field::Language => settings.language = cycle(&Language::ALL, settings.language, step),
-        Field::Words => {
-            let presets = [10, 25, 30, 50, 100];
-            settings.word_count = cycle_preset(&presets, settings.word_count, step);
-        }
-        Field::Punctuation => settings.punctuation = !settings.punctuation,
-        Field::Numbers => settings.numbers = !settings.numbers,
-        Field::Room | Field::Join | Field::Create => {}
+    if let Field::Text(setting) = field {
+        text_settings::adjust(settings, setting, step, &RACE_MODES);
     }
-}
-
-/// Text of a race created with `settings`.
-pub fn text_source(settings: &Practice) -> Option<TextSource> {
-    settings.for_race().text_source()
 }
 
 /// Why the player connects.
@@ -192,15 +165,29 @@ impl RaceClient {
             .is_some_and(|(player, room)| room.is_host(player))
     }
 
-    /// Whether keystrokes should go to the race text.
+    pub fn phase(&self) -> Option<Phase> {
+        self.room.as_ref().map(|room| room.phase)
+    }
+
+    /// Whether the room counts down or races, whoever is still typing.
+    pub fn is_live(&self) -> bool {
+        matches!(self.phase(), Some(Phase::Countdown | Phase::Racing))
+    }
+
+    /// Whether the race text takes what the player types.
     pub fn accepts_typing(&self) -> bool {
-        matches!(
-            self.room.as_ref().map(|room| room.phase),
-            Some(Phase::Racing)
-        ) && self
-            .race
-            .as_ref()
-            .is_some_and(|race| !race.session.is_finished())
+        self.phase() == Some(Phase::Racing)
+            && self
+                .race
+                .as_ref()
+                .is_some_and(|race| !race.session.is_finished())
+    }
+
+    /// Whether the player is in a race they have not finished: the keyboard
+    /// belongs to the race text, already during the countdown so that early
+    /// keys are not taken as commands.
+    pub fn is_player_racing(&self) -> bool {
+        self.phase() == Some(Phase::Countdown) || self.accepts_typing()
     }
 
     pub fn session_mut(&mut self) -> Option<&mut TypingSession> {
@@ -253,10 +240,7 @@ impl RaceClient {
         let Some(race) = &self.race else {
             return;
         };
-        if !matches!(
-            self.room.as_ref().map(|room| room.phase),
-            Some(Phase::Racing)
-        ) {
+        if self.phase() != Some(Phase::Racing) {
             return;
         }
         let progress = progress(race.session.cursor(), &race.session.stats(now));
@@ -301,11 +285,7 @@ impl RaceClient {
 
     /// Leaving a running race takes two presses of Esc.
     pub fn confirm_leave(&mut self, now: Instant) -> bool {
-        let racing = matches!(
-            self.room.as_ref().map(|room| room.phase),
-            Some(Phase::Countdown | Phase::Racing)
-        );
-        let confirmed = !racing
+        let confirmed = !self.is_live()
             || self
                 .leave_armed
                 .is_some_and(|armed| now.duration_since(armed) <= LEAVE_CONFIRMATION);
@@ -381,28 +361,25 @@ impl RaceClient {
         }
     }
 
+    /// The record of the race, once: the server's figures where it has
+    /// them, as in the standings, and the local ones otherwise.
     fn conclude(&mut self, now: Instant) -> Option<Record> {
-        let me = self.me()?.clone();
+        let progress = self.me()?.progress;
         let language = Plan::Text(self.room.as_ref()?.text).language_label();
         let race = self.race.as_mut()?;
-        if race.recorded || race.session.stats(now).typed_chars == 0 {
+        let stats = race.session.stats(now);
+        if race.recorded || stats.typed_chars == 0 {
             return None;
         }
         race.recorded = true;
-        let stats = race.session.stats(now);
+        let duration = progress
+            .finish_ms
+            .map_or(stats.elapsed.as_secs_f64(), |ms| ms as f64 / 1000.0);
         Some(Record {
-            date: chrono::Local::now(),
-            mode: "race".to_owned(),
-            language,
-            duration: me
-                .progress
-                .finish_ms
-                .map_or(stats.elapsed.as_secs_f64(), |ms| ms as f64 / 1000.0),
-            wpm: me.progress.wpm,
-            raw_wpm: stats.raw_wpm,
-            accuracy: me.progress.accuracy,
-            errors: stats.errors,
-            text_length: race.session.target().len(),
+            duration,
+            wpm: progress.wpm,
+            accuracy: progress.accuracy,
+            ..Record::from_stats(RACE_RECORD_MODE.to_owned(), language, &stats)
         })
     }
 }
@@ -423,31 +400,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn text_source_is_always_raceable() {
-        for mode in Mode::ALL {
-            for word_count in [1, 30, 1_000] {
-                let settings = Practice {
-                    mode,
-                    word_count,
-                    ..Practice::default()
-                };
-                let text = text_source(&settings).expect("races never use time mode");
-                assert!(code_racer_protocol::is_raceable(&text));
-            }
-        }
-    }
-
-    #[test]
     fn race_form_cycles_only_race_modes() {
         let mut settings = Practice::default();
         let mut seen = Vec::new();
         for _ in 0..3 {
-            adjust(&mut settings, Field::Mode, Step::Next);
+            adjust(&mut settings, Field::Text(TextSetting::Mode), Step::Next);
             seen.push(settings.mode);
         }
         assert!(!seen.contains(&Mode::Time));
         assert_eq!(settings.mode, Mode::Words);
         assert_eq!(fields(&settings).len(), 8);
+    }
+
+    #[test]
+    fn race_words_cycle_through_raceable_presets() {
+        let mut settings = Practice::default().for_race();
+        let words = Field::Text(TextSetting::Words);
+        for _ in 0..Practice::WORD_COUNT_PRESETS.len() {
+            adjust(&mut settings, words, Step::Next);
+            assert!(code_racer_protocol::is_raceable(
+                &settings.race_text_source()
+            ));
+        }
+        assert_eq!(section(Field::Text(TextSetting::Mode)), Some("create"));
     }
 
     #[test]

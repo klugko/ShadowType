@@ -10,7 +10,7 @@ use super::{
     command::{Command, Page, Setting},
     keys::SessionEdit,
     practice::{CustomText, Plan, SoloRun},
-    race::{self, Intent, RaceClient},
+    race::{Intent, RaceClient},
 };
 use crate::{
     cli::Launch,
@@ -77,10 +77,7 @@ impl App {
     }
 
     pub(super) fn create_room(&mut self) {
-        match race::text_source(&self.race_settings) {
-            Some(text) => self.connect(Intent::Create(text)),
-            None => self.error("time mode is only available solo"),
-        }
+        self.connect(Intent::Create(self.race_settings.race_text_source()));
     }
 
     pub(super) fn join_typed_room(&mut self) {

@@ -233,11 +233,6 @@ impl TypingSession {
         }
     }
 
-    /// What was typed at `index`, if anything.
-    pub fn typed(&self, index: usize) -> Option<&str> {
-        self.entries.get(index).map(|entry| entry.text.as_str())
-    }
-
     /// Whether input is refused until the first mistake is corrected.
     pub fn is_blocked(&self) -> bool {
         self.first_mistake()
@@ -616,7 +611,7 @@ mod tests {
         assert_eq!(session.mark(1), Mark::Correct);
         session.backspace(now);
         assert_eq!(session.cursor(), 1);
-        assert_eq!(session.typed(0), Some("é"));
+        assert_eq!(session.mark(0), Mark::Correct);
     }
 
     #[test]
@@ -892,7 +887,7 @@ mod tests {
             11,
             "only the line break and its indentation go"
         );
-        assert_eq!(session.typed(10), Some("{"));
+        assert_eq!(session.mark(10), Mark::Correct, "the brace stays typed");
     }
 
     #[test]

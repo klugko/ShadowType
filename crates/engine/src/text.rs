@@ -69,10 +69,6 @@ impl TextSource {
             }
         }
     }
-
-    pub const fn is_code(&self) -> bool {
-        matches!(self, Self::Code { .. })
-    }
 }
 
 fn pick(len: usize, seed: u64) -> usize {

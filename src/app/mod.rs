@@ -13,11 +13,12 @@ mod keys;
 pub mod practice;
 pub mod race;
 pub mod settings;
+pub mod text_settings;
 
 use std::{path::PathBuf, time::Instant};
 
-use code_racer_engine::{CodeLanguage, Status, TypingSession};
-use code_racer_protocol::Phase;
+use code_racer_engine::{CodeLanguage, TypingSession};
+use code_racer_protocol::{RoomCode, Username};
 
 use crate::{
     cli::Launch,
@@ -88,6 +89,20 @@ pub enum TextField {
     Username,
     Server,
     RoomCode,
+}
+
+impl TextField {
+    /// Longest server address that can be typed, in characters.
+    const MAX_SERVER_LENGTH: usize = 120;
+
+    /// How many characters the field takes.
+    const fn max_length(self) -> usize {
+        match self {
+            Self::Username => Username::MAX_LENGTH,
+            Self::Server => Self::MAX_SERVER_LENGTH,
+            Self::RoomCode => RoomCode::LENGTH,
+        }
+    }
 }
 
 /// A form value being typed.
@@ -261,11 +276,18 @@ impl App {
     /// Whether the clock has to tick: a session is running or a countdown is shown.
     pub fn needs_ticks(&self) -> bool {
         match &self.activity {
-            Some(Activity::Solo(run)) => run.session.status() == Status::Running,
-            Some(Activity::Race(client)) => matches!(
-                client.room.as_ref().map(|room| room.phase),
-                Some(Phase::Countdown | Phase::Racing)
-            ),
+            Some(Activity::Solo(run)) => run.is_in_progress(),
+            Some(Activity::Race(client)) => client.is_live(),
+            None => false,
+        }
+    }
+
+    /// Whether the player is in the middle of a text: leaving it takes a
+    /// confirmation, and its buffer is marked as modified.
+    pub fn session_in_progress(&self) -> bool {
+        match &self.activity {
+            Some(Activity::Solo(run)) => run.is_in_progress(),
+            Some(Activity::Race(client)) => client.is_player_racing(),
             None => false,
         }
     }
@@ -277,13 +299,7 @@ impl App {
         }
         match &self.activity {
             Some(Activity::Solo(run)) => !run.is_finished(),
-            Some(Activity::Race(client)) => {
-                client.accepts_typing()
-                    || matches!(
-                        client.room.as_ref().map(|room| room.phase),
-                        Some(Phase::Countdown)
-                    )
-            }
+            Some(Activity::Race(client)) => client.is_player_racing(),
             None => false,
         }
     }

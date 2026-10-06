@@ -12,6 +12,7 @@ use std::{
 };
 
 use chrono::{DateTime, Local};
+use code_racer_engine::Stats;
 use serde::{Deserialize, Serialize};
 
 use crate::persist::{self, Loaded, Recovered};
@@ -41,8 +42,25 @@ pub struct Record {
     pub raw_wpm: f64,
     pub accuracy: f64,
     pub errors: usize,
-    /// Characters in the text that was typed.
+    /// Characters of the text that were typed, right or wrong.
     pub text_length: usize,
+}
+
+impl Record {
+    /// The record of a session that just ended, dated now.
+    pub fn from_stats(mode: String, language: String, stats: &Stats) -> Self {
+        Self {
+            date: Local::now(),
+            mode,
+            language,
+            duration: stats.elapsed.as_secs_f64(),
+            wpm: stats.wpm,
+            raw_wpm: stats.raw_wpm,
+            accuracy: stats.accuracy,
+            errors: stats.errors,
+            text_length: stats.correct_chars + stats.incorrect_chars,
+        }
+    }
 }
 
 /// Totals over the whole history.

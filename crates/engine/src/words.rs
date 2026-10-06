@@ -174,14 +174,6 @@ impl WordStream {
     }
 }
 
-impl Iterator for WordStream {
-    type Item = String;
-
-    fn next(&mut self) -> Option<String> {
-        Some(self.next_word(false))
-    }
-}
-
 fn starts_with_ascii_letter(word: &str) -> bool {
     word.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
 }
@@ -333,11 +325,8 @@ mod tests {
 
     #[test]
     fn stream_keeps_producing_words() {
-        let stream = WordStream::new(Language::English, PUNCTUATED, 0);
-        assert_eq!(
-            stream.take(1000).filter(|word| !word.is_empty()).count(),
-            1000
-        );
+        let mut stream = WordStream::new(Language::English, PUNCTUATED, 0);
+        assert!((0..1000).all(|_| !stream.next_word(false).is_empty()));
     }
 
     #[test]

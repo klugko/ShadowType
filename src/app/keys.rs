@@ -197,7 +197,7 @@ impl App {
         match &self.activity {
             Some(Activity::Solo(_)) => self.solo_result_key(key),
             Some(Activity::Race(client)) => {
-                let phase = client.room.as_ref().map(|room| room.phase);
+                let phase = client.phase();
                 self.room_key(key, phase, now)
             }
             None => false,
@@ -298,14 +298,14 @@ impl App {
     }
 
     pub(super) fn begin_edit(&mut self, field: TextField) {
-        let (value, limit) = match field {
-            TextField::Username => (self.config.username.as_str(), 24),
-            TextField::Server => (self.config.multiplayer.server.as_str(), 120),
-            TextField::RoomCode => (self.room_code.as_str(), 6),
+        let value = match field {
+            TextField::Username => self.config.username.as_str(),
+            TextField::Server => self.config.multiplayer.server.as_str(),
+            TextField::RoomCode => self.room_code.as_str(),
         };
         self.editing = Some(FieldEdit {
             field,
-            input: TextInput::new(value, limit),
+            input: TextInput::new(value, field.max_length()),
         });
     }
 }

@@ -59,7 +59,7 @@ fn explorer_lines(app: &App, width: u16, palette: &Palette) -> Vec<Line<'static>
 fn explorer_entry(app: &App, buffer: Buffer, width: u16, palette: &Palette) -> Line<'static> {
     let name = app.buffer_name(buffer);
     let selected = app.buffer == buffer;
-    let marker = if buffer == Buffer::Session && is_running(app) {
+    let marker = if buffer == Buffer::Session && app.session_in_progress() {
         "●"
     } else {
         " "
@@ -140,7 +140,7 @@ pub fn tabline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     let mut spans = Vec::new();
     for buffer in tabs {
         let name = app.buffer_name(buffer);
-        let modified = if buffer == Buffer::Session && is_running(app) {
+        let modified = if buffer == Buffer::Session && app.session_in_progress() {
             " ●"
         } else {
             ""
@@ -378,13 +378,5 @@ fn key_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("Esc", "explorer"),
         ],
         Buffer::Session => vec![("Esc", "close"), (":", "command"), ("?", "help")],
-    }
-}
-
-fn is_running(app: &App) -> bool {
-    match &app.activity {
-        Some(Activity::Solo(run)) => !run.is_finished(),
-        Some(Activity::Race(_)) => true,
-        None => false,
     }
 }

@@ -160,7 +160,7 @@ impl RoomArgs {
         let practice = self
             .text
             .practice(&defaults.for_race(), None, &RACE_WORD_COUNTS)?;
-        practice.text_source().ok_or(CliError::TimeModeInRace)
+        Ok(practice.race_text_source())
     }
 }
 
