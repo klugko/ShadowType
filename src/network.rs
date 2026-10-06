@@ -3,23 +3,29 @@
 //! [`Connection::open`] returns immediately: connecting, the handshake and the
 //! traffic run in a background task that reports through [`NetworkEvent`]s.
 
-use std::time::Duration;
+use std::{ops::ControlFlow, time::Duration};
 
 use code_racer_protocol::{
     ClientMessage, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, PlayerId, ServerMessage, Username,
 };
 use futures_util::{SinkExt, StreamExt};
 use thiserror::Error;
-use tokio::{net::TcpStream, runtime::Handle, sync::mpsc, time::timeout};
+use tokio::{
+    net::TcpStream,
+    runtime::Handle,
+    sync::mpsc,
+    time::{self, Instant, MissedTickBehavior, timeout},
+};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, connect_async_with_config,
-    tungstenite::{self, Message, protocol::WebSocketConfig},
+    tungstenite::{self, Bytes, Message, protocol::WebSocketConfig},
 };
 
 const OUTGOING_CAPACITY: usize = 64;
 const EVENT_CAPACITY: usize = 256;
 const CONNECTION_LOST: &str = "connection lost";
 const CLOSED_BY_CLIENT: &str = "connection closed by the client";
+const SERVER_SILENT: &str = "the server stopped responding";
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -33,6 +39,18 @@ struct Timeouts {
     /// Sending one frame, or closing: a server that takes longer stopped
     /// reading.
     write: Duration,
+    /// Longest time without any frame from the server, which notices a
+    /// server that vanished without closing the connection, such as a machine
+    /// that lost the network or went to sleep.
+    silence: Duration,
+}
+
+impl Timeouts {
+    /// The client pings three times per silence period, so a live server
+    /// always has pongs to send in time even when nothing else happens.
+    fn ping_interval(self) -> Duration {
+        self.silence / 3
+    }
 }
 
 impl Default for Timeouts {
@@ -41,6 +59,7 @@ impl Default for Timeouts {
             connect: Duration::from_secs(5),
             handshake: Duration::from_secs(5),
             write: Duration::from_secs(5),
+            silence: Duration::from_secs(45),
         }
     }
 }
@@ -191,7 +210,9 @@ async fn run(
     let reason = match connected {
         Ok((socket, player_id)) => {
             let _ = events.send(NetworkEvent::Connected(player_id)).await;
-            relay(socket, &mut outgoing, &events, timeouts).await
+            relay(socket, &mut outgoing, &events, timeouts)
+                .await
+                .to_owned()
         }
         Err(reason) => reason,
     };
@@ -245,48 +266,91 @@ async fn handshake(socket: &mut Socket, username: Username) -> Result<PlayerId, 
     }
 }
 
-/// Forwards messages both ways until the server goes away or the
-/// [`Connection`] is dropped, and returns why it stopped.
+/// Forwards messages both ways until the server goes away, falls silent or
+/// the [`Connection`] is dropped, and returns why it stopped.
 ///
 /// Outgoing messages come first, so that the ones queued before the drop
-/// are all sent before the socket is closed.
+/// are all sent before the socket is closed. Only frames from the server
+/// prove that it is alive: sending succeeds long after it vanished, as the
+/// operating system buffers the data and retries for minutes.
 async fn relay(
     mut socket: Socket,
     outgoing: &mut mpsc::Receiver<ClientMessage>,
     events: &mpsc::Sender<NetworkEvent>,
     timeouts: Timeouts,
-) -> String {
+) -> &'static str {
+    let silence = time::sleep(timeouts.silence);
+    tokio::pin!(silence);
+    let mut pings = time::interval_at(
+        Instant::now() + timeouts.ping_interval(),
+        timeouts.ping_interval(),
+    );
+    pings.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
-        tokio::select! {
+        let step = tokio::select! {
             biased;
-            message = outgoing.recv() => match message {
-                Some(message) => {
-                    let frame = Message::text(message.to_json());
-                    if !write(&mut socket, frame, timeouts.write).await {
-                        return CONNECTION_LOST.to_owned();
-                    }
-                }
-                None => {
-                    hang_up(&mut socket, timeouts.write).await;
-                    return CLOSED_BY_CLIENT.to_owned();
-                }
-            },
-            frame = socket.next() => match decode(frame) {
-                Incoming::Message(message) => {
-                    if events.send(NetworkEvent::Message(message)).await.is_err() {
-                        outgoing.close();
-                    }
-                }
-                Incoming::Ignored => {}
-                Incoming::Closed => return CONNECTION_LOST.to_owned(),
-            },
+            message = outgoing.recv() => send_next(&mut socket, message, timeouts.write).await,
+            frame = socket.next() => {
+                silence.as_mut().reset(Instant::now() + timeouts.silence);
+                deliver(decode(frame), outgoing, events).await
+            }
+            _ = pings.tick() => {
+                send_frame(&mut socket, Message::Ping(Bytes::new()), timeouts.write).await
+            }
+            () = &mut silence => ControlFlow::Break(SERVER_SILENT),
+        };
+        if let ControlFlow::Break(reason) = step {
+            return reason;
+        }
+    }
+}
+
+/// Sends the next queued message, or closes the socket once the
+/// [`Connection`] is gone and the queue is empty.
+async fn send_next(
+    socket: &mut Socket,
+    message: Option<ClientMessage>,
+    limit: Duration,
+) -> ControlFlow<&'static str> {
+    match message {
+        Some(message) => send_frame(socket, Message::text(message.to_json()), limit).await,
+        None => {
+            hang_up(socket, limit).await;
+            ControlFlow::Break(CLOSED_BY_CLIENT)
         }
     }
 }
 
 /// Sends `frame`, giving up after `limit`.
-async fn write(socket: &mut Socket, frame: Message, limit: Duration) -> bool {
-    matches!(timeout(limit, socket.send(frame)).await, Ok(Ok(())))
+async fn send_frame(
+    socket: &mut Socket,
+    frame: Message,
+    limit: Duration,
+) -> ControlFlow<&'static str> {
+    match timeout(limit, socket.send(frame)).await {
+        Ok(Ok(())) => ControlFlow::Continue(()),
+        _ => ControlFlow::Break(CONNECTION_LOST),
+    }
+}
+
+/// Hands a server message to the application. When the application stopped
+/// listening, the queue of outgoing messages is closed too, which ends the
+/// relay once it is flushed.
+async fn deliver(
+    incoming: Incoming,
+    outgoing: &mut mpsc::Receiver<ClientMessage>,
+    events: &mpsc::Sender<NetworkEvent>,
+) -> ControlFlow<&'static str> {
+    match incoming {
+        Incoming::Message(message) => {
+            if events.send(NetworkEvent::Message(message)).await.is_err() {
+                outgoing.close();
+            }
+            ControlFlow::Continue(())
+        }
+        Incoming::Ignored => ControlFlow::Continue(()),
+        Incoming::Closed => ControlFlow::Break(CONNECTION_LOST),
+    }
 }
 
 /// Sends a close frame and reads until the server answers it, for at most
@@ -378,6 +442,9 @@ mod tests {
     const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
     /// Replaces a production timeout that a test waits for on purpose.
     const SHORT_TIMEOUT: Duration = Duration::from_millis(100);
+    /// Replaces the silence timeout where a test needs the client to ping:
+    /// long enough that a busy machine still answers in time.
+    const SHORT_SILENCE: Duration = Duration::from_millis(400);
 
     fn username() -> Username {
         "Tester".parse().expect("valid name")
@@ -556,6 +623,7 @@ mod tests {
     }
 
     mod against_a_scripted_server {
+        use code_racer_protocol::ErrorCode;
         use tokio::sync::oneshot;
 
         use super::*;
@@ -803,6 +871,81 @@ mod tests {
 
             let hung_up = timeout(EVENT_TIMEOUT, gone).await.expect("in time");
             assert_eq!(hung_up.ok(), Some(true));
+        }
+
+        #[tokio::test]
+        async fn a_server_that_falls_silent_is_given_up_on() {
+            let (keep_alive, kept) = oneshot::channel::<()>();
+            let url = scripted_server(|mut socket| async move {
+                accept_hello(&mut socket, 9).await;
+                let _ = kept.await;
+            })
+            .await;
+            let timeouts = Timeouts {
+                silence: SHORT_SILENCE,
+                ..Timeouts::default()
+            };
+            let started = std::time::Instant::now();
+            let mut connection = Connection::open_with(url, username(), timeouts);
+            assert_eq!(
+                next(&mut connection).await,
+                Some(NetworkEvent::Connected(PlayerId(9)))
+            );
+
+            let event = timeout(EVENT_TIMEOUT, async {
+                loop {
+                    tokio::select! {
+                        event = connection.next_event() => break event,
+                        () = time::sleep(SHORT_SILENCE / 8) => {
+                            connection.send(ClientMessage::SetReady { ready: true });
+                        }
+                    }
+                }
+            })
+            .await
+            .expect("in time");
+
+            assert_eq!(
+                event,
+                Some(NetworkEvent::Closed {
+                    reason: SERVER_SILENT.to_owned()
+                })
+            );
+            assert!(started.elapsed() >= SHORT_SILENCE);
+            drop(keep_alive);
+        }
+
+        #[tokio::test]
+        async fn a_server_that_answers_pings_is_not_silent() {
+            let url = scripted_server(|mut socket| async move {
+                accept_hello(&mut socket, 10).await;
+                let answer_pings = async { while let Some(Ok(_)) = socket.next().await {} };
+                let _ = timeout(SHORT_SILENCE * 5 / 2, answer_pings).await;
+                send(
+                    &mut socket,
+                    ServerMessage::error(ErrorCode::NotInRoom, "still here"),
+                )
+                .await;
+                let _ = socket.next().await;
+            })
+            .await;
+            let timeouts = Timeouts {
+                silence: SHORT_SILENCE,
+                ..Timeouts::default()
+            };
+            let mut connection = Connection::open_with(url, username(), timeouts);
+            assert_eq!(
+                next(&mut connection).await,
+                Some(NetworkEvent::Connected(PlayerId(10)))
+            );
+
+            assert_eq!(
+                next(&mut connection).await,
+                Some(NetworkEvent::Message(ServerMessage::error(
+                    ErrorCode::NotInRoom,
+                    "still here"
+                )))
+            );
         }
 
         #[tokio::test]
