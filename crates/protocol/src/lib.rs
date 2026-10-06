@@ -8,7 +8,9 @@ const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 pub fn room_code() -> String {
     let mut rng = rand::rng();
-    (0..6).map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char).collect()
+    (0..6)
+        .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
+        .collect()
 }
 pub fn valid_code(code: &str) -> bool {
     code.len() == 6 && code.bytes().all(|b| ALPHABET.contains(&b))
@@ -20,14 +22,31 @@ pub fn valid_username(name: &str) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientMessage {
-    Create { version: u16, username: String, language: String },
-    Join { version: u16, code: String, username: String },
-    Ready { ready: bool },
+    Create {
+        version: u16,
+        username: String,
+        language: String,
+    },
+    Join {
+        version: u16,
+        code: String,
+        username: String,
+    },
+    Ready {
+        ready: bool,
+    },
     Start,
-    Progress { position: usize, errors: usize, correct: usize, attempts: usize },
+    Progress {
+        position: usize,
+        errors: usize,
+        correct: usize,
+        attempts: usize,
+    },
     Leave,
     Again,
-    Ping { client_ms: u64 },
+    Ping {
+        client_ms: u64,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Player {
@@ -42,7 +61,12 @@ pub struct Player {
     pub finished_ms: Option<u64>,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Phase { Waiting, Countdown, Racing, Finished }
+pub enum Phase {
+    Waiting,
+    Countdown,
+    Racing,
+    Finished,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Snapshot {
     pub code: String,
@@ -57,11 +81,14 @@ pub struct Snapshot {
 impl Snapshot {
     pub fn ranking(&self) -> Vec<&Player> {
         let mut players: Vec<_> = self.players.iter().collect();
-        players.sort_by(|a,b| match (a.finished_ms,b.finished_ms) {
-            (Some(a),Some(b)) => a.cmp(&b),
-            (Some(_),None) => std::cmp::Ordering::Less,
-            (None,Some(_)) => std::cmp::Ordering::Greater,
-            (None,None) => b.position.cmp(&a.position).then_with(|| a.name.cmp(&b.name)),
+        players.sort_by(|a, b| match (a.finished_ms, b.finished_ms) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => b
+                .position
+                .cmp(&a.position)
+                .then_with(|| a.name.cmp(&b.name)),
         });
         players
     }
@@ -75,7 +102,10 @@ pub enum ServerMessage {
     Pong { client_ms: u64, server_ms: u64 },
 }
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 pub fn text(language: &str) -> Option<&'static str> {
     Some(match language {
@@ -83,26 +113,116 @@ pub fn text(language: &str) -> Option<&'static str> {
         "french" => include_str!("../../../texts/french.txt").trim_end(),
         "rust" => include_str!("../../../texts/code/rust.txt").trim_end(),
         "python" => include_str!("../../../texts/code/python.txt").trim_end(),
-        "javascript" | "typescript" => include_str!("../../../texts/code/javascript.txt").trim_end(),
+        "javascript" | "typescript" => {
+            include_str!("../../../texts/code/javascript.txt").trim_end()
+        }
         "sql" => include_str!("../../../texts/code/sql.txt").trim_end(),
         _ => return None,
     })
 }
-pub fn grapheme_count(text: &str) -> usize { text.graphemes(true).count() }
+pub fn grapheme_count(text: &str) -> usize {
+    text.graphemes(true).count()
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn codes_and_names() {
-        for _ in 0..1000 { assert!(valid_code(&room_code())); }
+    #[test]
+    fn codes_and_names() {
+        for _ in 0..1000 {
+            assert!(valid_code(&room_code()));
+        }
         assert!(!valid_code("ABC01O"));
         assert!(valid_username("Élodie"));
         assert!(!valid_username("\nBob"));
         assert!(!valid_username(&"a".repeat(25)));
     }
-    #[test] fn protocol_roundtrip() {
-        let message = ClientMessage::Join { version: VERSION, code: "ABC234".into(), username: "Jean".into() };
-        assert_eq!(serde_json::from_str::<ClientMessage>(&serde_json::to_string(&message).expect("encode")).expect("decode"),message);
+    #[test]
+    fn protocol_roundtrip() {
+        let message = ClientMessage::Join {
+            version: VERSION,
+            code: "ABC234".into(),
+            username: "Jean".into(),
+        };
+        assert_eq!(
+            serde_json::from_str::<ClientMessage>(
+                &serde_json::to_string(&message).expect("encode")
+            )
+            .expect("decode"),
+            message
+        );
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"Unknown"}"#).is_err());
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    fn p(name: &str, position: usize, time: Option<u64>) -> Player {
+        Player {
+            id: name.into(),
+            name: name.into(),
+            ready: true,
+            connected: true,
+            position,
+            errors: 0,
+            wpm: 60.0,
+            accuracy: 100.0,
+            finished_ms: time,
+        }
+    }
+    #[test]
+    fn ranking_and_snapshot_roundtrip() {
+        let room = Snapshot {
+            code: "ABC234".into(),
+            host: "A".into(),
+            players: vec![
+                p("Slow", 10, Some(200)),
+                p("DNF", 9, None),
+                p("Fast", 10, Some(100)),
+                p("Last", 2, None),
+            ],
+            phase: Phase::Finished,
+            text: "test".into(),
+            language: "english".into(),
+            start_ms: Some(123),
+            server_ms: 500,
+        };
+        assert_eq!(
+            room.ranking()
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Fast", "Slow", "DNF", "Last"]
+        );
+        let message = ServerMessage::Room(room);
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(
+                &serde_json::to_string(&message).expect("encode")
+            )
+            .expect("decode"),
+            message
+        );
+        for message in [
+            ClientMessage::Start,
+            ClientMessage::Again,
+            ClientMessage::Leave,
+            ClientMessage::Ready { ready: true },
+            ClientMessage::Progress {
+                position: 2,
+                errors: 1,
+                correct: 1,
+                attempts: 2,
+            },
+            ClientMessage::Ping { client_ms: 42 },
+        ] {
+            assert_eq!(
+                serde_json::from_str::<ClientMessage>(
+                    &serde_json::to_string(&message).expect("encode")
+                )
+                .expect("decode"),
+                message
+            );
+        }
     }
 }
