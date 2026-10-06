@@ -1,10 +1,19 @@
 [package]
 name = "code-racer-protocol"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
+description = "Messages exchanged between code-racer clients and the race server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
 [dependencies]
+code-racer-engine.workspace = true
+rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 unicode-segmentation.workspace = true
-rand.workspace = true
+
+[lints]
+workspace = true
