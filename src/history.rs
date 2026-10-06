@@ -20,12 +20,18 @@ pub const MAX_RECORDS: usize = 2000;
 /// Sessions averaged into [`Summary::recent_wpm`].
 pub const RECENT_SESSIONS: usize = 10;
 
+/// [`Record::mode`] of code sessions, whatever their programming language.
+const CODE_MODE: &str = "code";
+
 /// One finished solo session or race.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Record {
     pub date: DateTime<Local>,
-    /// What was practised: `words 50`, `time 30`, `quote`, `code rust` or `race`.
+    /// What was practised: `words 50`, `time 30`, `quote`, `code`, `file` or
+    /// `race`.
     pub mode: String,
+    /// The natural language of the text, or the programming language of a
+    /// `code` session (`rust`), a `file` (`text` when unknown) or a race on code.
     pub language: String,
     /// Length of the session, in seconds.
     pub duration: f64,
@@ -216,9 +222,12 @@ struct LegacyStats {
 impl From<StoredRecord> for Record {
     fn from(stored: StoredRecord) -> Self {
         match stored {
-            StoredRecord::Current(record) => record,
+            StoredRecord::Current(record) => Self {
+                mode: current_mode(record.mode),
+                ..record
+            },
             StoredRecord::Legacy(legacy) => Self {
-                mode: legacy_mode(&legacy.mode, &legacy.language),
+                mode: legacy_mode(&legacy.mode),
                 date: legacy.date,
                 language: legacy.language,
                 duration: legacy.stats.elapsed,
@@ -232,11 +241,21 @@ impl From<StoredRecord> for Record {
     }
 }
 
-fn legacy_mode(mode: &str, language: &str) -> String {
+/// Development builds of 0.2 migrated code sessions to `code <language>`,
+/// which never matches the `code` key that sessions are recorded under.
+fn current_mode(mode: String) -> String {
+    if mode.starts_with("code ") {
+        CODE_MODE.to_owned()
+    } else {
+        mode
+    }
+}
+
+fn legacy_mode(mode: &str) -> String {
     match mode.split_once('/') {
         Some((kind @ ("words" | "time"), amount)) => format!("{kind} {amount}"),
         Some(("quote", _)) => "quote".to_owned(),
-        Some(("code", _)) => format!("code {language}"),
+        Some(("code", _)) => CODE_MODE.to_owned(),
         _ if mode == "multiplayer" => "race".to_owned(),
         _ => mode.replace('/', " "),
     }
@@ -284,7 +303,7 @@ mod tests {
             .add(record("words 50", "english", 61.5, 97.0))
             .expect("add");
         history
-            .add(record("code rust", "rust", 48.0, 91.0))
+            .add(record("code", "rust", 48.0, 91.0))
             .expect("add");
 
         let reloaded = History::load(&path);
@@ -406,7 +425,7 @@ mod tests {
 
         assert_eq!(history.personal_best("words 50", "english"), Some(82.0));
         assert_eq!(history.personal_best("words 50", "french"), Some(95.0));
-        assert_eq!(history.personal_best("code rust", "rust"), None);
+        assert_eq!(history.personal_best("code", "rust"), None);
     }
 
     #[test]
@@ -498,7 +517,7 @@ mod tests {
             .iter()
             .map(|record| record.mode.as_str())
             .collect();
-        assert_eq!(modes, ["words 50", "time 30", "quote", "code rust", "race"]);
+        assert_eq!(modes, ["words 50", "time 30", "quote", "code", "race"]);
         let first = &loaded.value.records()[0];
         assert_eq!(
             (first.wpm, first.raw_wpm, first.accuracy, first.errors),
@@ -560,8 +579,34 @@ mod tests {
 
     #[test]
     fn unknown_legacy_modes_lose_their_slash() {
-        assert_eq!(legacy_mode("zen/0", "english"), "zen 0");
-        assert_eq!(legacy_mode("multiplayer", "english"), "race");
-        assert_eq!(legacy_mode("code/100", "python"), "code python");
+        assert_eq!(legacy_mode("zen/0"), "zen 0");
+        assert_eq!(legacy_mode("multiplayer"), "race");
+    }
+
+    #[test]
+    fn migrated_code_sessions_count_towards_the_personal_best() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let legacy = r#"[{"date":"2025-05-01T10:00:00+00:00","mode":"code/100","language":"rust",
+            "stats":{"wpm":71.0,"raw_wpm":75.0,"accuracy":97.0,"errors":3,"length":300,"elapsed":51.0}}]"#;
+        fs::write(&path, legacy).expect("write");
+
+        let history = History::load(&path).value;
+
+        assert_eq!(history.records()[0].mode, "code");
+        assert_eq!(history.records()[0].language, "rust");
+        assert_eq!(history.personal_best("code", "rust"), Some(71.0));
+    }
+
+    #[test]
+    fn code_sessions_saved_with_their_language_in_the_mode_are_normalised() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let saved = [record("code python", "python", 58.0, 94.0)];
+        fs::write(&path, serde_json::to_vec(&saved).expect("json")).expect("write");
+
+        let history = History::load(&path).value;
+
+        assert_eq!(history.personal_best("code", "python"), Some(58.0));
     }
 }
