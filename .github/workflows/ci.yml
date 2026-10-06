@@ -86,24 +86,21 @@ jobs:
       - name: Smoke test the image
         run: |
           docker run -d --name race -p 8080:8080 code-racer-server:ci
+          trap 'docker logs race; docker rm -f race > /dev/null' EXIT
+          timeout 20 sh -c 'until docker logs race 2>&1 | grep -q "race server listening"; do sleep 0.2; done'
           python3 - <<'PY'
-          import socket, time
-          for attempt in range(40):
-              try:
-                  connection = socket.create_connection(("127.0.0.1", 8080), timeout=5)
-                  break
-              except OSError:
-                  time.sleep(0.25)
-          else:
-              raise SystemExit("server did not start")
-          connection.sendall(
-              b"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-              b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
-          )
-          assert b"101 Switching Protocols" in connection.recv(4096)
+          import socket
+          with socket.create_connection(("127.0.0.1", 8080), timeout=5) as connection:
+              connection.sendall(
+                  b"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                  b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+              )
+              reply = connection.recv(4096)
+          assert b"101 Switching Protocols" in reply, reply
           PY
-          docker logs race
-          docker stop race
+          docker stop --timeout 5 race
+          status=$(docker inspect --format '{{.State.ExitCode}}' race)
+          [ "$status" = 0 ] || { echo "the server exited with status $status after SIGTERM"; exit 1; }
       - name: Publish the image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
