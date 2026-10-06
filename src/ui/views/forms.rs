@@ -62,7 +62,7 @@ pub fn practice(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> 
 }
 
 pub fn race(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Option<Position> {
-    let fields = race::fields(&app.race_settings);
+    let fields = race::fields(&app.config.race);
     let selected = app.race_cursor.index(fields.len());
     let mut items = vec![
         Item::Plain(doc::title("race.toml", palette)),
@@ -90,7 +90,7 @@ pub fn race(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Opti
             .then_some(TextField::RoomCode)
             .filter(|_| editing_field(app) == Some(TextField::RoomCode));
         items.push(Item::Field {
-            row: race::row(&app.race_settings, &app.room_code, *field),
+            row: race::row(&app.config.race, &app.room_code, *field),
             selected: index == selected && app.focus == Focus::Editor,
             editing,
         });

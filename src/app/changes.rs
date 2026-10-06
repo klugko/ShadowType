@@ -8,10 +8,7 @@ use code_racer_engine::{CodeLanguage, Language};
 use code_racer_protocol::{RoomCode, Username};
 
 use super::{App, TextField, command::Setting};
-use crate::{
-    config::{self, Practice},
-    network,
-};
+use crate::{cli::Launch, config::Practice, network};
 
 impl App {
     pub(super) fn commit_field(&mut self, field: TextField, value: &str) {
@@ -68,7 +65,7 @@ impl App {
     /// Changes how texts are written, solo and in races alike, and saves it.
     fn change_text(&mut self, change: impl Fn(&mut Practice)) {
         change(&mut self.config.practice);
-        change(&mut self.race_settings);
+        change(&mut self.config.race);
         self.save_config();
     }
 
@@ -78,10 +75,22 @@ impl App {
         self.info(format!("hello {name}"));
         if let Some(launch) = self.pending.take() {
             self.editing = None;
-            self.launch(launch);
+            self.run_launch(launch);
         }
         self.save_config();
         Ok(())
+    }
+
+    /// Esc on the name asked before a launch: the launch goes on without
+    /// it, unless it is a race, which needs a name.
+    pub(super) fn skip_username(&mut self) {
+        match self.pending.take() {
+            Some(Launch::Create(_) | Launch::Join(_)) => {
+                self.error("a race needs a username: press Enter on it, or :set username=NAME");
+            }
+            Some(launch) => self.run_launch(launch),
+            None => {}
+        }
     }
 
     fn set_server(&mut self, value: &str) -> Result<(), String> {
@@ -101,14 +110,11 @@ impl App {
         Ok(())
     }
 
-    /// Writes the settings to `config.toml`. Call it after any message about
+    /// Saves the settings the user changed. Call it after any message about
     /// the change: a failure replaces that message.
     pub(super) fn save_config(&mut self) {
-        let Some(path) = &self.config_path else {
-            return;
-        };
-        if let Err(error) = config::save_config(path, &self.config) {
-            self.error(format!("cannot save {}: {error}", path.display()));
+        if let Err(error) = self.saved.save(&self.config) {
+            self.error(error);
         }
     }
 }

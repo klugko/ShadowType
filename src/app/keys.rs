@@ -147,7 +147,7 @@ impl App {
     fn form_len(&self, kind: FormKind) -> usize {
         match kind {
             FormKind::Practice => practice::fields(&self.config.practice).len(),
-            FormKind::Race => race::fields(&self.race_settings).len(),
+            FormKind::Race => race::fields(&self.config.race).len(),
             FormKind::Settings => settings::FIELDS.len(),
         }
     }
@@ -178,7 +178,7 @@ impl App {
     }
 
     fn race_intent(&mut self, intent: ValueIntent) {
-        let fields = race::fields(&self.race_settings);
+        let fields = race::fields(&self.config.race);
         let field = fields[self.race_cursor.index(fields.len())];
         match (intent, field) {
             (ValueIntent::Activate | ValueIntent::Edit, race::Field::Room) => {
@@ -186,8 +186,14 @@ impl App {
             }
             (ValueIntent::Activate, race::Field::Join) => self.join_typed_room(),
             (ValueIntent::Activate, race::Field::Create) => self.create_room(),
-            (ValueIntent::Change(step), _) => race::adjust(&mut self.race_settings, field, step),
-            (ValueIntent::Activate, _) => race::adjust(&mut self.race_settings, field, Step::Next),
+            (ValueIntent::Change(step), _) => {
+                race::adjust(&mut self.config.race, field, step);
+                self.save_config();
+            }
+            (ValueIntent::Activate, _) => {
+                race::adjust(&mut self.config.race, field, Step::Next);
+                self.save_config();
+            }
             (ValueIntent::Edit, _) => {}
         }
     }
@@ -312,7 +318,13 @@ impl App {
                 let value = edit.input.value().to_owned();
                 self.commit_field(field, &value);
             }
-            Edit::Cancelled => self.editing = None,
+            Edit::Cancelled => {
+                let field = edit.field;
+                self.editing = None;
+                if field == TextField::Username {
+                    self.skip_username();
+                }
+            }
             Edit::Changed | Edit::Ignored => {}
         }
     }

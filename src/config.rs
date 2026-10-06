@@ -239,6 +239,47 @@ impl Config {
     pub fn username(&self) -> Option<Username> {
         self.username.parse().ok()
     }
+
+    /// Takes from `after` every setting that differs from `before`, and
+    /// keeps the others.
+    pub fn adopt_changes(&mut self, before: &Self, after: &Self) {
+        adopt(&mut self.username, &before.username, &after.username);
+        adopt(&mut self.theme, &before.theme, &after.theme);
+        self.practice
+            .adopt_changes(&before.practice, &after.practice);
+        self.race.adopt_changes(&before.race, &after.race);
+        adopt(
+            &mut self.multiplayer.server,
+            &before.multiplayer.server,
+            &after.multiplayer.server,
+        );
+    }
+}
+
+impl Practice {
+    fn adopt_changes(&mut self, before: &Self, after: &Self) {
+        adopt(&mut self.mode, &before.mode, &after.mode);
+        adopt(&mut self.language, &before.language, &after.language);
+        adopt(
+            &mut self.code_language,
+            &before.code_language,
+            &after.code_language,
+        );
+        adopt(&mut self.word_count, &before.word_count, &after.word_count);
+        adopt(&mut self.duration, &before.duration, &after.duration);
+        adopt(
+            &mut self.punctuation,
+            &before.punctuation,
+            &after.punctuation,
+        );
+        adopt(&mut self.numbers, &before.numbers, &after.numbers);
+    }
+}
+
+fn adopt<T: Clone + PartialEq>(kept: &mut T, before: &T, after: &T) {
+    if before != after {
+        kept.clone_from(after);
+    }
 }
 
 /// Where code-racer keeps its files.
@@ -266,12 +307,15 @@ impl Paths {
     }
 }
 
-/// Reads the configuration, falling back to defaults when the file is missing
-/// or unusable. An invalid file is moved aside and explained in the warning.
-pub fn load_config(path: &Path) -> Loaded<Config> {
+/// Reads the configuration. A missing file gives the defaults, and an
+/// invalid one is moved aside, explained in the warning, and gives the
+/// defaults too. `None` means the file could be neither used nor moved
+/// aside: it is still there, and must not be written over.
+pub fn load_config(path: &Path) -> Loaded<Option<Config>> {
     persist::read_or_recover(path, "defaults loaded", parse_config).map(|found| match found {
-        Recovered::Parsed(config) => config,
-        Recovered::Absent | Recovered::LeftInPlace => Config::default(),
+        Recovered::Parsed(config) => Some(config),
+        Recovered::Absent => Some(Config::default()),
+        Recovered::LeftInPlace => None,
     })
 }
 
@@ -373,11 +417,16 @@ fn describe(error: &toml::de::Error, contents: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
 
     use super::*;
     use crate::persist::scratch::{TempDir, occupy_every_backup};
+
+    /// The settings loaded from `path`, defaults when the file was left in place.
+    pub(crate) fn load(path: &Path) -> Loaded<Config> {
+        load_config(path).map(Option::unwrap_or_default)
+    }
 
     const DOCUMENTED_EXAMPLE: &str = r#"username = "Jean"
 language = "french"
@@ -397,7 +446,7 @@ server = "ws://127.0.0.1:8080"
     #[test]
     fn documented_example_is_understood() {
         let dir = TempDir::new();
-        let loaded = load_config(&write_config(&dir, DOCUMENTED_EXAMPLE));
+        let loaded = load(&write_config(&dir, DOCUMENTED_EXAMPLE));
 
         assert_eq!(
             loaded,
@@ -426,11 +475,11 @@ server = "ws://127.0.0.1:8080"
     fn documented_example_survives_a_save() {
         let dir = TempDir::new();
         let path = write_config(&dir, DOCUMENTED_EXAMPLE);
-        let loaded = load_config(&path).value;
+        let loaded = load(&path).value;
 
         save_config(&path, &loaded).expect("save");
 
-        assert_eq!(load_config(&path), Loaded::clean(loaded));
+        assert_eq!(load(&path), Loaded::clean(loaded));
     }
 
     #[test]
@@ -451,7 +500,7 @@ server = "ws://127.0.0.1:8080"
         );
         let config = Config {
             theme: Theme::Mono,
-            ..load_config(&path).value
+            ..load(&path).value
         };
 
         save_config(&path, &config).expect("save");
@@ -470,7 +519,7 @@ server = "ws://127.0.0.1:8080"
                 "{line} in {saved}"
             );
         }
-        assert_eq!(load_config(&path), Loaded::clean(config));
+        assert_eq!(load(&path), Loaded::clean(config));
     }
 
     #[test]
@@ -491,7 +540,7 @@ server = "ws://127.0.0.1:8080"
     fn missing_keys_default_and_unknown_keys_are_ignored() {
         let dir = TempDir::new();
         let contents = "editor = \"vim\"\ndefault_mode = \"code\"\n[multiplayer]\nretries = 3\n";
-        let loaded = load_config(&write_config(&dir, contents));
+        let loaded = load(&write_config(&dir, contents));
 
         assert_eq!(loaded.warning, None);
         assert_eq!(
@@ -510,7 +559,7 @@ server = "ws://127.0.0.1:8080"
     fn missing_file_gives_defaults_without_creating_it() {
         let dir = TempDir::new();
         let path = dir.join("config.toml");
-        assert_eq!(load_config(&path), Loaded::clean(Config::default()));
+        assert_eq!(load(&path), Loaded::clean(Config::default()));
         assert!(!path.exists());
     }
 
@@ -546,7 +595,7 @@ server = "ws://127.0.0.1:8080"
 
         save_config(&path, &config).expect("save");
 
-        assert_eq!(load_config(&path), Loaded::clean(config));
+        assert_eq!(load(&path), Loaded::clean(config));
     }
 
     #[test]
@@ -575,7 +624,7 @@ server = "ws://127.0.0.1:8080"
         let dir = TempDir::new();
         let path = write_config(&dir, "username = \"Jean\"\ntheme = \n");
 
-        let loaded = load_config(&path);
+        let loaded = load(&path);
 
         assert_eq!(loaded.value, Config::default());
         let warning = loaded.warning.expect("warning");
@@ -604,7 +653,7 @@ server = "ws://127.0.0.1:8080"
         let path = write_config(&dir, "username = \"Jean\"\ntheme = \"solarized\"\n");
         occupy_every_backup(&path);
 
-        let loaded = load_config(&path);
+        let loaded = load(&path);
         let saved = save_config(&path, &loaded.value);
 
         assert_eq!(loaded.value, Config::default());
@@ -631,7 +680,7 @@ server = "ws://127.0.0.1:8080"
             return;
         }
 
-        let loaded = load_config(&path);
+        let loaded = load(&path);
         let saved = save_config(&path, &loaded.value);
 
         assert_eq!(loaded.value, Config::default());
@@ -652,7 +701,7 @@ server = "ws://127.0.0.1:8080"
         let dir = TempDir::new();
         let path = write_config(&dir, "username = \"Jean\"\n\ntheme = \"solarized\"\n");
 
-        let warning = load_config(&path).warning.expect("warning");
+        let warning = load(&path).warning.expect("warning");
 
         assert!(warning.contains("(line 3: "), "{warning}");
         assert!(warning.contains("solarized"), "{warning}");
@@ -664,7 +713,7 @@ server = "ws://127.0.0.1:8080"
         let dir = TempDir::new();
         let path = write_config(&dir, "word_count = 9000\nduration = 1\n");
 
-        let practice = load_config(&path).value.practice;
+        let practice = load(&path).value.practice;
 
         assert_eq!(practice.word_count, *WORD_COUNTS.end());
         assert_eq!(practice.duration, *Practice::DURATION_LIMITS.start());
@@ -676,7 +725,7 @@ server = "ws://127.0.0.1:8080"
         let contents = "default_mode = \"time\"\nword_count = 10\n\
                         [race]\ndefault_mode = \"quote\"\nlanguage = \"french\"\n";
 
-        let config = load_config(&write_config(&dir, contents)).value;
+        let config = load(&write_config(&dir, contents)).value;
 
         assert_eq!(
             (config.practice.mode, config.practice.word_count),
@@ -697,7 +746,7 @@ server = "ws://127.0.0.1:8080"
         let dir = TempDir::new();
         let contents = "[race]\ndefault_mode = \"time\"\nword_count = 1000\nduration = 1\n";
 
-        let race = load_config(&write_config(&dir, contents)).value.race;
+        let race = load(&write_config(&dir, contents)).value.race;
 
         assert_eq!(race.mode, Mode::Words);
         assert_eq!(race.word_count, *RACE_WORD_COUNTS.end());
@@ -713,10 +762,7 @@ server = "ws://127.0.0.1:8080"
         let dir = TempDir::new();
         let path = write_config(&dir, DOCUMENTED_EXAMPLE);
 
-        assert_eq!(
-            load_config(&path).value.race,
-            Practice::default().for_race()
-        );
+        assert_eq!(load(&path).value.race, Practice::default().for_race());
     }
 
     #[test]
@@ -786,6 +832,50 @@ server = "ws://127.0.0.1:8080"
         for preset in Practice::DURATION_PRESETS {
             assert!(Practice::DURATION_LIMITS.contains(&preset), "{preset}");
         }
+    }
+
+    #[test]
+    fn only_changed_settings_are_adopted() {
+        let kept = Config {
+            theme: Theme::Dark,
+            ..Config::default()
+        };
+        let before = Config {
+            theme: Theme::Mono,
+            practice: Practice {
+                mode: Mode::Code,
+                ..Practice::default()
+            },
+            ..Config::default()
+        };
+        let after = Config {
+            username: "Ada".to_owned(),
+            practice: Practice {
+                word_count: 25,
+                ..before.practice
+            },
+            ..before.clone()
+        };
+        let mut adopted = kept.clone();
+        adopted.adopt_changes(&before, &after);
+        assert_eq!(adopted.username, "Ada");
+        assert_eq!(adopted.theme, Theme::Dark, "unchanged since before");
+        assert_eq!(adopted.practice.mode, Mode::Words, "unchanged since before");
+        assert_eq!(adopted.practice.word_count, 25);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_left_in_place_is_not_writable() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, DOCUMENTED_EXAMPLE);
+        if !crate::persist::scratch::make_unreadable(&path) {
+            return;
+        }
+        let loaded = load_config(&path);
+        assert_eq!(loaded.value, None);
+        assert!(loaded.warning.is_some());
+        crate::persist::scratch::read_unreadable(&path);
     }
 
     #[test]

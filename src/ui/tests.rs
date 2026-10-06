@@ -7,7 +7,7 @@ use ratatui::{Terminal, backend::TestBackend};
 
 use super::*;
 use crate::{
-    app::App,
+    app::{App, Overrides},
     cli::Launch,
     config::{Config, Theme},
     history::{History, Record},
@@ -19,7 +19,13 @@ fn app() -> App {
         username: "jean".to_owned(),
         ..Config::default()
     };
-    App::new(config, None, History::in_memory(), Launch::Home)
+    App::new(
+        config,
+        &Overrides::default(),
+        None,
+        History::in_memory(),
+        Launch::Home,
+    )
 }
 
 fn screen(app: &App, width: u16, height: u16) -> String {

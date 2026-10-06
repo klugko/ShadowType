@@ -10,7 +10,7 @@ use code_racer_engine::{CodeLanguage, Language, TextSource, WORD_COUNTS};
 use code_racer_protocol::{RACE_WORD_COUNTS, RoomCode};
 use thiserror::Error;
 
-use crate::config::{Mode, Practice, Theme};
+use crate::config::{Config, Mode, Practice, Theme};
 
 const GLOBAL_OPTIONS: &str = "Global options";
 
@@ -126,16 +126,17 @@ pub enum CliError {
 }
 
 impl Cli {
-    /// Resolves the screen to open, layering the flags over `defaults`.
-    pub fn launch(&self, defaults: &Practice) -> Result<Launch, CliError> {
+    /// Resolves the screen to open, layering the flags over the saved solo
+    /// or race settings.
+    pub fn launch(&self, saved: &Config) -> Result<Launch, CliError> {
         Ok(match &self.command {
             None => Launch::Home,
             Some(Command::Solo(args)) => Launch::Solo {
-                practice: args.practice(defaults)?,
+                practice: args.practice(&saved.practice)?,
                 file: args.file.clone(),
             },
             Some(Command::Multiplayer) => Launch::Multiplayer,
-            Some(Command::Create(args)) => Launch::Create(args.text_source(defaults)?),
+            Some(Command::Create(args)) => Launch::Create(args.text_source(&saved.race)?),
             Some(Command::Join { code }) => Launch::Join(code.clone()),
             Some(Command::History) => Launch::History,
         })
@@ -273,10 +274,17 @@ mod tests {
 
     use super::*;
 
+    /// Launches with `defaults` saved for solo sessions and, made raceable,
+    /// for races.
     fn launch(arguments: &[&str], defaults: &Practice) -> Result<Launch, CliError> {
+        let saved = Config {
+            practice: *defaults,
+            race: defaults.for_race(),
+            ..Config::default()
+        };
         let cli =
             Cli::try_parse_from(["code-racer"].iter().chain(arguments)).expect("valid arguments");
-        cli.launch(defaults)
+        cli.launch(&saved)
     }
 
     fn solo(arguments: &[&str], defaults: &Practice) -> Practice {
@@ -322,7 +330,7 @@ mod tests {
         .expect("valid arguments");
         assert_eq!(cli.theme, Some(Theme::Mono));
         assert_eq!(cli.server.as_deref(), Some("lan:9000"));
-        assert_eq!(cli.launch(&Practice::default()), Ok(Launch::History));
+        assert_eq!(cli.launch(&Config::default()), Ok(Launch::History));
     }
 
     #[test]
@@ -543,6 +551,26 @@ mod tests {
         let error = create(&["--mode", "time"], &Practice::default()).expect_err("time race");
         assert_eq!(error, CliError::TimeModeInRace);
         assert_eq!(error.to_string(), "time mode is only available solo");
+    }
+
+    #[test]
+    fn rooms_are_created_with_the_saved_race_settings() {
+        let saved = Config {
+            practice: defaults_with_mode(Mode::Code),
+            race: Practice {
+                mode: Mode::Quote,
+                language: Language::French,
+                ..Practice::default()
+            },
+            ..Config::default()
+        };
+        let cli = Cli::try_parse_from(["code-racer", "create"]).expect("valid arguments");
+        assert_eq!(
+            cli.launch(&saved),
+            Ok(Launch::Create(TextSource::Quote {
+                language: Language::French
+            }))
+        );
     }
 
     #[test]

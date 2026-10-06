@@ -14,6 +14,7 @@ use crate::{
         practice::{Plan, code_file_name},
         text_settings::{self, TextSetting},
     },
+    cli::Launch,
     config::{Mode, Practice},
     history::Record,
     network::{Connection, NetworkEvent},
@@ -76,6 +77,15 @@ pub fn adjust(settings: &mut Practice, field: Field, step: Step) {
 pub enum Intent {
     Create(TextSource),
     Join(RoomCode),
+}
+
+impl From<Intent> for Launch {
+    fn from(intent: Intent) -> Self {
+        match intent {
+            Intent::Create(text) => Self::Create(text),
+            Intent::Join(code) => Self::Join(code),
+        }
+    }
 }
 
 /// Where the player is in the life of a room.

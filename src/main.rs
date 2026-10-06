@@ -11,12 +11,13 @@ mod runtime;
 mod terminal;
 mod ui;
 
-use std::process::ExitCode;
+use std::{path::PathBuf, process::ExitCode};
 
+use anyhow::Context;
 use clap::Parser;
 
 use crate::{
-    app::App,
+    app::{App, Overrides},
     cli::Cli,
     config::{Config, Loaded, Paths},
     history::History,
@@ -41,12 +42,11 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     {
         eprintln!("code-racer: logging disabled: {error:#}");
     }
+    let overrides = overrides(&cli)?;
     let Loaded {
-        value: mut config,
+        value: (config, config_path),
         warning: config_warning,
-    } = paths.as_ref().map_or_else(Loaded::default, |paths| {
-        config::load_config(&paths.config_file)
-    });
+    } = load_settings(paths.as_ref());
     let Loaded {
         value: history,
         warning: history_warning,
@@ -57,21 +57,38 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         },
         |paths| History::load(&paths.history_file),
     );
-    apply_overrides(&cli, &mut config);
-    let launch = cli.launch(&config.practice)?;
-    let config_path = paths.map(|paths| paths.config_file);
-    let mut app = App::new(config, config_path, history, launch);
+    let launch = cli.launch(&config)?;
+    let mut app = App::new(config, &overrides, config_path, history, launch);
     for warning in [config_warning, history_warning].into_iter().flatten() {
         app.warn(warning);
     }
     runtime::run(app).await
 }
 
-fn apply_overrides(cli: &Cli, config: &mut Config) {
-    if let Some(server) = &cli.server {
-        config.multiplayer.server.clone_from(server);
-    }
-    if let Some(theme) = cli.theme {
-        config.theme = theme;
-    }
+/// The saved settings, and where to save them. A file that could not be
+/// read is left alone for the whole run: the settings in memory are then
+/// only defaults, and saving them would lose the user's.
+fn load_settings(paths: Option<&Paths>) -> Loaded<(Config, Option<PathBuf>)> {
+    let Some(paths) = paths else {
+        return Loaded::clean((Config::default(), None));
+    };
+    config::load_config(&paths.config_file).map(|found| match found {
+        Some(config) => (config, Some(paths.config_file.clone())),
+        None => (Config::default(), None),
+    })
+}
+
+/// The flags that change settings for this run, the server address
+/// checked now rather than when connecting.
+fn overrides(cli: &Cli) -> anyhow::Result<Overrides> {
+    let server = cli
+        .server
+        .as_deref()
+        .map(network::server_url)
+        .transpose()
+        .context("--server")?;
+    Ok(Overrides {
+        theme: cli.theme,
+        server,
+    })
 }

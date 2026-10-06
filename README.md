@@ -103,8 +103,11 @@ code-racer --theme mono
 code-racer --help
 ```
 
-On first launch code-racer asks for the name other racers will see. It is saved in `config.toml` and
-can be changed in the `config.toml` buffer or with `:set username=Jean`.
+On first launch code-racer asks for the name other racers will see (Esc skips it until you race). It
+is saved in `config.toml` and can be changed in the `config.toml` buffer or with `:set username=Jean`.
+
+Flags apply to this run only: `--theme`, `--server` and the `solo` options are never written to
+`config.toml`, unless you change the same setting inside the app.
 
 ## Solo mode
 
@@ -245,9 +248,17 @@ duration = 30             # seconds, time mode
 punctuation = false
 numbers = false
 
+[race]                    # the race.toml settings, used by `create` too
+default_mode = "words"    # words, quote, code
+language = "english"
+word_count = 25           # 5 to 200
+
 [multiplayer]
 server = "ws://127.0.0.1:8080"
 ```
+
+If `config.toml` cannot be read, code-racer starts with the defaults and leaves the file untouched
+for the whole run.
 
 History is kept in `history.json` (`~/.local/share/code-racer/` on Linux) and logs go to
 `code-racer.log` (`~/.local/state/code-racer/`), never to the terminal. Files are written atomically;

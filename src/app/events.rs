@@ -78,7 +78,7 @@ impl App {
     /// otherwise take the first keystrokes of the race.
     fn show_race(&mut self) {
         self.prompt = None;
-        self.editing = None;
+        self.cancel_edit();
         self.open(Buffer::Session);
         self.info("the race is starting");
     }

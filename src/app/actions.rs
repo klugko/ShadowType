@@ -25,21 +25,34 @@ impl App {
         self.error(warning);
     }
 
+    /// Opens what the command line asked for, after asking for the name
+    /// other racers will see on first launch.
     pub(super) fn launch(&mut self, launch: Launch) {
         if self.config.username().is_none() {
-            self.pending = Some(launch);
-            self.open(Buffer::Settings);
-            self.begin_edit(TextField::Username);
-            self.info("welcome! choose the name other racers will see, then press Enter");
+            self.ask_username(launch);
+            self.info("welcome! choose the name other racers will see, then Enter (Esc skips)");
             return;
         }
+        self.run_launch(launch);
+    }
+
+    /// Opens the username field, `then` to follow once it is set.
+    fn ask_username(&mut self, then: Launch) {
+        self.open(Buffer::Settings);
+        self.settings_cursor.first();
+        self.begin_edit(TextField::Username);
+        self.pending = Some(then);
+    }
+
+    pub(super) fn run_launch(&mut self, launch: Launch) {
         match launch {
             Launch::Home => {
                 self.buffer = Buffer::Practice;
                 self.focus = Focus::Explorer;
             }
             Launch::Solo { practice, file } => {
-                self.config.practice = practice;
+                self.saved
+                    .change_for_this_run(&mut self.config, |config| config.practice = practice);
                 match file {
                     Some(path) => self.edit_file(&path),
                     None => self.start_practice(),
@@ -82,7 +95,7 @@ impl App {
     }
 
     pub(super) fn create_room(&mut self) {
-        self.connect(Intent::Create(self.race_settings.race_text_source()));
+        self.connect(Intent::Create(self.config.race.race_text_source()));
     }
 
     pub(super) fn join_typed_room(&mut self) {
@@ -105,9 +118,8 @@ impl App {
             return;
         }
         let Some(username) = self.config.username() else {
-            self.open(Buffer::Settings);
-            self.begin_edit(TextField::Username);
-            self.error("choose a username before racing");
+            self.ask_username(intent.into());
+            self.error("choose a username before racing, then Enter");
             return;
         };
         let server = match network::server_url(&self.config.multiplayer.server) {

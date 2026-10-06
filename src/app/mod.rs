@@ -14,6 +14,7 @@ pub mod input;
 mod keys;
 pub mod practice;
 pub mod race;
+mod saved_config;
 pub mod settings;
 pub mod text_settings;
 
@@ -24,7 +25,7 @@ use code_racer_protocol::{RoomCode, Username};
 
 use crate::{
     cli::Launch,
-    config::{Config, Practice},
+    config::{Config, Theme},
     history::History,
     network::Connection,
 };
@@ -33,6 +34,27 @@ use form::Cursor;
 use input::TextInput;
 use practice::SoloRun;
 use race::RaceClient;
+use saved_config::SavedConfig;
+
+/// Settings given on the command line. They apply to this run only and are
+/// never saved, unless the user changes the same setting in the app.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Overrides {
+    pub theme: Option<Theme>,
+    /// A server address, already normalised by `network::server_url`.
+    pub server: Option<String>,
+}
+
+impl Overrides {
+    fn apply_to(&self, config: &mut Config) {
+        if let Some(theme) = self.theme {
+            config.theme = theme;
+        }
+        if let Some(server) = &self.server {
+            config.multiplayer.server.clone_from(server);
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -186,14 +208,14 @@ pub struct SessionView<'a> {
 
 #[derive(Debug)]
 pub struct App {
+    /// The settings in use, command-line flags included.
     pub config: Config,
-    config_path: Option<PathBuf>,
+    saved: SavedConfig,
     pub history: History,
     pub focus: Focus,
     pub buffer: Buffer,
     pub practice_cursor: Cursor,
     pub race_cursor: Cursor,
-    pub race_settings: Practice,
     pub room_code: String,
     pub settings_cursor: Cursor,
     pub history_scroll: usize,
@@ -212,22 +234,25 @@ pub struct App {
 }
 
 impl App {
+    /// An application started with the `saved` settings, saved back to
+    /// `config_path` when there is one, and `overrides` for this run.
     pub fn new(
-        config: Config,
+        saved: Config,
+        overrides: &Overrides,
         config_path: Option<PathBuf>,
         history: History,
         launch: Launch,
     ) -> Self {
-        let race_settings = config.practice.for_race();
+        let mut config = saved.clone();
+        overrides.apply_to(&mut config);
         let mut app = Self {
+            saved: SavedConfig::new(config_path, saved, &config),
             config,
-            config_path,
             history,
             focus: Focus::Explorer,
             buffer: Buffer::Practice,
             practice_cursor: Cursor::default(),
             race_cursor: Cursor::default(),
-            race_settings,
             room_code: String::new(),
             settings_cursor: Cursor::default(),
             history_scroll: 0,
@@ -250,8 +275,9 @@ impl App {
         self.quit
     }
 
+    /// Where the settings are saved, if they are.
     pub fn config_path(&self) -> Option<&std::path::Path> {
-        self.config_path.as_deref()
+        self.saved.path()
     }
 
     /// Buffers listed in the explorer, in order.
@@ -379,10 +405,17 @@ impl App {
     /// is cancelled: hidden, it would still take every key.
     fn open(&mut self, buffer: Buffer) {
         if buffer != self.buffer {
-            self.editing = None;
+            self.cancel_edit();
         }
         self.buffer = buffer;
         self.focus = Focus::Editor;
+    }
+
+    /// Drops the field being typed, and what was to follow the name asked
+    /// at first launch.
+    fn cancel_edit(&mut self) {
+        self.editing = None;
+        self.pending = None;
     }
 }
 

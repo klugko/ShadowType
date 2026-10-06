@@ -20,7 +20,13 @@ fn configured(username: &str) -> Config {
 }
 
 fn app_with(config: Config, launch: Launch) -> App {
-    App::new(config, None, History::in_memory(), launch)
+    App::new(
+        config,
+        &Overrides::default(),
+        None,
+        History::in_memory(),
+        launch,
+    )
 }
 
 fn app() -> App {
@@ -133,6 +139,48 @@ fn first_launch_asks_for_a_username_then_continues() {
 }
 
 #[test]
+fn escape_skips_the_first_name_and_the_launch_goes_on() {
+    let launch = Launch::Solo {
+        practice: Practice::default(),
+        file: None,
+    };
+    let mut app = app_with(Config::default(), launch);
+    press(&mut app, KeyCode::Esc);
+    assert!(app.editing.is_none());
+    assert!(app.solo().is_some(), "a solo session needs no name");
+}
+
+#[test]
+fn a_race_launched_without_a_name_says_it_needs_one() {
+    let launch = Launch::Join("FK72AD".parse().expect("code"));
+    let mut app = app_with(Config::default(), launch);
+    press(&mut app, KeyCode::Esc);
+    assert!(app.activity.is_none());
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|message| message.is_error() && message.text.contains("username"))
+    );
+    command(&mut app, "set username=Ada");
+    assert!(
+        app.activity.is_none(),
+        "the skipped race does not come back"
+    );
+}
+
+#[test]
+fn creating_a_room_without_a_name_goes_on_once_it_is_set() {
+    let mut app = app_with(Config::default(), Launch::Home);
+    press(&mut app, KeyCode::Esc);
+    assert_eq!((app.buffer, app.focus), (Buffer::Practice, Focus::Explorer));
+    press(&mut app, KeyCode::Char('c'));
+    assert!(matches!(&app.editing, Some(edit) if edit.field == TextField::Username));
+    type_text(&mut app, "Ada");
+    press(&mut app, KeyCode::Enter);
+    assert!(app.race().is_some(), "the room is being created");
+}
+
+#[test]
 fn every_printable_key_is_text_while_typing() {
     let mut app = app();
     press(&mut app, KeyCode::Char('s'));
@@ -233,7 +281,7 @@ fn a_reflex_enter_after_the_last_character_keeps_the_results() {
 fn keys_right_after_losing_the_connection_keep_the_reason_on_screen() {
     let now = Instant::now();
     let mut app = room::racing(now);
-    let settings = app.race_settings;
+    let settings = app.config.race;
     app.handle_network(
         crate::network::NetworkEvent::Closed {
             reason: "connection lost".to_owned(),
@@ -252,7 +300,7 @@ fn keys_right_after_losing_the_connection_keep_the_reason_on_screen() {
     assert!(!app.should_quit());
     assert!(app.activity.is_none());
     assert_eq!(app.buffer, Buffer::Race);
-    assert_eq!(app.race_settings, settings);
+    assert_eq!(app.config.race, settings);
     assert_eq!(app.message, Some(Message::error("connection lost")));
 }
 
@@ -401,7 +449,7 @@ fn lang_with_a_programming_language_only_sets_the_code_language() {
     command(&mut app, "lang python");
     assert!(app.race().is_some(), "still in the room");
     assert_eq!(app.config.practice.code_language, CodeLanguage::Python);
-    assert_eq!(app.race_settings.code_language, CodeLanguage::Python);
+    assert_eq!(app.config.race.code_language, CodeLanguage::Python);
     assert_eq!(
         app.message,
         Some(Message::info("code language set to python"))
@@ -620,6 +668,7 @@ fn a_failed_save_is_the_message_left_on_screen() {
     std::fs::write(&not_a_directory, "").expect("write");
     let mut app = App::new(
         configured("jean"),
+        &Overrides::default(),
         Some(not_a_directory.join("config.toml")),
         History::in_memory(),
         Launch::Home,
@@ -727,6 +776,140 @@ fn scrolling_is_clamped_to_the_content() {
     assert_eq!(app.help_scroll, help::LINES.len() - 1);
     press(&mut app, KeyCode::Char('k'));
     assert_eq!(app.help_scroll, help::LINES.len() - 2);
+}
+
+/// Settings saved to a real `config.toml`, read back as the next run would.
+mod saving {
+    use std::path::Path;
+
+    use super::*;
+    use crate::config::tests::load;
+
+    fn app_saving_to(path: &Path, config: Config, overrides: &Overrides, launch: Launch) -> App {
+        App::new(
+            config,
+            overrides,
+            Some(path.to_owned()),
+            History::in_memory(),
+            launch,
+        )
+    }
+
+    fn reload(path: &Path) -> Config {
+        load(path).value
+    }
+
+    #[test]
+    fn the_first_name_is_saved() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let mut app = app_saving_to(
+            &path,
+            Config::default(),
+            &Overrides::default(),
+            Launch::Home,
+        );
+        type_text(&mut app, "Ada");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(reload(&path).username, "Ada");
+        assert_eq!((app.buffer, app.focus), (Buffer::Practice, Focus::Explorer));
+    }
+
+    #[test]
+    fn commands_save_their_settings() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let mut app = app_saving_to(
+            &path,
+            configured("jean"),
+            &Overrides::default(),
+            Launch::Home,
+        );
+        for line in [
+            "set theme=mono",
+            "set punctuation",
+            "lang french",
+            "lang python",
+        ] {
+            command(&mut app, line);
+        }
+        for session in ["time 60", "words 25"] {
+            command(&mut app, session);
+            press(&mut app, KeyCode::Esc);
+        }
+        let saved = reload(&path);
+        assert_eq!(saved.theme, Theme::Mono);
+        assert!(saved.practice.punctuation && saved.race.punctuation);
+        assert_eq!(
+            (saved.practice.language, saved.race.language),
+            (Language::French, Language::French)
+        );
+        assert_eq!(saved.race.code_language, CodeLanguage::Python);
+        assert_eq!(
+            (
+                saved.practice.mode,
+                saved.practice.word_count,
+                saved.practice.duration
+            ),
+            (Mode::Words, 25, 60)
+        );
+    }
+
+    #[test]
+    fn forms_save_their_settings_for_the_next_run() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let mut app = app_saving_to(
+            &path,
+            configured("jean"),
+            &Overrides::default(),
+            Launch::Home,
+        );
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Char('l'));
+        command(&mut app, "config");
+        press(&mut app, KeyCode::Char('j'));
+        press(&mut app, KeyCode::Enter);
+        command(&mut app, "race");
+        for code in [KeyCode::Char('j'), KeyCode::Char('j'), KeyCode::Char('l')] {
+            press(&mut app, code);
+        }
+        let saved = reload(&path);
+        assert_eq!(saved.practice.mode, Mode::Time);
+        assert_eq!(saved.theme, Theme::Dark);
+        assert_eq!(saved.race.mode, Mode::Quote);
+        let next_run = app_with(saved, Launch::Home);
+        assert_eq!(next_run.config.race.mode, Mode::Quote);
+    }
+
+    #[test]
+    fn flags_of_this_run_are_saved_only_once_changed_in_the_app() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let overrides = Overrides {
+            theme: Some(Theme::Mono),
+            server: Some("ws://10.0.0.9:8080".to_owned()),
+        };
+        let launch = Launch::Solo {
+            practice: Practice {
+                mode: Mode::Code,
+                ..Practice::default()
+            },
+            file: None,
+        };
+        let mut app = app_saving_to(&path, configured("jean"), &overrides, launch);
+        assert_eq!(app.config.theme, Theme::Mono);
+        assert_eq!(app.config.practice.mode, Mode::Code);
+        press(&mut app, KeyCode::Esc);
+        command(&mut app, "set numbers");
+        let saved = reload(&path);
+        assert_eq!(saved.theme, Theme::Editor);
+        assert_eq!(saved.multiplayer, Config::default().multiplayer);
+        assert_eq!(saved.practice.mode, Mode::Words);
+        assert!(saved.practice.numbers);
+        command(&mut app, "set theme=dark");
+        assert_eq!(reload(&path).theme, Theme::Dark);
+    }
 }
 
 /// Rooms fed with server messages instead of a real server.
@@ -865,7 +1048,7 @@ mod multiplayer {
         let mut config = configured(name);
         config.multiplayer.server = url.to_owned();
         let mut app = app_with(config, Launch::Home);
-        app.race_settings.word_count = 5;
+        app.config.race.word_count = 5;
         app
     }
 
