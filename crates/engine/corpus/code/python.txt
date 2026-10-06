@@ -1,0 +1,285 @@
+def retry[**P, R](
+    attempts: int = 3, base_delay: float = 0.5
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """Retry the wrapped call with exponential backoff."""
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            for attempt in range(attempts - 1):
+                try:
+                    return func(*args, **kwargs)
+                except OSError:
+                    time.sleep(base_delay * 2**attempt)
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+%
+class LRUCache[K, V]:
+    def __init__(self, capacity: int) -> None:
+        self.capacity = capacity
+        self._data: OrderedDict[K, V] = OrderedDict()
+
+    def get(self, key: K) -> V | None:
+        if key not in self._data:
+            return None
+        self._data.move_to_end(key)
+        return self._data[key]
+
+    def put(self, key: K, value: V) -> None:
+        self._data[key] = value
+        self._data.move_to_end(key)
+        if len(self._data) > self.capacity:
+            self._data.popitem(last=False)
+%
+@dataclass
+class TokenBucket:
+    rate: float
+    capacity: float
+    tokens: float = 0.0
+    updated: float = field(default_factory=time.monotonic)
+
+    def try_acquire(self, cost: float = 1.0) -> bool:
+        now = time.monotonic()
+        refill = (now - self.updated) * self.rate
+        self.tokens = min(self.capacity, self.tokens + refill)
+        self.updated = now
+        if self.tokens < cost:
+            return False
+        self.tokens -= cost
+        return True
+%
+def read_jsonl(path: Path) -> Iterator[dict[str, Any]]:
+    """Yield one record per non-blank line of a JSON Lines file."""
+    with path.open(encoding="utf-8") as handle:
+        for number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path}:{number}: {exc.msg}") from exc
+            yield record
+%
+@dataclass(frozen=True, slots=True)
+class Settings:
+    database_url: str
+    pool_size: int = 10
+    debug: bool = False
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] = os.environ) -> Self:
+        return cls(
+            database_url=env["DATABASE_URL"],
+            pool_size=int(env.get("POOL_SIZE", "10")),
+            debug=env.get("DEBUG", "").lower() in {"1", "true", "yes"},
+        )
+%
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path != "/healthz":
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        body = json.dumps({"status": "ok"}).encode()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+%
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Resize images.")
+    parser.add_argument("inputs", nargs="+", type=Path)
+    parser.add_argument("-o", "--output", type=Path, required=True)
+    parser.add_argument("--width", type=int, default=1024)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    return parser.parse_args(argv)
+%
+def percentile(values: Iterable[float], pct: float) -> float:
+    """Linear-interpolated percentile, pct in the range [0, 100]."""
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("percentile of empty data")
+    rank = (len(ordered) - 1) * pct / 100
+    low = math.floor(rank)
+    high = min(low + 1, len(ordered) - 1)
+    weight = rank - low
+    return ordered[low] * (1 - weight) + ordered[high] * weight
+%
+def matmul(
+    a: list[list[float]], b: list[list[float]]
+) -> list[list[float]]:
+    if not a or len(a[0]) != len(b):
+        raise ValueError("incompatible matrix shapes")
+    columns = list(zip(*b, strict=True))
+    return [[math.sumprod(row, col) for col in columns] for row in a]
+%
+def write_atomic(path: Path, data: bytes) -> None:
+    """Replace path with data so readers never see a partial file."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+%
+def top_words(text: str, k: int = 10) -> list[tuple[str, int]]:
+    words = re.findall(r"[a-z]+(?:'[a-z]+)*", text.lower())
+    stop = {"the", "a", "an", "and", "of", "to", "in", "is"}
+    counts = Counter(w for w in words if w not in stop)
+    return counts.most_common(k)
+%
+def describe(event: dict[str, Any]) -> str:
+    match event:
+        case {"type": "click", "x": int(x), "y": int(y)}:
+            return f"click at {x},{y}"
+        case {"type": "key", "key": str(key)} if len(key) == 1:
+            return f"key {key!r}"
+        case {"type": "resize", "size": [int(w), int(h)]}:
+            return f"resize to {w}x{h}"
+        case _:
+            raise ValueError(f"unsupported event: {event}")
+%
+class Severity(IntEnum):
+    DEBUG = 10
+    INFO = 20
+    WARNING = 30
+    ERROR = 40
+
+    def style(self) -> str:
+        match self:
+            case Severity.DEBUG:
+                return "dim"
+            case Severity.INFO:
+                return "cyan"
+            case Severity.WARNING:
+                return "yellow bold"
+            case Severity.ERROR:
+                return "red bold"
+%
+def slugify(title: str, max_length: int = 60) -> str:
+    normalized = unicodedata.normalize("NFKD", title)
+    ascii_only = normalized.encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_only.lower()).strip("-")
+    return slug[:max_length].rstrip("-")
+%
+def shortest_paths(
+    graph: Mapping[str, list[tuple[str, float]]], source: str
+) -> dict[str, float]:
+    dist = {source: 0.0}
+    heap = [(0.0, source)]
+    while heap:
+        cost, node = heapq.heappop(heap)
+        if cost > dist.get(node, math.inf):
+            continue
+        for neighbor, weight in graph.get(node, []):
+            candidate = cost + weight
+            if candidate < dist.get(neighbor, math.inf):
+                dist[neighbor] = candidate
+                heapq.heappush(heap, (candidate, neighbor))
+    return dist
+%
+class MovingAverage:
+    """Average of the most recent window samples."""
+
+    def __init__(self, window: int) -> None:
+        self._samples: deque[float] = deque(maxlen=window)
+        self._total = 0.0
+
+    def add(self, value: float) -> float:
+        if len(self._samples) == self._samples.maxlen:
+            self._total -= self._samples[0]
+        self._samples.append(value)
+        self._total += value
+        return self._total / len(self._samples)
+%
+def parse_duration(text: str) -> timedelta:
+    """Parse strings like '1h30m' or '45s' into a timedelta."""
+    pattern = r"(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?"
+    parsed = re.fullmatch(pattern, text)
+    if not text or parsed is None:
+        raise ValueError(f"invalid duration: {text!r}")
+    d, h, m, s = (int(group or 0) for group in parsed.groups())
+    return timedelta(days=d, hours=h, minutes=m, seconds=s)
+%
+def flatten(
+    data: Mapping[str, Any], prefix: str = ""
+) -> dict[str, Any]:
+    """Flatten nested mappings into dotted keys."""
+    flat: dict[str, Any] = {}
+    for key, value in data.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, Mapping):
+            flat.update(flatten(value, path))
+        else:
+            flat[path] = value
+    return flat
+%
+def revenue_by_region(path: Path) -> dict[str, Decimal]:
+    totals: defaultdict[str, Decimal] = defaultdict(Decimal)
+    with path.open(newline="") as handle:
+        for row in csv.DictReader(handle):
+            amount = Decimal(row["amount"]) * int(row["quantity"])
+            totals[row["region"]] += amount
+    return dict(sorted(totals.items()))
+%
+@contextmanager
+def timed(label: str) -> Iterator[None]:
+    """Log how long the enclosed block took to run."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - start
+        logging.info("%s took %.3fs", label, elapsed)
+%
+@dataclass(frozen=True, order=True)
+class Version:
+    major: int
+    minor: int
+    patch: int
+
+    @classmethod
+    def parse(cls, text: str) -> Self:
+        match text.removeprefix("v").split("."):
+            case [major, minor, patch]:
+                return cls(int(major), int(minor), int(patch))
+            case _:
+                raise ValueError(f"not a semantic version: {text!r}")
+
+    def __str__(self) -> str:
+        return f"{self.major}.{self.minor}.{self.patch}"
+%
+async def gather_limited[T](
+    coros: Iterable[Awaitable[T]], limit: int = 10
+) -> list[T]:
+    """Await all coroutines with at most limit running at once."""
+    semaphore = asyncio.Semaphore(limit)
+
+    async def run(coro: Awaitable[T]) -> T:
+        async with semaphore:
+            return await coro
+
+    return await asyncio.gather(*(run(c) for c in coros))
+%
+@dataclass
+class Trie:
+    children: dict[str, "Trie"] = field(default_factory=dict)
+    terminal: bool = False
+
+    def insert(self, word: str) -> None:
+        node = self
+        for char in word:
+            node = node.children.setdefault(char, Trie())
+        node.terminal = True
+
+    def starts_with(self, prefix: str) -> bool:
+        node = self
+        for char in prefix:
+            if char not in node.children:
+                return False
+            node = node.children[char]
+        return True

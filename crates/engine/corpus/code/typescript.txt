@@ -1,0 +1,316 @@
+type Result<T, E = Error> =
+  | { ok: true; value: T }
+  | { ok: false; error: E };
+
+export const tryParseJson = <T>(raw: string): Result<T> => {
+  try {
+    return { ok: true, value: JSON.parse(raw) as T };
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    return { ok: false, error };
+  }
+};
+%
+interface Page<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export function paginate<T>(
+  all: readonly T[],
+  page: number,
+  pageSize = 20,
+): Page<T> {
+  const start = (page - 1) * pageSize;
+  const items = all.slice(start, start + pageSize);
+  return { items, page, pageSize, total: all.length };
+}
+%
+export class LruCache<K, V> {
+  readonly #map = new Map<K, V>();
+  readonly #capacity: number;
+  constructor(capacity: number) {
+    this.#capacity = capacity;
+  }
+  get(key: K): V | undefined {
+    const value = this.#map.get(key);
+    if (value !== undefined) this.set(key, value);
+    return value;
+  }
+  set(key: K, value: V): void {
+    this.#map.delete(key);
+    this.#map.set(key, value);
+    if (this.#map.size <= this.#capacity) return;
+    this.#map.delete(this.#map.keys().next().value as K);
+  }
+}
+%
+export function groupBy<T, K extends PropertyKey>(
+  items: readonly T[],
+  keyOf: (item: T) => K,
+): Record<K, T[]> {
+  const groups = {} as Record<K, T[]>;
+  for (const item of items) {
+    const key = keyOf(item);
+    (groups[key] ??= []).push(item);
+  }
+  return groups;
+}
+%
+export async function withRetry<T>(
+  task: () => Promise<T>,
+  attempts = 3,
+  baseDelayMs = 200,
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await task();
+    } catch (err) {
+      if (attempt >= attempts) throw err;
+      const delay = baseDelayMs * 2 ** (attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+%
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "rect"; width: number; height: number };
+
+export function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "rect":
+      return shape.width * shape.height;
+    default: {
+      const unreachable: never = shape;
+      throw new Error(`Unknown shape: ${JSON.stringify(unreachable)}`);
+    }
+  }
+}
+%
+interface ApiError {
+  status: number;
+  code: string;
+  message: string;
+}
+
+export const isApiError = (value: unknown): value is ApiError =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as ApiError).status === "number" &&
+  typeof (value as ApiError).code === "string" &&
+  typeof (value as ApiError).message === "string";
+%
+type Handler<T> = (payload: T) => void;
+
+export class TypedEmitter<Events extends Record<string, unknown>> {
+  #handlers: { [E in keyof Events]?: Set<Handler<Events[E]>> } = {};
+
+  on<E extends keyof Events>(event: E, handler: Handler<Events[E]>) {
+    const set = (this.#handlers[event] ??= new Set());
+    set.add(handler);
+    return () => void set.delete(handler);
+  }
+
+  emit<E extends keyof Events>(event: E, payload: Events[E]): void {
+    this.#handlers[event]?.forEach((handler) => handler(payload));
+  }
+}
+%
+export type DeepReadonly<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends (infer U)[]
+    ? ReadonlyArray<DeepReadonly<U>>
+    : T extends object
+      ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+      : T;
+
+export function deepFreeze<T extends object>(
+  value: T,
+): DeepReadonly<T> {
+  for (const child of Object.values(value)) {
+    if (typeof child === "object" && child !== null) deepFreeze(child);
+  }
+  return Object.freeze(value) as DeepReadonly<T>;
+}
+%
+interface ServerConfig {
+  host: string;
+  port: number;
+  debug: boolean;
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
+  const port = Number(env.PORT ?? 8080);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new RangeError(`Invalid PORT value: ${env.PORT}`);
+  }
+  return {
+    host: env.HOST ?? "0.0.0.0",
+    port,
+    debug: env.DEBUG === "true",
+  };
+}
+%
+export async function getJson<T>(
+  url: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`GET ${url} failed: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+%
+type Brand<T, B extends string> = T & { readonly __brand: B };
+
+export type UserId = Brand<string, "UserId">;
+export type Email = Brand<string, "Email">;
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function parseEmail(input: string): Email {
+  const normalized = input.trim().toLowerCase();
+  if (!EMAIL_PATTERN.test(normalized)) {
+    throw new TypeError(`Not a valid email: ${input}`);
+  }
+  return normalized as Email;
+}
+%
+interface Money {
+  amountMinor: number;
+  currency: string;
+}
+
+export function formatMoney(money: Money, locale = "en-US"): string {
+  const formatter = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: money.currency,
+  });
+  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+  return formatter.format(money.amountMinor / 10 ** digits);
+}
+%
+export function memoize<Args extends unknown[], R>(
+  fn: (...args: Args) => R,
+  keyOf: (...args: Args) => string = (...args) => JSON.stringify(args),
+): (...args: Args) => R {
+  const cache = new Map<string, R>();
+  return (...args) => {
+    const key = keyOf(...args);
+    if (!cache.has(key)) cache.set(key, fn(...args));
+    return cache.get(key) as R;
+  };
+}
+%
+export function chunk<T>(items: readonly T[], size: number): T[][] {
+  if (!Number.isInteger(size) || size < 1) {
+    throw new RangeError("chunk size must be a positive integer");
+  }
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+%
+interface LineItem {
+  sku: string;
+  quantity: number;
+  unitPriceCents: number;
+}
+
+export function cartTotal(items: LineItem[], taxRate = 0): number {
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.quantity * item.unitPriceCents,
+    0,
+  );
+  return Math.round(subtotal * (1 + taxRate));
+}
+%
+type OrderStatus = "pending" | "paid" | "shipped" | "cancelled";
+
+const transitions: Record<OrderStatus, readonly OrderStatus[]> = {
+  pending: ["paid", "cancelled"],
+  paid: ["shipped", "cancelled"],
+  shipped: [],
+  cancelled: [],
+};
+
+export function transition(from: OrderStatus, to: OrderStatus) {
+  if (!transitions[from].includes(to)) {
+    throw new Error(`Cannot move order from ${from} to ${to}`);
+  }
+  return to;
+}
+%
+export async function mapWithLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const run = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await worker(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: limit }, run));
+  return results;
+}
+%
+interface Entity {
+  id: string;
+}
+
+export class InMemoryRepository<T extends Entity> {
+  #rows = new Map<string, T>();
+
+  save(entity: T): T {
+    this.#rows.set(entity.id, structuredClone(entity));
+    return entity;
+  }
+
+  findById(id: string): T | undefined {
+    const row = this.#rows.get(id);
+    return row && structuredClone(row);
+  }
+}
+%
+/** Adds weekdays to a date, skipping Saturdays and Sundays. */
+export function addBusinessDays(start: Date, days: number): Date {
+  const result = new Date(start);
+  let remaining = days;
+  while (remaining > 0) {
+    result.setDate(result.getDate() + 1);
+    const day = result.getDay();
+    if (day !== 0 && day !== 6) remaining--;
+  }
+  return result;
+}
+%
+interface RouteDef {
+  path: string;
+  requiresAuth: boolean;
+}
+
+export const routes = {
+  home: { path: "/", requiresAuth: false },
+  dashboard: { path: "/dashboard", requiresAuth: true },
+  billing: { path: "/settings/billing", requiresAuth: true },
+} satisfies Record<string, RouteDef>;
+
+export type RouteName = keyof typeof routes;
+
+export const isProtected = (name: RouteName): boolean =>
+  routes[name].requiresAuth;

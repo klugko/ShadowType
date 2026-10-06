@@ -1,0 +1,406 @@
+pub fn retry<T, E>(
+    max_attempts: u32,
+    base_delay: Duration,
+    mut op: impl FnMut(u32) -> Result<T, E>,
+) -> Result<T, E> {
+    let mut attempt = 0;
+    loop {
+        match op(attempt) {
+            Ok(value) => return Ok(value),
+            Err(err) if attempt + 1 >= max_attempts => return Err(err),
+            Err(_) => {
+                let backoff = 1 << attempt.min(10);
+                std::thread::sleep(base_delay.saturating_mul(backoff));
+                attempt += 1;
+            }
+        }
+    }
+}
+%
+pub struct SlidingWindow {
+    span: Duration,
+    limit: usize,
+    log: VecDeque<Instant>,
+}
+
+impl SlidingWindow {
+    pub fn allow(&mut self, now: Instant) -> bool {
+        while self.log.front().is_some_and(|&t| now - t >= self.span) {
+            self.log.pop_front();
+        }
+        if self.log.len() >= self.limit {
+            return false;
+        }
+        self.log.push_back(now);
+        true
+    }
+}
+%
+pub struct LruCache<K, V> {
+    capacity: usize,
+    map: HashMap<K, V>,
+    order: VecDeque<K>,
+}
+
+impl<K: std::hash::Hash + Eq + Clone, V> LruCache<K, V> {
+    pub fn put(&mut self, key: K, value: V) {
+        self.order.retain(|k| k != &key);
+        self.order.push_back(key.clone());
+        self.map.insert(key, value);
+        if self.map.len() > self.capacity
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.map.remove(&oldest);
+        }
+    }
+}
+%
+/// Logs how long the enclosing scope took when the guard is dropped.
+#[must_use = "the timer stops as soon as it is dropped"]
+pub struct ScopeTimer {
+    label: &'static str,
+    start: Instant,
+}
+
+impl ScopeTimer {
+    pub fn new(label: &'static str) -> Self {
+        Self { label, start: Instant::now() }
+    }
+}
+
+impl Drop for ScopeTimer {
+    fn drop(&mut self) {
+        eprintln!("{} took {:?}", self.label, self.start.elapsed());
+    }
+}
+%
+pub fn parse_config(
+    text: &str,
+) -> Result<HashMap<String, String>, String> {
+    let mut config = HashMap::new();
+    for (index, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| format!("line {}: missing '='", index + 1))?;
+        config.insert(key.trim().to_owned(), value.trim().to_owned());
+    }
+    Ok(config)
+}
+%
+pub enum Command {
+    Get(String),
+    Set(String, String),
+    Delete(String),
+}
+
+impl Command {
+    pub fn apply(
+        self,
+        store: &mut HashMap<String, String>,
+    ) -> Option<String> {
+        match self {
+            Self::Get(key) => store.get(&key).cloned(),
+            Self::Set(key, value) => store.insert(key, value),
+            Self::Delete(key) => store.remove(&key),
+        }
+    }
+}
+%
+pub struct Batches<I> {
+    inner: I,
+    size: usize,
+}
+
+impl<I: Iterator> Iterator for Batches<I> {
+    type Item = Vec<I::Item>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let batch: Vec<_> =
+            self.inner.by_ref().take(self.size).collect();
+        (!batch.is_empty()).then_some(batch)
+    }
+}
+%
+pub fn matmul<const N: usize, const M: usize, const P: usize>(
+    a: &[[f64; M]; N],
+    b: &[[f64; P]; M],
+) -> [[f64; P]; N] {
+    let mut out = [[0.0; P]; N];
+    for (out_row, a_row) in out.iter_mut().zip(a) {
+        for (&x, b_row) in a_row.iter().zip(b) {
+            for (cell, &y) in out_row.iter_mut().zip(b_row) {
+                *cell += x * y;
+            }
+        }
+    }
+    out
+}
+%
+/// Computes the mean and sample standard deviation of `values`.
+pub fn mean_std(values: &[f64]) -> Option<(f64, f64)> {
+    if values.len() < 2 {
+        return None;
+    }
+    let n = values.len() as f64;
+    let mean = values.iter().sum::<f64>() / n;
+    let variance = values
+        .iter()
+        .map(|x| (x - mean).powi(2))
+        .sum::<f64>()
+        / (n - 1.0);
+    Some((mean, variance.sqrt()))
+}
+%
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+%
+pub struct Timeout(pub Duration);
+
+impl std::str::FromStr for Timeout {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let idx = s.find(|c: char| !c.is_ascii_digit());
+        let (digits, unit) = s.split_at(idx.unwrap_or(s.len()));
+        let n: u64 = digits.parse().map_err(|e| format!("{s:?}: {e}"))?;
+        let scale = match unit {
+            "s" | "" => 1,
+            "m" => 60,
+            "h" => 3600,
+            other => return Err(format!("unknown unit: {other}")),
+        };
+        let secs = n.checked_mul(scale).ok_or("timeout too large")?;
+        Ok(Self(Duration::from_secs(secs)))
+    }
+}
+%
+/// Returns the `k` most frequent words, ties broken alphabetically.
+pub fn top_words(text: &str, k: usize) -> Vec<(String, usize)> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for word in text.split(|c: char| !c.is_alphanumeric()) {
+        if !word.is_empty() {
+            *counts.entry(word.to_lowercase()).or_default() += 1;
+        }
+    }
+    let mut ranked: Vec<_> = counts.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    ranked.truncate(k);
+    ranked
+}
+%
+#[derive(Debug, Default)]
+pub struct Args {
+    pub output: Option<String>,
+    pub inputs: Vec<String>,
+}
+
+pub fn parse_args(argv: Vec<String>) -> Result<Args, String> {
+    let mut args = Args::default();
+    let mut iter = argv.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "-o" => args.output = Some(iter.next().ok_or(arg)?),
+            _ if arg.starts_with('-') => return Err(arg),
+            _ => args.inputs.push(arg),
+        }
+    }
+    Ok(args)
+}
+%
+pub struct RingBuffer<T, const N: usize> {
+    items: [Option<T>; N],
+    head: usize,
+    len: usize,
+}
+
+impl<T, const N: usize> RingBuffer<T, N> {
+    pub fn push(&mut self, value: T) -> Option<T> {
+        let tail = (self.head + self.len) % N;
+        let evicted = self.items[tail].replace(value);
+        if self.len == N {
+            self.head = (self.head + 1) % N;
+        } else {
+            self.len += 1;
+        }
+        evicted
+    }
+}
+%
+pub fn topo_sort(adj: &[Vec<usize>]) -> Option<Vec<usize>> {
+    let mut indegree = vec![0; adj.len()];
+    adj.iter().flatten().for_each(|&to| indegree[to] += 1);
+    let mut queue: VecDeque<usize> =
+        (0..adj.len()).filter(|&v| indegree[v] == 0).collect();
+    let mut order = Vec::with_capacity(adj.len());
+    while let Some(v) = queue.pop_front() {
+        order.push(v);
+        for &next in &adj[v] {
+            indegree[next] -= 1;
+            if indegree[next] == 0 {
+                queue.push_back(next);
+            }
+        }
+    }
+    (order.len() == adj.len()).then_some(order)
+}
+%
+#[derive(Debug)]
+pub enum AppError {
+    Io(std::io::Error),
+    Parse(std::num::ParseIntError),
+    NotFound(String),
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "i/o error: {e}"),
+            Self::Parse(e) => write!(f, "invalid number: {e}"),
+            Self::NotFound(key) => write!(f, "missing key: {key}"),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+%
+pub struct Ewma {
+    alpha: f64,
+    value: Option<f64>,
+}
+
+impl Ewma {
+    pub fn new(alpha: f64) -> Self {
+        Self { alpha, value: None }
+    }
+
+    pub fn update(&mut self, sample: f64) -> f64 {
+        let next = match self.value {
+            Some(prev) => prev + self.alpha * (sample - prev),
+            None => sample,
+        };
+        *self.value.insert(next)
+    }
+}
+%
+pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if !current.is_empty() {
+            if current.len() + word.len() + 1 > width {
+                lines.push(std::mem::take(&mut current));
+            } else {
+                current.push(' ');
+            }
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+%
+#[derive(Debug, PartialEq)]
+pub struct RequestLine<'a> {
+    pub method: &'a str,
+    pub path: &'a str,
+    pub version: &'a str,
+}
+
+pub fn parse_request_line(line: &str) -> Option<RequestLine<'_>> {
+    let mut parts = line.split_ascii_whitespace();
+    let request = RequestLine {
+        method: parts.next()?,
+        path: parts.next()?,
+        version: parts.next()?,
+    };
+    let valid = parts.next().is_none() && request.path.starts_with('/');
+    valid.then_some(request)
+}
+%
+/// Merges overlapping ranges into a sorted, disjoint list.
+pub fn merge_ranges(mut ranges: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
+    ranges.sort_unstable();
+    let mut merged: Vec<(u64, u64)> = Vec::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        match merged.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => merged.push((start, end)),
+        }
+    }
+    merged
+}
+%
+/// Edit distance between two strings, counted in chars.
+pub fn levenshtein(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut curr = vec![i + 1; b.len() + 1];
+        for (j, &cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j] + cost)
+                .min(prev[j + 1] + 1)
+                .min(curr[j] + 1);
+        }
+        prev = curr;
+    }
+    prev[b.len()]
+}
+%
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Success,
+    Redirect,
+    Retry,
+    Fail,
+}
+
+impl Outcome {
+    pub fn from_status(status: u16) -> Self {
+        match status {
+            200..=299 => Self::Success,
+            300..=399 => Self::Redirect,
+            408 | 429 | 502..=504 => Self::Retry,
+            _ => Self::Fail,
+        }
+    }
+}
+%
+/// 64-bit FNV-1a hash, handy for stable bucketing of string keys.
+pub fn fnv1a(bytes: &[u8]) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    bytes.iter().fold(OFFSET, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(PRIME)
+    })
+}
+%
+/// Run-length encodes a string, so "aaabcc" becomes "3a1b2c".
+pub fn rle_encode(input: &str) -> String {
+    let mut out = String::new();
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        let mut run = 1;
+        while chars.next_if_eq(&c).is_some() {
+            run += 1;
+        }
+        out.push_str(&run.to_string());
+        out.push(c);
+    }
+    out
+}

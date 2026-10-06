@@ -1,0 +1,276 @@
+export function debounce(fn, waitMs = 250) {
+  let timer;
+  return function debounced(...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), waitMs);
+  };
+}
+%
+export async function postJson(url, body, { timeoutMs = 8000 } = {}) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`POST ${url} -> ${response.status}: ${detail}`);
+  }
+  return response.status === 204 ? null : response.json();
+}
+%
+export const slugify = (text) =>
+  text
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+%
+export function parseQuery(search) {
+  const result = Object.create(null);
+  for (const [key, value] of new URLSearchParams(search)) {
+    const existing = result[key];
+    if (existing === undefined) result[key] = value;
+    else result[key] = [existing, value].flat();
+  }
+  return result;
+}
+%
+/** Structural equality for JSON-like values (objects and arrays). */
+export function deepEqual(a, b) {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  if (a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every(
+    (key) => Object.hasOwn(b, key) && deepEqual(a[key], b[key]),
+  );
+}
+%
+const listeners = new Map();
+
+export function subscribe(topic, handler) {
+  if (!listeners.has(topic)) listeners.set(topic, new Set());
+  listeners.get(topic).add(handler);
+  return () => listeners.get(topic)?.delete(handler);
+}
+
+export function publish(topic, payload) {
+  for (const handler of listeners.get(topic) ?? []) {
+    queueMicrotask(() => handler(payload));
+  }
+}
+%
+const UNITS = [
+  ["year", 31_536_000],
+  ["month", 2_592_000],
+  ["day", 86_400],
+  ["hour", 3_600],
+  ["minute", 60],
+];
+
+export function timeAgo(date, locale = "en") {
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  for (const [unit, size] of UNITS) {
+    if (Math.abs(seconds) >= size) {
+      return rtf.format(Math.round(seconds / size), unit);
+    }
+  }
+  return rtf.format(seconds, "second");
+}
+%
+export const pipe =
+  (...fns) =>
+  (input) =>
+    fns.reduce((value, fn) => fn(value), input);
+
+export const pipeAsync =
+  (...fns) =>
+  (input) =>
+    fns.reduce(async (value, fn) => fn(await value), input);
+%
+import { readFile, rename, writeFile } from "node:fs/promises";
+
+export async function updateJsonFile(path, update) {
+  const current = JSON.parse(await readFile(path, "utf8"));
+  const next = await update(current);
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`);
+  await rename(tmp, path);
+  return next;
+}
+%
+export function summarizeOrders(orders) {
+  const byStatus = Object.groupBy(orders, (order) => order.status);
+  return Object.fromEntries(
+    Object.entries(byStatus).map(([status, list]) => [
+      status,
+      {
+        count: list.length,
+        totalCents: list.reduce((sum, o) => sum + o.totalCents, 0),
+      },
+    ]),
+  );
+}
+%
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function waitFor(check, timeout = 5000, interval = 200) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const result = await check();
+    if (result) return result;
+    await sleep(interval);
+  }
+  throw new Error(`Condition not met within ${timeout}ms`);
+}
+%
+export class TokenBucket {
+  #tokens;
+  #updatedAt = Date.now();
+  constructor(capacity, perSecond) {
+    this.capacity = capacity;
+    this.perSecond = perSecond;
+    this.#tokens = capacity;
+  }
+  take(count = 1) {
+    const now = Date.now();
+    const refill = ((now - this.#updatedAt) / 1000) * this.perSecond;
+    this.#tokens = Math.min(this.capacity, this.#tokens + refill);
+    this.#updatedAt = now;
+    if (this.#tokens < count) return false;
+    this.#tokens -= count;
+    return true;
+  }
+}
+%
+const ENTITIES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+export const escapeHtml = (value) =>
+  String(value).replace(/[&<>"']/g, (char) => ENTITIES[char]);
+%
+const inFlight = new Map();
+
+/** Coalesces concurrent calls that share the same key. */
+export function dedupe(key, task) {
+  if (inFlight.has(key)) return inFlight.get(key);
+  const promise = Promise.resolve()
+    .then(task)
+    .finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+%
+const safeDecode = (value) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+export function parseCookies(header = "") {
+  const cookies = Object.create(null);
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index === -1) continue;
+    const name = part.slice(0, index).trim();
+    cookies[name] ??= safeDecode(part.slice(index + 1).trim());
+  }
+  return cookies;
+}
+%
+export const asyncHandler = (handler) => (req, res, next) =>
+  Promise.resolve(handler(req, res, next)).catch(next);
+
+export function errorHandler(err, req, res, next) {
+  if (res.headersSent) return next(err);
+  const status = err.status ?? 500;
+  res.status(status).json({
+    error: status >= 500 ? "Internal Server Error" : err.message,
+  });
+}
+%
+export function onNearBottom(sentinel, loadMore) {
+  let loading = false;
+  const observer = new IntersectionObserver(
+    async ([entry]) => {
+      if (!entry.isIntersecting || loading) return;
+      loading = true;
+      try {
+        if (!(await loadMore())) observer.disconnect();
+      } finally {
+        loading = false;
+      }
+    },
+    { rootMargin: "200px" },
+  );
+  observer.observe(sentinel);
+  return () => observer.disconnect();
+}
+%
+export function setWithExpiry(key, value, ttlMs) {
+  const record = { value, expiresAt: Date.now() + ttlMs };
+  localStorage.setItem(key, JSON.stringify(record));
+}
+
+export function getWithExpiry(key) {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return undefined;
+  const { value, expiresAt } = JSON.parse(raw);
+  if (Date.now() > expiresAt) {
+    localStorage.removeItem(key);
+    return undefined;
+  }
+  return value;
+}
+%
+export async function* readLines(response) {
+  const reader = response.body
+    .pipeThrough(new TextDecoderStream())
+    .getReader();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    yield* lines;
+  }
+  if (buffer) yield buffer;
+}
+%
+const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+export function formatBytes(bytes, decimals = 1) {
+  if (bytes < 1024) return `${bytes} B`;
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    UNITS.length - 1,
+  );
+  const value = bytes / 1024 ** exponent;
+  return `${value.toFixed(decimals)} ${UNITS[exponent]}`;
+}
+%
+export function shuffle(items, random = Math.random) {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}

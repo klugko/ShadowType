@@ -1,0 +1,251 @@
+CREATE TABLE accounts (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL CHECK (LENGTH(display_name) <= 80),
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'suspended', 'closed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+%
+SELECT
+  c.id,
+  c.name,
+  COUNT(*) AS order_count,
+  SUM(o.total_cents) AS lifetime_cents
+FROM customers AS c
+JOIN orders AS o ON o.customer_id = c.id
+WHERE o.status = 'completed'
+GROUP BY c.id, c.name
+HAVING COUNT(*) >= 3
+ORDER BY lifetime_cents DESC
+LIMIT 50;
+%
+WITH monthly AS (
+  SELECT
+    DATE_TRUNC('month', created_at) AS period,
+    SUM(amount_cents) AS revenue_cents
+  FROM payments
+  WHERE status = 'succeeded'
+  GROUP BY 1
+)
+SELECT
+  period,
+  revenue_cents,
+  revenue_cents - LAG(revenue_cents) OVER (ORDER BY period) AS delta
+FROM monthly
+ORDER BY period;
+%
+SELECT category_id, product_id, units_sold
+FROM (
+  SELECT
+    p.category_id,
+    p.id AS product_id,
+    SUM(li.quantity) AS units_sold,
+    ROW_NUMBER() OVER (
+      PARTITION BY p.category_id
+      ORDER BY SUM(li.quantity) DESC
+    ) AS sales_rank
+  FROM products AS p
+  JOIN line_items AS li ON li.product_id = p.id
+  GROUP BY p.category_id, p.id
+) AS ranked
+WHERE sales_rank <= 3
+ORDER BY category_id, sales_rank;
+%
+INSERT INTO inventory (sku, warehouse_id, quantity, updated_at)
+VALUES ($1, $2, $3, NOW())
+ON CONFLICT (sku, warehouse_id) DO UPDATE
+SET
+  quantity = inventory.quantity + EXCLUDED.quantity,
+  updated_at = EXCLUDED.updated_at
+RETURNING sku, warehouse_id, quantity;
+%
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_customer_recent
+  ON orders (customer_id, created_at DESC)
+  INCLUDE (status, total_cents)
+  WHERE deleted_at IS NULL;
+%
+UPDATE subscriptions AS s
+SET
+  status = 'past_due',
+  updated_at = NOW()
+WHERE s.status = 'active'
+  AND s.id IN (
+    SELECT i.subscription_id
+    FROM invoices AS i
+    WHERE i.paid_at IS NULL
+      AND i.due_at < NOW() - INTERVAL '7 days'
+  );
+%
+WITH RECURSIVE reports AS (
+  SELECT id, manager_id, full_name, 1 AS depth
+  FROM employees
+  WHERE id = $1
+  UNION ALL
+  SELECT e.id, e.manager_id, e.full_name, r.depth + 1
+  FROM employees AS e
+  JOIN reports AS r ON e.manager_id = r.id
+  WHERE r.depth < 10
+)
+SELECT id, full_name, depth
+FROM reports
+ORDER BY depth, full_name;
+%
+DELETE FROM cart_items AS ci
+USING carts AS c
+WHERE ci.cart_id = c.id
+  AND c.checked_out_at IS NULL
+  AND c.updated_at < NOW() - INTERVAL '30 days';
+%
+-- Claim the next runnable job without blocking other workers.
+UPDATE jobs
+SET
+  status = 'running',
+  locked_by = $1,
+  started_at = NOW()
+WHERE id = (
+  SELECT id
+  FROM jobs
+  WHERE status = 'queued'
+    AND run_at <= NOW()
+  ORDER BY priority DESC, run_at
+  LIMIT 1
+  FOR UPDATE SKIP LOCKED
+)
+RETURNING id, kind, payload;
+%
+SELECT
+  account_id,
+  posted_at,
+  amount_cents,
+  SUM(amount_cents) OVER (
+    PARTITION BY account_id
+    ORDER BY posted_at, id
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+  ) AS balance_cents
+FROM ledger_entries
+WHERE account_id = $1
+ORDER BY posted_at, id;
+%
+SELECT
+  id,
+  payload ->> 'event' AS event_name,
+  (payload -> 'context' ->> 'duration_ms')::INT AS duration_ms
+FROM events
+WHERE payload @> '{"source": "mobile"}'
+  AND received_at >= NOW() - INTERVAL '1 hour'
+ORDER BY received_at DESC
+LIMIT 100;
+%
+CREATE MATERIALIZED VIEW daily_active_users AS
+SELECT
+  DATE_TRUNC('day', occurred_at)::DATE AS activity_date,
+  COUNT(DISTINCT user_id) AS active_users
+FROM activity_log
+GROUP BY 1
+WITH DATA;
+
+CREATE UNIQUE INDEX ON daily_active_users (activity_date);
+%
+CREATE TABLE project_members (
+  project_id BIGINT NOT NULL
+    REFERENCES projects (id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL
+    REFERENCES users (id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'viewer'
+    CHECK (role IN ('owner', 'editor', 'viewer')),
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (project_id, user_id)
+);
+%
+ALTER TABLE orders
+  ADD COLUMN shipped_at TIMESTAMPTZ,
+  ADD CONSTRAINT orders_shipped_after_created
+    CHECK (shipped_at IS NULL OR shipped_at >= created_at);
+%
+SELECT u.id, u.email, u.created_at
+FROM users AS u
+WHERE u.created_at < NOW() - INTERVAL '14 days'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM logins AS l
+    WHERE l.user_id = u.id
+  )
+ORDER BY u.created_at;
+%
+SELECT
+  endpoint,
+  COUNT(*) AS requests,
+  COUNT(*) FILTER (WHERE status_code >= 500) AS server_errors,
+  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_ms
+FROM http_requests
+WHERE requested_at >= NOW() - INTERVAL '1 day'
+GROUP BY endpoint
+ORDER BY p95_ms DESC;
+%
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER articles_set_updated_at
+BEFORE UPDATE ON articles
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+%
+-- Fill days without signups so the chart has no gaps.
+SELECT
+  d.day::DATE AS signup_date,
+  COUNT(u.id) AS signups
+FROM GENERATE_SERIES(
+  CURRENT_DATE - INTERVAL '29 days',
+  CURRENT_DATE,
+  INTERVAL '1 day'
+) AS d (day)
+LEFT JOIN users AS u
+  ON u.created_at >= d.day
+  AND u.created_at < d.day + INTERVAL '1 day'
+GROUP BY d.day
+ORDER BY d.day;
+%
+SELECT
+  id,
+  title,
+  TS_RANK(search_vector, query) AS score
+FROM articles,
+  WEBSEARCH_TO_TSQUERY('english', $1) AS query
+WHERE search_vector @@ query
+  AND published_at IS NOT NULL
+ORDER BY score DESC
+LIMIT 20;
+%
+SELECT c.id, c.name, last_order.placed_at, last_order.total_cents
+FROM customers AS c
+LEFT JOIN LATERAL (
+  SELECT o.placed_at, o.total_cents
+  FROM orders AS o
+  WHERE o.customer_id = c.id
+  ORDER BY o.placed_at DESC
+  LIMIT 1
+) AS last_order ON TRUE
+WHERE c.region = $1;
+%
+-- Move funds in one statement: credit only if the debit succeeded.
+WITH debit AS (
+  UPDATE wallets
+  SET balance_cents = balance_cents - $3
+  WHERE id = $1
+    AND balance_cents >= $3
+    AND EXISTS (SELECT 1 FROM wallets WHERE id = $2 AND id <> $1)
+  RETURNING id
+)
+UPDATE wallets
+SET balance_cents = balance_cents + $3
+WHERE id = $2
+  AND EXISTS (SELECT 1 FROM debit)
+RETURNING id, balance_cents;
