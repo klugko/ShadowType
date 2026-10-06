@@ -36,7 +36,7 @@ pub const LINES: &[Line] = &[
     Heading("typing"),
     Key("keys", "type the text"),
     Key("Backspace", "delete a character"),
-    Key("Ctrl+W", "delete a word, also Ctrl+Backspace"),
+    Key("Ctrl+W", "delete a word, also Alt+Backspace"),
     Key("Enter", "new line, code is indented for you"),
     Key("Ctrl+R", "restart with a new text"),
     Key("Esc", "stop, press it twice to leave a race"),

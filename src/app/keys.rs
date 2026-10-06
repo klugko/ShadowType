@@ -8,7 +8,7 @@ use super::{
     Activity, App, Buffer, FieldEdit, Focus, Prompt, TextField, command,
     form::{Cursor, Step},
     help,
-    input::{Edit, TextInput},
+    input::{Edit, TextInput, control_letter, erases_word, normalized, typed_char},
     practice, race, settings,
 };
 use code_racer_protocol::Phase;
@@ -17,6 +17,7 @@ const PAGE: usize = 10;
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent, now: Instant) {
+        let key = normalized(key);
         self.message = None;
         if is_control(key, 'c') {
             self.quit = true;
@@ -237,19 +238,19 @@ impl App {
     }
 
     fn typing_key(&mut self, key: KeyEvent, now: Instant) {
-        let control = key.modifiers.contains(KeyModifiers::CONTROL);
-        let alt = key.modifiers.contains(KeyModifiers::ALT);
-        match key.code {
-            KeyCode::Esc => self.stop_typing(now),
-            KeyCode::Char('r') if control && !alt => self.restart_solo(),
-            KeyCode::Char('w') if control && !alt => {
-                self.edit_session(now, SessionEdit::DeleteWord)
+        if let Some(ch) = typed_char(key) {
+            self.type_char(ch, now);
+            return;
+        }
+        match (control_letter(key), key.code) {
+            (Some('r'), _) => self.restart_solo(),
+            (Some('w'), _) => self.edit_session(now, SessionEdit::DeleteWord),
+            (_, KeyCode::Backspace) if erases_word(key) => {
+                self.edit_session(now, SessionEdit::DeleteWord);
             }
-            KeyCode::Char('h') if control && !alt => self.edit_session(now, SessionEdit::Backspace),
-            KeyCode::Backspace if control || alt => self.edit_session(now, SessionEdit::DeleteWord),
-            KeyCode::Backspace => self.edit_session(now, SessionEdit::Backspace),
-            KeyCode::Enter => self.type_char('\n', now),
-            KeyCode::Char(ch) if control == alt => self.type_char(ch, now),
+            (_, KeyCode::Backspace) => self.edit_session(now, SessionEdit::Backspace),
+            (_, KeyCode::Enter) => self.type_char('\n', now),
+            (_, KeyCode::Esc) => self.stop_typing(now),
             _ => {}
         }
     }
@@ -372,5 +373,5 @@ fn scroll_key(key: KeyEvent, scroll: &mut usize, len: usize) -> bool {
 }
 
 fn is_control(key: KeyEvent, letter: char) -> bool {
-    key.code == KeyCode::Char(letter) && key.modifiers.contains(KeyModifiers::CONTROL)
+    control_letter(key) == Some(letter)
 }

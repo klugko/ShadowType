@@ -249,6 +249,38 @@ fn altgr_characters_are_typed_but_shortcuts_are_not() {
 }
 
 #[test]
+fn altgr_characters_reach_the_command_line_and_fields() {
+    let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
+    let mut app = app();
+    press(&mut app, KeyCode::Char(':'));
+    press_with(&mut app, '@', altgr);
+    press_with(&mut app, '\\', altgr);
+    assert_eq!(
+        app.prompt.as_ref().map(|prompt| prompt.input.value()),
+        Some("@\\")
+    );
+    press(&mut app, KeyCode::Esc);
+    command(&mut app, "config");
+    press(&mut app, KeyCode::Char('G'));
+    press(&mut app, KeyCode::Char('i'));
+    press_with(&mut app, 'u', KeyModifiers::CONTROL);
+    press_with(&mut app, '[', altgr);
+    assert_eq!(
+        app.editing.as_ref().map(|edit| edit.input.value()),
+        Some("[")
+    );
+}
+
+#[test]
+fn control_h_erases_one_character_in_the_session() {
+    let mut app = app();
+    press(&mut app, KeyCode::Char('s'));
+    type_text(&mut app, "xy");
+    press_with(&mut app, 'h', KeyModifiers::CONTROL);
+    assert_eq!(session(&app).cursor(), 1);
+}
+
+#[test]
 fn practice_form_edits_the_settings() {
     let mut app = app();
     press(&mut app, KeyCode::Enter);

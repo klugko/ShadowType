@@ -1,7 +1,56 @@
-//! Single-line text field with an editing cursor.
+//! Keyboard input: single-line text fields, and the rules that tell typed
+//! characters from shortcuts everywhere in the application.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
+
+/// The character a key types, if any.
+///
+/// Plain keys type, and so do keys held with both Ctrl and Alt: crossterm
+/// reports AltGr that way on Windows, so `@` on a French keyboard arrives as
+/// Ctrl+Alt+`@`. Ctrl or Alt alone makes a shortcut.
+pub fn typed_char(key: KeyEvent) -> Option<char> {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    match key.code {
+        KeyCode::Char(ch) if control == alt => Some(ch),
+        _ => None,
+    }
+}
+
+/// The lowercase letter of a Ctrl shortcut such as Ctrl+W, `None` for any
+/// other key, AltGr characters included.
+pub fn control_letter(key: KeyEvent) -> Option<char> {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    match key.code {
+        KeyCode::Char(ch) if control && !alt => Some(ch.to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
+/// Whether a key erases the previous word: Alt+Backspace, or Ctrl+Backspace
+/// on the terminals that tell it from Backspace.
+pub fn erases_word(key: KeyEvent) -> bool {
+    key.code == KeyCode::Backspace
+        && key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+}
+
+/// Ctrl+H is the control character of Backspace: some terminals send it for
+/// Backspace, most for Ctrl+Backspace. Either way it erases one character.
+pub fn normalized(key: KeyEvent) -> KeyEvent {
+    if control_letter(key) == Some('h') {
+        KeyEvent {
+            code: KeyCode::Backspace,
+            modifiers: KeyModifiers::NONE,
+            ..key
+        }
+    } else {
+        key
+    }
+}
 
 /// What a key press did to a [`TextInput`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,24 +88,33 @@ impl TextInput {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Edit {
-        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        if let Some(ch) = typed_char(key) {
+            return self.changed(|input| input.insert(ch));
+        }
+        if let Some(letter) = control_letter(key) {
+            return self.shortcut(letter);
+        }
         match key.code {
             KeyCode::Enter => Edit::Submitted,
             KeyCode::Esc => Edit::Cancelled,
-            KeyCode::Char('w') if control => self.changed(Self::delete_word),
-            KeyCode::Char('u') if control => self.changed(Self::clear_before_cursor),
-            KeyCode::Char('a') if control => self.changed(Self::home),
-            KeyCode::Char('e') if control => self.changed(Self::end),
-            KeyCode::Char(ch) if !control && !key.modifiers.contains(KeyModifiers::ALT) => {
-                self.changed(|input| input.insert(ch))
-            }
-            KeyCode::Backspace if control => self.changed(Self::delete_word),
+            KeyCode::Backspace if erases_word(key) => self.changed(Self::delete_word),
             KeyCode::Backspace => self.changed(Self::backspace),
             KeyCode::Delete => self.changed(Self::delete),
             KeyCode::Left => self.changed(Self::left),
             KeyCode::Right => self.changed(Self::right),
             KeyCode::Home => self.changed(Self::home),
             KeyCode::End => self.changed(Self::end),
+            _ => Edit::Ignored,
+        }
+    }
+
+    /// Readline shortcuts, as in a shell.
+    fn shortcut(&mut self, letter: char) -> Edit {
+        match letter {
+            'w' => self.changed(Self::delete_word),
+            'u' => self.changed(Self::clear_before_cursor),
+            'a' => self.changed(Self::home),
+            'e' => self.changed(Self::end),
             _ => Edit::Ignored,
         }
     }
@@ -95,11 +153,11 @@ impl TextInput {
     }
 
     fn delete_word(&mut self) {
-        let before = self.before_cursor();
-        let trimmed = before.trim_end();
-        let start = trimmed
-            .rfind(char::is_whitespace)
-            .map_or(0, |index| index + 1);
+        let start = self
+            .before_cursor()
+            .trim_end()
+            .trim_end_matches(|ch: char| !ch.is_whitespace())
+            .len();
         self.value.replace_range(start..self.cursor, "");
         self.cursor = start;
     }
@@ -191,6 +249,61 @@ mod tests {
         let mut input = TextInput::new("join FK72AD ", 40);
         input.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
         assert_eq!(input.value(), "join ");
+    }
+
+    #[test]
+    fn deleting_a_word_after_wide_whitespace_keeps_the_whitespace() {
+        for space in ['\u{a0}', '\u{3000}'] {
+            let text = format!("join{space}FK");
+            for key in [
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT),
+            ] {
+                let mut input = TextInput::new(&text, 40);
+                input.handle_key(key);
+                assert_eq!(input.value(), format!("join{space}"), "{key:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn altgr_characters_are_typed() {
+        let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
+        let mut input = TextInput::new("", 40);
+        for ch in ['@', '\\', '[', 'w', 'a'] {
+            assert_eq!(
+                input.handle_key(KeyEvent::new(KeyCode::Char(ch), altgr)),
+                Edit::Changed
+            );
+        }
+        assert_eq!(input.value(), "@\\[wa");
+    }
+
+    #[test]
+    fn control_letters_are_shortcuts_not_text() {
+        let mut input = TextInput::new("ab", 40);
+        input.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(input.before_cursor(), "", "Ctrl+A goes home");
+        assert_eq!(
+            input.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL)),
+            Edit::Ignored
+        );
+        input.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+        assert_eq!(input.before_cursor(), "ab", "Ctrl+E goes to the end");
+        assert_eq!(input.value(), "ab");
+    }
+
+    #[test]
+    fn control_h_is_a_backspace() {
+        let key = normalized(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+        assert_eq!(key.code, KeyCode::Backspace);
+        assert!(!erases_word(key));
+        let mut input = TextInput::new("join FK", 40);
+        input.handle_key(key);
+        assert_eq!(input.value(), "join F");
+        let plain = KeyEvent::from(KeyCode::Char('h'));
+        assert_eq!(normalized(plain), plain);
     }
 
     #[test]
