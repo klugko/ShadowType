@@ -1,5 +1,6 @@
 """Solo session in a real terminal: first launch, typing, results, resize, Ctrl+C."""
 
+import signal
 import tempfile
 from pathlib import Path
 
@@ -18,7 +19,9 @@ def main():
             run(terminal, home)
         finally:
             terminal.close()
-    print("solo: first launch, typing with auto-indent, results, history, restart, resize, Ctrl+C: PASS")
+        for stop in (signal.SIGTERM, signal.SIGHUP):
+            stops_cleanly(stop, home)
+    print("solo: first launch, typing with auto-indent, results, history, restart, resize, Ctrl+C, SIGTERM, SIGHUP: PASS")
 
 
 def run(terminal, home):
@@ -46,6 +49,18 @@ def run(terminal, home):
     terminal.send("\x03")
     assert terminal.process.wait(timeout=5) == 0, "Ctrl+C exits cleanly"
     assert terminal.mode_restored(), "the terminal is back in cooked mode"
+
+
+def stops_cleanly(stop, home):
+    """A signal from outside quits like :q does, restoring the terminal."""
+    terminal = Terminal([str(CLIENT), "history"], environment(home))
+    try:
+        terminal.wait_for(r"NORMAL .*history\.log")
+        terminal.process.send_signal(stop)
+        assert terminal.process.wait(timeout=5) == 0, f"{stop.name} exits cleanly"
+        assert terminal.mode_restored(), f"the terminal is restored after {stop.name}"
+    finally:
+        terminal.close()
 
 
 if __name__ == "__main__":
