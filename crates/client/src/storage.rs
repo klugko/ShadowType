@@ -39,3 +39,24 @@ fn write(path:&std::path::Path,bytes:&[u8])->anyhow::Result<()> {
     if let Err(e)=fs::rename(&tmp,path) {if backup.exists() {let _=fs::rename(&backup,path);}return Err(e.into());}
     Ok(())
 }
+
+#[cfg(test)]
+impl Storage {
+    pub fn for_test()->Self {
+        let path=std::env::temp_dir().join(format!("code-racer-test-{}-{}",std::process::id(),code_racer_protocol::room_code()));
+        Self {config:Config::default(),history:Vec::new(),config_path:path.join("config.toml"),history_path:path.join("history.json")}
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn persistence_and_backup() {
+        let mut s=Storage::for_test();s.config.username="Élodie".into();s.save_config().expect("save config");
+        let config:Config=toml::from_str(&fs::read_to_string(&s.config_path).expect("read")).expect("parse");assert_eq!(config.username,"Élodie");
+        s.record("quote","french",Stats {wpm:80.0,..Stats::default()}).expect("record");
+        s.record("quote","french",Stats {wpm:90.0,..Stats::default()}).expect("record");
+        let records:Vec<Record>=serde_json::from_str(&fs::read_to_string(&s.history_path).expect("read")).expect("parse");assert_eq!(records.len(),2);assert!(s.history_path.with_extension("bak").exists());
+        fs::remove_dir_all(s.config_path.parent().expect("parent")).expect("cleanup");
+    }
+}

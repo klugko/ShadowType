@@ -24,8 +24,8 @@ impl Session {
         let typed: Vec<_> = self.typed.graphemes(true).collect();
         self.attempts += 1;
         let i = typed.len().saturating_sub(1);
-        if self.target.get(i).is_some_and(|t| t == typed[i]) { self.correct_attempts += 1; }
-        if typed.len() == self.target.len() { self.finished = Some(Instant::now()); }
+        if self.target.get(i).is_some_and(|t| t.starts_with(typed[i])) { self.correct_attempts += 1; }
+        if typed.len() == self.target.len() && !self.target.get(i).is_some_and(|t| t != typed[i] && t.starts_with(typed[i])) { self.finished = Some(Instant::now()); }
     }
     pub fn backspace(&mut self) {
         if self.done() { return; }
@@ -65,6 +65,14 @@ mod tests {
         let mut s = Session::new("é👩‍💻x",None);
         for ch in "é👩‍💻".chars() {s.input(ch);}
         assert_eq!(s.stats().position,2); s.backspace(); assert_eq!(s.typed,"é");
+    }
+    #[test] fn final_combined_grapheme() {
+        let mut s=Session::new("e\u{301}",None);
+        s.input('e'); assert!(!s.done()); s.input('\u{301}');
+        assert!(s.done()); assert_eq!(s.stats().accuracy,100.0);
+        let mut emoji=Session::new("👩‍💻",None);
+        for ch in "👩‍💻".chars() {emoji.input(ch);}
+        assert!(emoji.done());assert_eq!(emoji.stats().correct,1);
     }
     #[test] fn timer_freezes() {
         let mut s=Session::new("abc",Some(Duration::from_millis(1)));

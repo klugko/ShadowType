@@ -79,10 +79,11 @@ impl Hub {
             ClientMessage::Progress {position,errors,correct,attempts} => {
                 if room.view.phase!=Phase::Racing {return Err("Race is not running".into());}
                 let length=grapheme_count(&room.view.text);
-                if position>length || correct>position || attempts<position || attempts>1_000_000 || errors>attempts {return Err("Invalid progress".into());}
+                if position>length || correct>position || attempts<position || attempts>1_000_000 || errors>attempts || correct>attempts.saturating_sub(errors) {return Err("Invalid progress".into());}
                 let elapsed=room.start.map(|s|s.elapsed()).unwrap_or_default();
                 let p=room.view.players.iter_mut().find(|p|p.id==id).ok_or("Player not found")?;
                 if p.finished_ms.is_some() {return Ok(());}
+                if errors<p.errors {return Err("Error count cannot decrease".into());}
                 p.position=position;p.errors=errors;
                 p.wpm=if elapsed.as_secs_f64()>0.0 {correct as f64*12.0/elapsed.as_secs_f64()} else {0.0};
                 p.accuracy=if attempts==0 {100.0} else {(attempts-errors) as f64/attempts as f64*100.0};
@@ -139,5 +140,29 @@ pub async fn serve(listener:TcpListener,max:usize,ttl:u64,timeout:u64)->anyhow::
             }
             _=tokio::signal::ctrl_c()=>{timer.abort();return Ok(());}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn hub()->Hub {Hub {rooms:HashMap::new(),membership:HashMap::new(),max:2,ttl:Duration::from_secs(30),timeout:Duration::from_secs(10)}}
+    #[test]
+    fn room_limits_validation_and_cleanup() {
+        let mut h=hub();let (tx,_rx)=mpsc::channel(64);
+        assert!(h.handle("a",&tx,ClientMessage::Create {version:VERSION+1,username:"A".into(),language:"english".into()}).is_err());
+        h.handle("a",&tx,ClientMessage::Create {version:VERSION,username:"A".into(),language:"english".into()}).expect("create");
+        let code=h.membership["a"].clone();
+        h.handle("b",&tx,ClientMessage::Join {version:VERSION,code:code.clone(),username:"B".into()}).expect("join");
+        assert!(h.handle("c",&tx,ClientMessage::Join {version:VERSION,code:code.clone(),username:"C".into()}).is_err());
+        assert!(h.handle("b",&tx,ClientMessage::Again).is_err());
+        h.rooms.get_mut(&code).expect("room").touched=Instant::now()-Duration::from_secs(31);h.tick();
+        assert!(h.rooms.is_empty());assert!(h.membership.is_empty());
+    }
+    #[test]
+    fn last_player_disconnect_removes_room() {
+        let mut h=hub();let (tx,_rx)=mpsc::channel(64);
+        h.handle("a",&tx,ClientMessage::Create {version:VERSION,username:"A".into(),language:"english".into()}).expect("create");
+        h.leave("a");assert!(h.rooms.is_empty());assert!(h.membership.is_empty());
     }
 }

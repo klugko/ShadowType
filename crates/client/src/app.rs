@@ -128,7 +128,7 @@ impl App {
                 if self.room.as_ref().is_none_or(|r|r.start_ms!=room.start_ms) && room.start_ms.is_some() {self.session=Some(Session::new(&room.text,None));self.saved=false;}
                 self.language=room.language.clone();self.state=match room.phase {Phase::Waiting=>State::Lobby,Phase::Countdown=>State::Countdown,Phase::Racing=>State::MultiplayerRace,Phase::Finished=>State::Results};
                 if room.phase==Phase::Racing {if let (Some(s),Some(start))=(&mut self.session,room.start_ms) {if s.started.is_none() {let elapsed=(now_ms() as i64+self.offset-start as i64).max(0) as u64;s.started=Instant::now().checked_sub(Duration::from_millis(elapsed));}}}
-                if room.phase==Phase::Finished {self.save_result();}self.room=Some(room);
+                if room.phase==Phase::Finished {if let Some(s)=&mut self.session {s.finished.get_or_insert_with(Instant::now);}self.save_result();}self.room=Some(room);
             }
             Err(e)=>{self.error=e;self.network=None;if matches!(self.state,State::Countdown|State::MultiplayerRace|State::Lobby) {self.state=State::MultiplayerMenu;self.room=None;}}
         }
@@ -147,3 +147,24 @@ impl App {
     }
 }
 fn cycle(current:&str,values:&[&str],forward:bool)->String {let i=values.iter().position(|&v|v==current).unwrap_or(0);values[(i+if forward {1} else {values.len()-1})%values.len()].into()}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    pub(crate) fn app()->App {
+        App {state:State::Home,storage:Storage::for_test(),session:None,network:None,room:None,id:String::new(),selected:0,mode:"words".into(),language:"english".into(),words:10,seconds:15,input:String::new(),error:String::new(),quit:false,dirty:true,offset:0,pending:None,saved:false,last_progress:Instant::now(),last_display:Instant::now()}
+    }
+    #[tokio::test]
+    async fn navigation_and_solo_transitions() {
+        let mut a=app();a.key(KeyCode::Char('s').into()).await;assert_eq!(a.state,State::SoloConfig);
+        a.key(KeyCode::Enter.into()).await;assert_eq!(a.state,State::SoloRace);
+        let target=a.session.as_ref().expect("session").target.concat();assert_eq!(target.split_whitespace().count(),10);
+        a.key(KeyCode::Char('q').into()).await;assert!(!a.quit);assert_eq!(a.session.as_ref().expect("session").typed,"q");
+        a.key(KeyCode::Esc.into()).await;assert_eq!(a.state,State::Home);
+        a.mode="code".into();a.language="rust".into();a.start_solo();assert!(a.session.as_ref().expect("code").target.concat().contains("\n    "));
+    }
+    #[test]
+    fn disconnect_is_recoverable() {
+        let mut a=app();a.state=State::MultiplayerRace;a.message(Err("Connection lost".into()));assert_eq!(a.state,State::MultiplayerMenu);assert!(a.network.is_none());assert_eq!(a.error,"Connection lost");
+    }
+}

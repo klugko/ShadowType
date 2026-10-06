@@ -42,7 +42,7 @@ pub fn draw(frame:&mut Frame,app:&App) {
             }
         }
         State::Results=>{
-            if let Some(room)=&app.room {lines.push(Line::raw("  POSITION   PLAYER                     WPM       ACC      TIME"));for (i,p) in room.ranking().iter().enumerate() {lines.push(Line::raw(format!("  {:8}   {:24} {:7.1}    {:5.1}%   {}",i+1,p.name,p.wpm,p.accuracy,p.finished_ms.map(|ms|format!("{:.2}s",ms as f64/1000.0)).unwrap_or("DNF".into())));}lines.push(Line::raw("\n  [R/L] Host returns to lobby · Esc leaves · Q quits"));}
+            if let Some(room)=&app.room {lines.push(Line::raw("  POSITION   PLAYER                     WPM       ACC      TIME"));for (i,p) in room.ranking().iter().enumerate() {lines.push(Line::raw(format!("  {:8}   {:24} {:7.1}    {:5.1}%   {}",i+1,p.name,p.wpm,p.accuracy,p.finished_ms.map(|ms|format!("{:.2}s",ms as f64/1000.0)).unwrap_or("DNF".into()))));}lines.push(Line::raw("\n  [R/L] Host returns to lobby · Esc leaves · Q quits"));}
             else if let Some(s)=&app.session {let st=s.stats();lines.extend([Line::raw(format!("  Session complete · {} / {}",app.mode,app.language)),Line::raw(format!("\n  WPM         {:.1}\n  Raw WPM     {:.1}\n  Accuracy    {:.2}%\n  Errors      {}\n  Duration    {:.2}s",st.wpm,st.raw_wpm,st.accuracy,st.errors,st.elapsed)),Line::raw("\n  [R] Restart · Esc home · Q quit")]);}
         }
         State::Settings=>{lines.push(item_line(&format!("Username   {}{}",if app.selected==0 {&app.input} else {&app.storage.config.username},if app.selected==0 {"_"} else {""}),app.selected==0,accent));lines.push(item_line(&format!("Theme      {}",app.storage.config.theme),app.selected==1,accent));lines.push(item_line(&format!("Language   {}",app.language),app.selected==2,accent));lines.push(Line::raw("\n  Enter saves username · j/k navigate · l changes value"));}
@@ -54,8 +54,25 @@ pub fn draw(frame:&mut Frame,app:&App) {
     }
     frame.render_widget(Paragraph::new(lines),sections[2]);
     frame.render_widget(Paragraph::new(if app.error.is_empty() {String::new()} else {format!(" E: {}",app.error)}).style(Style::default().fg(if mono {Color::White} else {Color::Rgb(191,113,119)})).block(Block::default().borders(Borders::TOP)),sections[3]);
-    let status=if let Some(s)=&app.session {let st=s.stats();format!(" INSERT │ {} │ {:.1} WPM │ raw {:.1} │ {:.1}% │ errors: {} │ {:02}:{:02} │ {:.0}%",app.language,st.wpm,st.raw_wpm,st.accuracy,st.errors,st.elapsed as u64/60,st.elapsed as u64%60,st.position as f64/st.length.max(1) as f64*100.0)} else {format!(" NORMAL │ {} │ {} │ j/k navigate · Enter select · ? help",app.storage.config.username,app.language)};
+    let status=if let Some(s)=&app.session {let st=s.stats();format!(" {} │ {} │ {:.1} WPM │ raw {:.1} │ {:.1}% │ errors: {} │ {:02}:{:02} │ {:.0}%",if matches!(app.state,State::SoloRace|State::MultiplayerRace) {"INSERT"} else {"NORMAL"},app.language,st.wpm,st.raw_wpm,st.accuracy,st.errors,st.elapsed as u64/60,st.elapsed as u64%60,st.position as f64/st.length.max(1) as f64*100.0)} else {format!(" NORMAL │ {} │ {} │ j/k navigate · Enter select · ? help",app.storage.config.username,app.language)};
     frame.render_widget(Paragraph::new(status).style(Style::default().bg(accent).fg(bg)),sections[4]);
 }
 fn item_line(item:&str,selected:bool,accent:Color)->Line<'static> {Line::styled(format!(" {} {}",if selected {">"} else {" "},item),Style::default().fg(if selected {accent} else {Color::Gray}))}
 fn menu(lines:&mut Vec<Line<'static>>,items:&[&str],selected:usize,accent:Color) {for (i,item) in items.iter().enumerate() {lines.push(item_line(item,i==selected,accent));}}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn render_small_and_editor_terminals() {
+        let mut app=crate::app::tests::app();
+        for (width,height) in [(10,4),(80,20),(120,35)] {
+            let mut terminal=ratatui::Terminal::new(ratatui::backend::TestBackend::new(width,height)).expect("terminal");
+            terminal.draw(|f|draw(f,&app)).expect("render home");
+            app.start_solo();
+            terminal.draw(|f|draw(f,&app)).expect("render editor");
+            let content=terminal.backend().buffer().content.iter().map(|c|c.symbol()).collect::<String>();
+            assert!(content.contains(if width<80 {"Terminal"} else {"code-racer"}));
+        }
+    }
+}
