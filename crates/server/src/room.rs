@@ -14,8 +14,10 @@ use code_racer_protocol::{
 
 /// Fastest typing the server believes, in characters per second (about 360 WPM).
 const MAX_CHARS_PER_SECOND: f64 = 30.0;
-/// Head start of the speed check, absorbing network delays and clock drift.
-const SPEED_CHECK_GRACE_SECS: f64 = 2.0;
+/// Characters a report may run ahead of that pace, for short bursts of fast
+/// typing. No allowance is needed for network delays: the server times a race
+/// from its own start, which comes before any client can type.
+const SPEED_BURST_CHARS: f64 = 5.0;
 
 #[derive(Debug, Clone)]
 struct Race {
@@ -415,8 +417,7 @@ fn check_progress(
     now: Instant,
 ) -> Result<(), &'static str> {
     let elapsed = race.elapsed(now);
-    let speed_limit =
-        ((elapsed.as_secs_f64() + SPEED_CHECK_GRACE_SECS) * MAX_CHARS_PER_SECOND).ceil();
+    let speed_limit = elapsed.as_secs_f64() * MAX_CHARS_PER_SECOND + SPEED_BURST_CHARS;
     let counts = next.tally();
     let rules = [
         (next.typed <= race.length, "typed past the end of the text"),
@@ -789,18 +790,32 @@ mod tests {
         let clock = Clock(Instant::now());
         let mut room = racing(&clock, &[BOB]);
         assert_eq!(
-            error_code(room.report_progress(BOB, clean(61), clock.racing(0))),
+            error_code(room.report_progress(BOB, clean(6), clock.racing(0))),
             Some(ErrorCode::InvalidProgress)
         );
-        room.report_progress(BOB, clean(60), clock.racing(0))
-            .expect("within the grace period");
+        room.report_progress(BOB, clean(5), clock.racing(0))
+            .expect("a short burst");
         assert_eq!(
-            error_code(room.report_progress(BOB, clean(91), clock.racing(1_000))),
+            error_code(room.report_progress(BOB, clean(36), clock.racing(1_000))),
             Some(ErrorCode::InvalidProgress)
         );
-        room.report_progress(BOB, clean(90), clock.racing(1_000))
-            .expect("thirty characters per second");
-        assert_eq!(player(&room, BOB).progress.correct, 90);
+        room.report_progress(BOB, clean(35), clock.racing(1_000))
+            .expect("thirty characters per second and a burst");
+        assert_eq!(player(&room, BOB).progress.correct, 35);
+    }
+
+    #[test]
+    fn a_short_race_cannot_be_finished_instantly() {
+        let clock = Clock(Instant::now());
+        let text = "a".repeat(30);
+        let mut room = racing_on(&clock, &text);
+        assert_eq!(
+            error_code(room.report_progress(ALICE, clean(30), clock.racing(10))),
+            Some(ErrorCode::InvalidProgress)
+        );
+        room.report_progress(ALICE, clean(30), clock.racing(1_000))
+            .expect("thirty characters in a second");
+        assert_eq!(player(&room, ALICE).progress.finish_ms, Some(1_000));
     }
 
     #[test]
