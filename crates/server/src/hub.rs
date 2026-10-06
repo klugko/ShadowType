@@ -797,6 +797,28 @@ mod tests {
     }
 
     #[test]
+    fn leaving_a_race_and_joining_it_again_waits_for_the_next_lobby() {
+        let config = ServerConfig {
+            race_timeout: Duration::from_secs(60),
+            ..ServerConfig::default()
+        };
+        let mut harness = Harness::new(config);
+        let code = harness.racing_room(0);
+        harness.send(BOB, ClientMessage::LeaveRoom, 3_100);
+        harness.send(BOB, ClientMessage::JoinRoom { code: code.clone() }, 3_200);
+        assert_eq!(harness.errors(BOB), [ErrorCode::RaceInProgress]);
+        harness.send(BOB, progress(3), 3_300);
+        assert_eq!(harness.errors(BOB), [ErrorCode::NotInRoom]);
+
+        harness.tick(63_000);
+        harness.send(ALICE, ClientMessage::ReturnToLobby, 63_001);
+        harness.send(BOB, ClientMessage::JoinRoom { code }, 63_002);
+        let view = harness.last_view(BOB);
+        assert_eq!(view.phase, Phase::Lobby);
+        assert_eq!(view.player(BOB).map(|bob| bob.connected), Some(true));
+    }
+
+    #[test]
     fn the_results_are_shown_before_a_return_to_the_lobby_that_beats_the_tick() {
         let config = ServerConfig {
             race_timeout: Duration::from_secs(60),

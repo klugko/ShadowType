@@ -157,9 +157,15 @@ impl Room {
         self.text
     }
 
-    /// Adds a player to the lobby. Joining a room one is already in changes nothing.
+    /// Adds a player to the lobby. Joining a room one is already in changes
+    /// nothing, while a player who left during a race stays listed offline
+    /// and may only come back once the room is in the lobby again.
     pub fn join(&mut self, id: PlayerId, name: Username, now: Instant) -> Result<(), ServerError> {
-        if self.position(id).is_some() {
+        let already_in = self
+            .members
+            .iter()
+            .any(|member| member.id == id && member.connected);
+        if already_in {
             return Ok(());
         }
         self.require_lobby()?;
@@ -978,6 +984,18 @@ mod tests {
             error_code(room.report_progress(BOB, clean(50), clock.racing(300_001))),
             Some(ErrorCode::RaceNotRunning)
         );
+    }
+
+    #[test]
+    fn a_player_who_left_a_running_race_cannot_rejoin_it() {
+        let clock = Clock(Instant::now());
+        let mut room = racing(&clock, &[BOB]);
+        room.leave(BOB, clock.racing(1_000));
+        assert_eq!(
+            error_code(room.join(BOB, name(BOB), clock.racing(2_000))),
+            Some(ErrorCode::RaceInProgress)
+        );
+        assert!(!player(&room, BOB).connected);
     }
 
     #[test]
