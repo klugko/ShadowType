@@ -256,6 +256,7 @@ pub struct App {
     /// it is shown: keys would otherwise switch buffers out of sight.
     pub sidebar: bool,
     pub viewport: Viewport,
+    /// What to open once the name being asked for is set.
     pending: Option<Launch>,
     /// Until when keys are ignored, after typing stopped by itself.
     quiet_until: Option<Instant>,

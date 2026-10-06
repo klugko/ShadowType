@@ -12,6 +12,7 @@ use super::{
     race::{self, RoomRequest},
     settings,
 };
+use crate::config::Config;
 use code_racer_protocol::Phase;
 
 const PAGE: usize = 10;
@@ -168,15 +169,9 @@ impl App {
         let field = fields[self.practice_cursor.index(fields.len())];
         match (intent, field) {
             (ValueIntent::Activate, practice::Field::Start) => self.start_practice(),
-            (ValueIntent::Change(step), _) => {
-                practice::adjust(&mut self.config.practice, field, step);
-                self.save_config();
-            }
-            (ValueIntent::Activate, _) => {
-                practice::adjust(&mut self.config.practice, field, Step::Next);
-                self.save_config();
-            }
-            (ValueIntent::Edit, _) => {}
+            _ => self.change_value(intent, |config, step| {
+                practice::adjust(&mut config.practice, field, step);
+            }),
         }
     }
 
@@ -189,15 +184,9 @@ impl App {
             }
             (ValueIntent::Activate, race::Field::Join) => self.join_typed_room(),
             (ValueIntent::Activate, race::Field::Create) => self.create_room(),
-            (ValueIntent::Change(step), _) => {
-                race::adjust(&mut self.config.race, field, step);
-                self.save_config();
-            }
-            (ValueIntent::Activate, _) => {
-                race::adjust(&mut self.config.race, field, Step::Next);
-                self.save_config();
-            }
-            (ValueIntent::Edit, _) => {}
+            _ => self.change_value(intent, |config, step| {
+                race::adjust(&mut config.race, field, step);
+            }),
         }
     }
 
@@ -210,16 +199,21 @@ impl App {
             (ValueIntent::Activate | ValueIntent::Edit, settings::Field::Server) => {
                 self.begin_edit(TextField::Server);
             }
-            (ValueIntent::Change(step), settings::Field::Theme) => {
-                settings::cycle_theme(&mut self.config, step);
-                self.save_config();
-            }
-            (ValueIntent::Activate, settings::Field::Theme) => {
-                settings::cycle_theme(&mut self.config, Step::Next);
-                self.save_config();
-            }
-            _ => {}
+            (_, settings::Field::Theme) => self.change_value(intent, settings::cycle_theme),
+            (ValueIntent::Change(_), _) => {}
         }
+    }
+
+    /// Moves the selected value as `intent` says, Enter moving it forward,
+    /// and saves it.
+    fn change_value(&mut self, intent: ValueIntent, change: impl FnOnce(&mut Config, Step)) {
+        let step = match intent {
+            ValueIntent::Change(step) => step,
+            ValueIntent::Activate => Step::Next,
+            ValueIntent::Edit => return,
+        };
+        change(&mut self.config, step);
+        self.save_config();
     }
 
     fn session_key(&mut self, key: KeyEvent, now: Instant) -> bool {

@@ -328,10 +328,11 @@ impl SoloRun {
         self.session.status() == Status::Running
     }
 
-    /// Computes the result and stores it in the history, once.
-    pub fn conclude(&mut self, history: &mut History, now: Instant) -> io::Result<()> {
+    /// Computes the result once the session is over, compared with the
+    /// best of `history`, and returns the record to keep, only once.
+    pub fn conclude(&mut self, history: &History, now: Instant) -> Option<Record> {
         if self.result.is_some() || !self.session.is_finished() {
-            return Ok(());
+            return None;
         }
         let stats = self.session.stats(now);
         let samples = self.session.samples(now);
@@ -344,7 +345,7 @@ impl SoloRun {
             samples,
         };
         self.result = Some(result);
-        history.add(Record::from_stats(mode, language, &stats))
+        Some(Record::from_stats(mode, language, &stats))
     }
 
     fn refill(&mut self) {
@@ -438,6 +439,36 @@ mod tests {
     }
 
     #[test]
+    fn a_code_session_is_compared_with_the_code_records_of_version_one() {
+        let directory = TempDir::new();
+        let path = directory.join("history.json");
+        let legacy = r#"[{"date":"2025-05-01T10:00:00+00:00","mode":"code/50","language":"rust",
+            "stats":{"wpm":62.5,"raw_wpm":70.0,"accuracy":96.0,"errors":4,"length":250,"elapsed":48.0}}]"#;
+        fs::write(&path, legacy).expect("write");
+        let mut history = History::load(&path).value;
+        let rust = TextSource::Code {
+            language: CodeLanguage::Rust,
+        };
+        let mut run = SoloRun::start(Plan::Text(rust), 1);
+        let now = Instant::now();
+        run.session.start(now);
+        while !run.is_finished() {
+            let next = run.session.target()[run.session.cursor()].clone();
+            for ch in next.chars() {
+                run.type_char(ch, now + Duration::from_secs(60));
+            }
+        }
+        let record = run
+            .conclude(&history, now + Duration::from_secs(60))
+            .expect("a record");
+        history.add(record).expect("save");
+        let result = run.result.as_ref().expect("result");
+        assert_eq!(result.previous_best, Some(62.5));
+        let records = history.records();
+        assert_eq!(records[1].mode, records[0].mode);
+    }
+
+    #[test]
     fn code_sessions_auto_indent() {
         let run = SoloRun::start(
             Plan::Text(TextSource::Code {
@@ -461,10 +492,15 @@ mod tests {
         run.session.start(now);
         type_all(&mut run, now + Duration::from_secs(30));
         assert!(run.is_finished());
-        run.conclude(&mut history, now + Duration::from_secs(30))
-            .expect("in-memory history");
-        run.conclude(&mut history, now + Duration::from_secs(31))
-            .expect("second call is a no-op");
+        let record = run
+            .conclude(&history, now + Duration::from_secs(30))
+            .expect("a record");
+        history.add(record).expect("in-memory history");
+        assert_eq!(
+            run.conclude(&history, now + Duration::from_secs(31)),
+            None,
+            "only once"
+        );
         assert_eq!(history.records().len(), 1);
         let result = run.result.as_ref().expect("result");
         assert!(result.is_personal_best());

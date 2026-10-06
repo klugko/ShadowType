@@ -257,8 +257,8 @@ impl App {
         let Some(Activity::Solo(run)) = &mut self.activity else {
             return;
         };
-        if let Err(error) = run.conclude(&mut self.history, now) {
-            self.error(format!("cannot save history: {error}"));
+        if let Some(record) = run.conclude(&self.history, now) {
+            self.save_record(record);
         }
     }
 
