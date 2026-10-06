@@ -1,210 +1,336 @@
-# Code Racer
+# code-racer
 
-A Rust terminal typing trainer with an editor appearance and private realtime races.
+Typing practice that looks like your code editor, with private races against your team on the LAN.
+
+At a glance it is a terminal editor: an explorer, tabs, line numbers, a status line and a Vim command
+line. The file you are "editing" is the text you are typing: what is ahead of the cursor is ghost text,
+what you typed becomes real, syntax-highlighted code.
 
 ```text
- code-racer                                             SoloRace
- main.rs
+ EXPLORER              │ main.rs ● │                                               code-racer
+ ▾ code-racer          │  1  pub fn parse_config(
+     practice.toml     │  2      text: &str,
+     race.toml         │  3  ) -> Result<HashMap<String, String>, String> {
+     history.log       │  4      let mut config = HashMap::new();
+     config.toml       │  5      for (index, raw) in text.lines().enumerate() {
+     help.md           │  6          let line = raw.trim();
+                       │  7          if line.is_empty() || line.starts_with('#') {
+ ▾ session             │  8              continue;
+   ● main.rs           │  9          }
+                       │ 10          let (key, value) = line
+ RECORDS               │ 11              .split_once('=')
+   best     78 wpm     │~
+   last 10  68 wpm     │~
+ INSERT  main.rs  code · rust                        84 wpm  97%  2 errors  00:18   41%
+-- INSERT --  Esc stop  Ctrl+R restart  Ctrl+W delete word
+```
 
-   1 │ fn calculate_speed(chars: usize, seconds: f64) -> f64 {
-   2 │     let minutes = seconds / 60.0;
-   3 │     chars as f64 / 5.0 / minutes
-   4 │ }
+During a race the standings sit in a panel under the text, like an IDE's terminal panel:
 
- ──────────────────────────────────────────────────────────────
- INSERT │ rust │ 84.1 WPM │ raw 86.2 │ 97.5% │ errors: 2 │ 00:18
+```text
+                       │  1  Simplicity is prerequisite for reliability.
+                       │ PLAYERS · FK72AD ──────────────────────────────────────────────
+                       │  1 jean          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%   92 wpm  ✓ 0:41.2
+                       │  2 alice         ━━━━━━━━━━━━━━━━━━━━━───────  75%   87 wpm
+                       │  3 bob           ━━━━━━━━━───────────────────  33%   79 wpm  offline
 ```
 
 ## Features
 
-- Words (10/25/50/100), timed (15/30/60/120 seconds), quote and code sessions.
-- English and French; Rust, Python, TypeScript and SQL snippets. JavaScript is an alias for the TypeScript snippet.
-- Grapheme-aware comparison/backspace, editor gutters, current character cursor, correct/error/remaining styles and viewport scrolling.
-- Live WPM, raw WPM, accuracy, errors, elapsed time and progress.
-- Private six-character rooms, up to eight players by default, ready checks, server-controlled countdown, realtime progress and final ranking.
-- Host promotion on disconnect, disconnected racers marked offline, race timeout and abandoned-room cleanup.
-- Local TOML settings, JSON history and personal best/average/accuracy/training time.
-- Editor, dark and monochrome themes. Terminal restoration on normal exit, errors and unwinding panics.
+- **Solo practice**: words (10/25/50/100), time (15/30/60/120 s), quotes, code, or any file of yours
+  (`:e src/lib.rs`).
+- **Text engine**: 1,000 common English and French words, sentences with capitals, commas, quotes,
+  parentheses and French typography when punctuation is on, numbers (integers, years, decimals) when
+  numbers are on, public-domain quotes, and 100+ real code snippets in Rust, Python, TypeScript,
+  JavaScript and SQL.
+- **Precise typing engine**: Unicode grapheme comparison with NFC normalisation (`é` typed with a dead
+  key or as `e` + accent both count), auto-indentation in code, mistakes must be fixed to finish, and
+  input stops 10 characters after an uncorrected mistake.
+- **Statistics**: WPM, raw WPM, accuracy, errors, correct and incorrect characters, consistency, time,
+  progress, a WPM chart after each session, history and personal records.
+- **Races** (TypeRacer style): private rooms with short codes such as `FK72AD`, ready checks, a
+  server-driven countdown, live standings, server-measured finishing times and a final ranking.
+- **Editor look**: explorer, tab line, line numbers, cursor line, `~` past the end of the buffer,
+  lualine-like status line, Vim modes (NORMAL, INSERT, COMMAND) and `:` commands with Tab completion.
+- **Themes**: `editor` (true colour), `dark` (the 16 ANSI colours), `mono` (no colour).
+- **Robust terminal handling**: the terminal is restored on exit, on error and on panic; resizing is
+  handled and small terminals get a clear message instead of a broken layout; no CPU use while idle.
 
 ## Installation
 
-Install a current stable Rust toolchain (Linux, Fedora, Ubuntu or Windows):
+You need a stable Rust toolchain (1.88 or later).
+
+**Fedora**
+
+```bash
+sudo dnf install rust cargo
+```
+
+**Ubuntu, Debian and other Linux distributions, macOS**
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-On Windows use the installer at https://rustup.rs and the MSVC build tools. Fedora packages are also supported:
+**Windows**: install Rust from <https://rustup.rs> with the MSVC build tools, then use Windows Terminal.
+
+Then, from the repository:
 
 ```bash
-sudo dnf install rust cargo rustfmt clippy
+cargo install --path .                 # the code-racer client
+cargo install --path crates/server     # the code-racer-server race server
 ```
 
-Ubuntu users can install build tools with `sudo apt install build-essential` and Rust via rustup.
-
-From the repository root:
-
-```bash
-cargo build --release --workspace
-cargo install --path .
-cargo install --path crates/server
-code-racer
-```
-
-The client package lives at the workspace root so `cargo run` and `cargo install --path .` work directly. There is no separate client manifest.
+Both binaries land in `~/.cargo/bin`. To try without installing: `cargo run` (client) and
+`cargo run -p code-racer-server` (server).
 
 ## Usage
 
 ```bash
-cargo run
-code-racer --help
-code-racer solo
-code-racer solo --mode words --language french --words 25
-code-racer solo --mode time --seconds 60
+code-racer                                        # open the editor
+code-racer solo                                   # start typing right away
+code-racer solo --mode words --words 25 --punctuation --numbers
+code-racer solo --mode time --seconds 60 --language french
 code-racer solo --mode quote --language french
-code-racer solo --mode code --language rust
-code-racer multiplayer
-code-racer create
-code-racer join FK72AD --server ws://192.168.1.42:8080
+code-racer solo --mode code --language rust       # also python, typescript, javascript, sql
+code-racer solo --file src/main.rs                # practise on your own code
+code-racer multiplayer                            # open race.toml
+code-racer create --words 30                      # create a room
+code-racer join FK72AD                            # join a room
+code-racer history
+code-racer --server ws://192.168.1.42:8080 join FK72AD
+code-racer --theme mono
+code-racer --help
 ```
 
-On first launch, choose a username and press Enter. Direct create/join commands open their respective forms; Enter connects. CLI flags override settings for that invocation.
+On first launch code-racer asks for the name other racers will see. It is saved in `config.toml` and
+can be changed in the `config.toml` buffer or with `:set username=Jean`.
 
 ## Solo mode
 
-Choose **Solo** from Home (`s`). Use `j/k` to choose a setting and `h/l` to change it. Enter starts immediately. The timer starts with the first keystroke; timed sessions stop at their deadline. Other sessions finish at the end of the text. Errors can be corrected with Backspace; reaching the end still finishes if errors remain. Corrected mistakes remain in cumulative accuracy/error statistics.
+Open `practice.toml` in the explorer (or press `s` anywhere to start immediately). `j`/`k` select a
+setting, `h`/`l` change it, Enter on `▶ start session` starts. Settings are saved for next time.
 
-WPM is current correctly matched graphemes / 5 / elapsed minutes. Raw WPM counts all printable input attempts, including corrected input. Accuracy counts correct keystrokes / total keystrokes; a scalar extending a combining grapheme is correct if the current grapheme is a prefix of the expected one. Backspace is not an input attempt. Empty sessions have 0 WPM and 100% accuracy. In races elapsed time starts at the server's start, including hesitation before typing.
+The clock starts with the first keystroke. A session ends when the whole text is typed correctly, or
+when the timer runs out in time mode. Mistakes stay in your statistics even once corrected. In code,
+Enter goes to the next line and the indentation is filled in for you. `Ctrl+R` restarts with a new
+text, `Esc` stops.
 
-Code preserves literal indentation and punctuation. Enter types a newline; Tab inserts four spaces. Settings select the default natural language; use the solo config or CLI to select code languages.
+| Metric      | Definition                                              |
+| ----------- | ------------------------------------------------------- |
+| WPM         | correctly typed characters / 5 / elapsed minutes        |
+| raw WPM     | every typed character / 5 / elapsed minutes             |
+| accuracy    | correct keystrokes / all keystrokes × 100               |
+| errors      | wrong keystrokes, corrected or not                      |
+| consistency | how steady your per-second speed was, from 0 to 100 %  |
 
 ## Multiplayer
 
-1. Start the server.
-2. First client: Multiplayer → Create room → share its displayed code.
-3. Second client: Multiplayer → Join room → enter the code → Enter.
-4. Each player presses `r` (or Enter) to become ready.
-5. Host presses `s` after everyone is ready.
-6. A server countdown starts, then both clients type the identical text.
-7. Progress is sent every 100 ms. When everyone finishes/disconnects or the timeout expires, results appear.
-8. Host presses `r` or `l` to return everyone to the lobby; toggle ready again for another race.
+1. Someone runs a race server (see below).
+2. The host opens `race.toml` (`m`), picks the text under `[create]` and selects `▶ create room`
+   (or presses `c`, or runs `code-racer create`). The room code appears, e.g. `FK72AD`.
+3. Teammates type the code in the `room` line of `race.toml` and press Enter
+   (or run `code-racer join FK72AD`, or type `:join FK72AD`).
+4. Everyone presses `r` to get ready. The host presses `s`.
+5. The server announces the text and starts the countdown; everyone starts on the server's signal.
+6. Standings update live. When everyone has finished, left, or the race times out, results appear.
+7. The host presses `r` to go back to the lobby for another race. `Esc` leaves the room (twice during
+   a race, so a stray Esc never costs you a race).
 
-Finished racers keep watching other players. Ranking places finishers first by server-measured completion time, then unfinished racers by progress. Unfinished participants are marked DNF. Esc leaves the room. There is no automatic reconnection; rejoin a waiting room after connection loss.
+The server is the authority: it chooses the text, starts the race, measures every finishing time,
+validates progress reports and computes speeds. A client cannot declare itself finished.
 
 ## Running your own server
 
 ```bash
-cargo run -p code-racer-server -- --host 127.0.0.1 --port 8080
-# or after installation
-code-racer-server --host 0.0.0.0 --port 8080
-code-racer-server --max-players 8 --room-ttl 1800 --race-timeout 180
+code-racer-server                                  # 127.0.0.1:8080
+code-racer-server --host 0.0.0.0 --port 8080       # reachable from the LAN
+code-racer-server --max-players 8 --room-ttl 1800 --race-timeout 300 --countdown 3
+RUST_LOG=debug code-racer-server                   # more logs, on stderr
 ```
 
-Defaults: localhost:8080, 8 players, 30-minute inactivity expiry, 180-second racing timeout (after the countdown). Rooms are in memory; restarting the server removes them. Logs go to the server's stdout, never to the client's TUI.
+| Option           | Default     | Meaning                                         |
+| ---------------- | ----------- | ----------------------------------------------- |
+| `--host`         | `127.0.0.1` | address to listen on, `0.0.0.0` for the LAN     |
+| `--port`         | `8080`      | TCP port                                        |
+| `--max-players`  | `8`         | players per room                                |
+| `--room-ttl`     | `1800`      | seconds of inactivity before a room is closed   |
+| `--race-timeout` | `300`       | seconds after which a race ends anyway          |
+| `--countdown`    | `3`         | seconds between the start and the first keystroke |
+
+Rooms live in memory. Lobby players who disconnect are removed; racers who disconnect are shown
+offline and the race goes on. When the host leaves, the next player becomes host.
+
+### Docker
+
+```bash
+docker build -t code-racer-server .
+docker run -p 8080:8080 code-racer-server
+```
+
+The image is a two-stage build that runs the server as an unprivileged user. CI publishes it to
+`ghcr.io/klugko/code-racer-server` on every push to `main`.
 
 ## LAN multiplayer
 
-On machine A:
+On the machine that hosts the server (here `192.168.1.42`):
 
 ```bash
 code-racer-server --host 0.0.0.0 --port 8080
+sudo firewall-cmd --add-port=8080/tcp      # Fedora, if the firewall is on
 ```
 
-On machines B and C (replace the IP with machine A's LAN address):
+On every player's machine:
 
 ```bash
 code-racer --server ws://192.168.1.42:8080
 ```
 
-Open TCP 8080 in the host firewall if necessary. On Fedora:
-
-```bash
-sudo firewall-cmd --add-port=8080/tcp
-```
-
-The server binds localhost by default. Plain `ws://` suits trusted LANs. The client supports `wss://`; put a TLS WebSocket reverse proxy in front of the server for Internet use. No code received from clients is executed. This is a lightweight private-race server, not a hardened public competition service.
+or set it once with `:set server=ws://192.168.1.42:8080` (saved in `config.toml`). `ws://` is fine on
+a trusted LAN. The client also speaks `wss://`, so the server can later sit behind a TLS reverse proxy
+such as `wss://race.example.com`.
 
 ## Keybindings
 
-| Context | Keys | Action |
-| --- | --- | --- |
-| Menus | j/k or arrows, Enter | Navigate/select |
-| Home | s, m, ? | Solo, multiplayer, help |
-| Solo config | h/l or left/right | Change option |
-| Multiplayer | c, j | Create/join |
-| Lobby | r or Enter, s | Ready, host start |
-| Typing | printable keys, Backspace | Type/correct |
-| Code | Enter, Tab | Newline, four spaces |
-| Results | r, l | Retry solo / host returns to lobby |
-| History | j/k | Scroll |
-| Outside typing | Esc, q | Home/leave, quit |
-| Typing | Esc | Abandon session/leave room |
-| Everywhere | Ctrl+C | Exit and restore terminal |
+| Where                  | Keys                    | Action                                     |
+| ---------------------- | ----------------------- | ------------------------------------------ |
+| everywhere             | `Ctrl+C`                | quit, the terminal is restored             |
+|                        | `Ctrl+B`                | show or hide the explorer                  |
+| normal mode            | `:`                     | command line (Tab completes)               |
+|                        | `?`                     | help                                       |
+|                        | `s` / `m` / `c` / `q`   | solo session / race.toml / create room / quit |
+|                        | `Tab`                   | switch between explorer and editor         |
+| explorer               | `j` `k` `g` `G`, Enter  | move, open                                 |
+| settings buffers       | `j` `k`, `h` `l`, Enter | move, change a value, select               |
+|                        | `i`                     | edit a text value (Enter saves, Esc cancels) |
+| typing                 | any key                 | type                                       |
+|                        | Backspace, `Ctrl+W`     | delete a character, a word                 |
+|                        | Enter                   | new line (code is auto-indented)           |
+|                        | `Ctrl+R`, `Esc`         | restart, stop                              |
+| results                | `r` / `e` / `Esc`       | new text / settings / close                |
+| room                   | `r` or Space, `s`, `Esc`| ready, start (host), leave                 |
+| history, help          | `j` `k`, `Ctrl+D` `Ctrl+U`, `g` `G` | scroll                         |
 
-Settings starts with an editable username. Enter validates/saves it and moves to Theme. Then j/k selects Theme/Language and l changes values; Esc returns home. Minimum terminal size: 80×20. A small-terminal message replaces the view until resized.
+### Commands
+
+| Command                         | Effect                                           |
+| ------------------------------- | ------------------------------------------------ |
+| `:solo`                         | start a session with the current settings        |
+| `:words 50`, `:time 60`         | words or time session                            |
+| `:quote`, `:code rust`          | quote or code session                            |
+| `:lang french`                  | language (natural or programming)                |
+| `:e path/to/file`               | practise on a file                               |
+| `:set punctuation`, `:set nonumbers` | toggle options                              |
+| `:set theme=mono`               | `editor`, `dark` or `mono`                       |
+| `:set server=URL`, `:set username=NAME` | multiplayer settings                     |
+| `:create`, `:join CODE`         | create or join a room                            |
+| `:history`, `:config`, `:race`, `:help` | open a buffer                            |
+| `:q`                            | quit                                             |
 
 ## Configuration
 
-Linux: `~/.config/code-racer/config.toml`, history at `~/.local/share/code-racer/history.json`. `XDG_CONFIG_HOME` / `XDG_DATA_HOME` are respected. Windows uses the platform configuration/data directories chosen by `directories` (under AppData).
+`config.toml` lives in the platform configuration directory (`~/.config/code-racer/` on Linux,
+`%APPDATA%\code-racer\config\` on Windows). Every key is optional:
 
 ```toml
 username = "Jean"
-language = "french"
-theme = "editor"
-default_mode = "words"
+theme = "editor"          # editor, dark, mono
+default_mode = "words"    # words, time, quote, code
+language = "french"       # english, french
+code_language = "rust"    # rust, python, typescript, javascript, sql
 word_count = 50
+duration = 30             # seconds, time mode
+punctuation = false
+numbers = false
 
 [multiplayer]
 server = "ws://127.0.0.1:8080"
 ```
 
-Settings are saved when edited; history is saved when a solo session completes or a multiplayer result becomes available. Abandoned sessions are omitted. Writes use a temporary file and recoverable `.bak` backup. Invalid persisted files produce an error before terminal mode is entered and are preserved. Run one client per profile to avoid concurrent history writes; multiple testing clients can use different XDG directories.
+History is kept in `history.json` (`~/.local/share/code-racer/` on Linux) and logs go to
+`code-racer.log` (`~/.local/state/code-racer/`), never to the terminal. Files are written atomically;
+a file that cannot be read is moved aside to a `.bak` file and a warning is shown.
 
 ## Development
 
 ```bash
-rustup component add rustfmt clippy
-cargo fmt --check
+cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --release --workspace
-python3 tests/terminal_smoke.py  # Unix only, after release build
-python3 tests/multiplayer_terminal_smoke.py
+python3 tests/e2e/solo.py          # Linux and macOS, after the release build
+python3 tests/e2e/multiplayer.py
+cargo test preview_screens -- --ignored --nocapture   # print every screen
 ```
 
 ## Architecture
 
-- Root package `code-racer`: client source under `crates/client/src`.
-- `app.rs`: explicit state machine, input handling and lifecycle; `ui.rs`: rendering only.
-- `typing.rs`: UI-independent grapheme typing engine and statistics.
-- `storage.rs`: platform settings/history; `network.rs`: bounded channels and WebSocket IO.
-- `crates/protocol`: versioned tagged JSON enums, snapshots, validation, ranking and bundled texts.
-- `crates/server`: connection-bound UUID identity, rooms and authoritative timing.
+```text
+Cargo.toml          workspace + the code-racer client package
+src/                client
+  main.rs           startup: command line, files, logging
+  runtime.rs        event loop: keyboard, network and clock events, redraw on change
+  terminal.rs       raw mode, alternate screen, restoration on exit and panic
+  app/              state machine, independent of rendering
+    mod.rs          App: buffers, focus, modes, network and clock events
+    keys.rs         key handling by context      actions.rs  what users can do
+    practice.rs     solo settings and sessions   race.rs     race settings and room client
+    command.rs      `:` commands                 form.rs, input.rs, settings.rs, help.rs
+  ui/               rendering only
+    chrome.rs       explorer, tab line, status line, command line
+    editor.rs       buffer with line numbers     typing.rs   ghost text and typed text
+    views/          practice/race/config forms, session, room, history, help
+    wrap.rs, syntax.rs, chart.rs, theme.rs
+  config.rs, history.rs, persist.rs, cli.rs, network.rs, logging.rs
+crates/engine       texts and typing, no terminal, no network
+  corpus/           word lists, quotes, code snippets (embedded at compile time)
+  words.rs          sentence-aware word generator (punctuation, numbers)
+  text.rs           TextSource: words, quote or code, seeded
+  session.rs        TypingSession: graphemes, mistakes, auto-indent, timing
+  stats.rs          WPM, accuracy, consistency, per-second samples
+crates/protocol     WebSocket messages, validated RoomCode and Username, room views and ranking
+crates/server       race server
+  room.rs           pure room state machine (lobby, countdown, race, results)
+  hub.rs            single task owning every room, no locks
+  connection.rs     one task per socket: handshake, limits, rate limiting
+tests/e2e/          real binaries in pseudo-terminals
+```
 
-The server uses a shared hub with short synchronous operations under a Tokio mutex; no network awaits occur under its lock. Bounded per-client outbound queues avoid unbounded buffering. Snapshots replace the entire room view, simplifying synchronization and future protocol evolution. Messages/frames are limited to 8 KiB, clients to 100 incoming messages per second, rooms to 1024. Usernames must contain 1–24 printable graphemes. IDs are assigned by the server; clients cannot choose another player's ID. Progress bounds and numeric relationships are validated; host-only operations are enforced. Position, correct counts and attempts are still self-reported: minimum anti-cheat, not proof of actual typing.
+Design choices:
+
+- The client is event-driven: it sleeps until a key, a network message or (only while a session runs)
+  a 100 ms clock tick arrives, and redraws only after a change.
+- The typing engine and the text generator are plain Rust with injected time, so they are fully
+  tested without a terminal.
+- The protocol is versioned (`Hello` / `Welcome` handshake), tagged JSON, and identifiers are validated
+  when they are decoded. Messages are limited to 16 KiB.
+- The server keeps every room in one hub task fed by channels, so no lock is ever held across an
+  `.await`. Room logic is a pure state machine tested with simulated time.
+- Anti-cheat basics: progress cannot exceed the text, counters cannot go backwards, speed above about
+  360 WPM is refused, and finishing times are measured by the server.
 
 ## Testing
 
-Unit tests verify WPM/accuracy, correction accounting, graphemes/combining characters/emoji, time limits, navigation, renderer resize safety, persistence, room validation/limits/cleanup and protocol roundtrip. Two actual WebSocket clients test create → join → ready → countdown → race → progress → finish → ranking → reset, non-host and invalid-progress rejection, malformed JSON, disconnection, host promotion and timeout. The Unix PTY smoke test types a full quote using the actual release client, verifies results/restart/history/resize and checks terminal flags after Ctrl+C. A second PTY test runs the real server and two actual TUI clients through room creation, ready, countdown, typing, results and a second lobby.
+- **engine**: WPM, raw WPM, accuracy and consistency formulas, zero division, graphemes, combining
+  accents, emoji, NFC, auto-indentation, mistake blocking, time limits, the word generator's sentences,
+  punctuation, numbers, French spacing, determinism, corpus integrity.
+- **protocol**: room codes, usernames, every message round trip, wire format, ranking.
+- **server**: room state machine (every rule, with simulated time), hub routing and broadcasting, and
+  WebSocket integration tests with real sockets (full race, version mismatch, invalid messages, rate
+  limiting, disconnections).
+- **client**: state machine driven by key presses, commands, forms, configuration and history files,
+  command line parsing, network client, rendering of every screen in every theme and size, and two
+  complete clients racing through a real server.
+- **end to end**: the release binaries in pseudo-terminals: first launch, typing, results, history,
+  resize, Ctrl+C restoring the terminal, and a two-player race against a real server.
 
-GitHub Actions runs format, Clippy, tests and release builds on Linux and Windows, plus the PTY test on Linux. A separate job builds and starts the Docker image, verifies a WebSocket handshake and publishes the validated image to GHCR on `main`. Downloadable client/server artifacts are attached to each successful CI run.
+CI runs formatting, Clippy, tests and release builds on Linux and Windows, the test suite with
+Fedora's own Rust packages, the end-to-end tests on Linux, then builds, smoke-tests and publishes the
+server image.
 
-## Docker server
+## Roadmap
 
-```bash
-docker build -t code-racer-server .
-docker run --rm -p 8080:8080 code-racer-server
-# CI-published image (registry visibility/access may require authentication)
-docker run --rm -p 8080:8080 ghcr.io/klugko/code-racer-server:latest
-```
-
-Multi-stage build; the final Debian image runs only the server as a non-root user. Publication to GHCR provides a deployable image; a continuously running public endpoint requires a hosting machine and is not provisioned by this repository.
-
-## Roadmap / current limits
-
-- More languages, corpora and quote variety; current words sample a compact bundled corpus.
-- Automatic reconnection, spectators, replay and custom text import.
-- Full Unicode normalization/IME paste support; composed and decomposed forms currently compare literally.
-- Rich syntax highlighting; current code mode preserves layout and uses typing-state colors.
-- Public-server authentication, per-IP connection limits and stronger anti-cheat.
-- Multi-process safe persistence and advanced historical charts.
+- Reconnecting to a running race after a network drop.
+- More languages (Malagasy, German, Spanish): one word list, one quote file and one enum variant each.
+- Spectators, replays and a local leaderboard.
+- Custom word lists and themes from files.
