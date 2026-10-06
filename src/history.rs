@@ -12,7 +12,7 @@ use std::{
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-use crate::persist::{self, Loaded};
+use crate::persist::{self, Loaded, Recovered};
 
 /// Records kept on disk; the oldest ones are dropped first.
 pub const MAX_RECORDS: usize = 2000;
@@ -65,14 +65,24 @@ impl History {
     /// Reads the history saved at `path`, which later additions are written to.
     ///
     /// A missing file gives an empty history. An invalid one is moved aside,
-    /// explained in the warning, and replaced by an empty history.
+    /// explained in the warning, and replaced by an empty history. A file
+    /// that can be neither used nor moved aside gives an empty history that
+    /// stays in memory, so that the file is never overwritten.
     pub fn load(path: &Path) -> Loaded<Self> {
-        persist::read_or_recover(path, "starting a new history", parse_records).map(|records| {
-            Self {
-                records: records.unwrap_or_default(),
-                path: Some(path.to_owned()),
+        persist::read_or_recover(path, "starting a new history", parse_records).map(|found| {
+            match found {
+                Recovered::Parsed(records) => Self::saved_at(path, records),
+                Recovered::Absent => Self::saved_at(path, Vec::new()),
+                Recovered::LeftInPlace => Self::in_memory(),
             }
         })
+    }
+
+    fn saved_at(path: &Path, records: Vec<Record>) -> Self {
+        Self {
+            records,
+            path: Some(path.to_owned()),
+        }
     }
 
     /// A history that lives only as long as the program and never touches the disk.
@@ -266,7 +276,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::persist::scratch::TempDir;
+    use crate::persist::scratch::{TempDir, occupy_every_backup};
 
     fn record(mode: &str, language: &str, wpm: f64, accuracy: f64) -> Record {
         Record {
@@ -476,8 +486,9 @@ mod tests {
     #[test]
     fn failed_save_keeps_the_record_in_memory() {
         let dir = TempDir::new();
-        fs::write(dir.join("not-a-directory"), "").expect("write");
-        let mut history = History::load(&dir.join("not-a-directory/history.json")).value;
+        let path = dir.join("history.json");
+        let mut history = History::load(&path).value;
+        fs::create_dir(&path).expect("put a directory in the way");
 
         let saved = history.add(record("quote", "english", 66.0, 97.0));
 
@@ -575,6 +586,49 @@ mod tests {
             .add(record("quote", "english", 66.0, 97.0))
             .expect("add");
         assert_eq!(History::load(&path).value.records().len(), 1);
+    }
+
+    #[test]
+    fn invalid_file_that_cannot_be_backed_up_is_never_overwritten() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        fs::write(&path, "[{\"wpm\": 120").expect("write");
+        occupy_every_backup(&path);
+
+        let loaded = History::load(&path);
+        let mut history = loaded.value;
+        history
+            .add(record("quote", "english", 66.0, 97.0))
+            .expect("add in memory");
+
+        assert!(loaded.warning.is_some());
+        assert_eq!(history.records().len(), 1);
+        assert_eq!(fs::read_to_string(&path).expect("read"), "[{\"wpm\": 120");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_that_cannot_be_read_is_never_overwritten() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let saved = serde_json::to_string(&[record("quote", "english", 90.0, 99.0)]).expect("json");
+        fs::write(&path, &saved).expect("write");
+        if !crate::persist::scratch::make_unreadable(&path) {
+            return;
+        }
+
+        let loaded = History::load(&path);
+        let mut history = loaded.value;
+        history
+            .add(record("quote", "english", 66.0, 97.0))
+            .expect("add in memory");
+
+        let warning = loaded.warning.expect("warning");
+        assert!(
+            warning.starts_with("cannot read history.json ("),
+            "{warning}"
+        );
+        assert_eq!(crate::persist::scratch::read_unreadable(&path), saved);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! configuration and the history.
 
 use std::{
+    borrow::Cow,
     ffi::OsString,
     fs::{self, File},
     io::{self, Write},
@@ -56,6 +57,15 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
+/// The contents of `path`, `None` when the file does not exist.
+pub fn read_existing(path: &Path) -> io::Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// Renames an unusable file to `<name>.bak`, or `<name>.<n>.bak` when older
 /// backups exist, so that it can be inspected and repaired by hand.
 pub fn move_aside(path: &Path) -> io::Result<PathBuf> {
@@ -72,46 +82,79 @@ pub fn move_aside(path: &Path) -> io::Result<PathBuf> {
     Ok(backup)
 }
 
+/// What [`read_or_recover`] found at a path.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Recovered<T> {
+    Parsed(T),
+    /// No usable file: it did not exist, or it was invalid and has been moved
+    /// aside. A new one may be written.
+    Absent,
+    /// The file could not be used but is still there, because it could not
+    /// be read or moved aside. Writing to the path would destroy it.
+    LeftInPlace,
+}
+
 /// Reads and parses `path`.
 ///
-/// A missing file yields `None` silently. A file that cannot be read or
-/// parsed is moved aside and yields `None` with a warning that ends with
-/// `fallback`, the description of what replaces it.
+/// A missing file is [`Recovered::Absent`] silently. Any other problem comes
+/// with a warning that continues with `fallback`, the description of what
+/// replaces the file. Only a file whose contents are invalid is moved aside:
+/// one that cannot be read at all, for lack of permission or because another
+/// program holds it, may be perfectly fine and is left alone.
 pub fn read_or_recover<T>(
     path: &Path,
     fallback: &str,
     parse: impl FnOnce(&str) -> Result<T, String>,
-) -> Loaded<Option<T>> {
+) -> Loaded<Recovered<T>> {
     let problem = match fs::read_to_string(path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Loaded::clean(None),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Loaded::clean(Recovered::Absent);
+        }
+        Err(error) if error.kind() != io::ErrorKind::InvalidData => {
+            let problem = format!("cannot read {} ({error})", file_name(path));
+            return left_in_place(path, &problem, fallback);
+        }
         Err(error) => error.to_string(),
         Ok(contents) => match parse(&contents) {
-            Ok(value) => return Loaded::clean(Some(value)),
+            Ok(value) => return Loaded::clean(Recovered::Parsed(value)),
             Err(problem) => problem,
         },
     };
-    Loaded {
-        value: None,
-        warning: Some(recovery_warning(path, &problem, fallback)),
+    recover(path, &problem, fallback)
+}
+
+fn recover<T>(path: &Path, problem: &str, fallback: &str) -> Loaded<Recovered<T>> {
+    let name = file_name(path);
+    match move_aside(path) {
+        Ok(backup) => Loaded {
+            value: Recovered::Absent,
+            warning: Some(format!(
+                "{name} was invalid ({problem}); {fallback}, backup at {}",
+                backup.display()
+            )),
+        },
+        Err(error) => {
+            let problem =
+                format!("{name} was invalid ({problem}) and could not be backed up ({error})");
+            left_in_place(path, &problem, fallback)
+        }
     }
 }
 
-fn recovery_warning(path: &Path, problem: &str, fallback: &str) -> String {
-    let name = path
-        .file_name()
-        .unwrap_or(path.as_os_str())
-        .to_string_lossy();
-    match move_aside(path) {
-        Ok(backup) => format!(
-            "{name} was invalid ({problem}); {fallback}, backup at {}",
-            backup.display()
-        ),
-        Err(error) => {
-            format!(
-                "{name} was invalid ({problem}); {fallback}, but it could not be backed up: {error}"
-            )
-        }
+fn left_in_place<T>(path: &Path, problem: &str, fallback: &str) -> Loaded<Recovered<T>> {
+    Loaded {
+        value: Recovered::LeftInPlace,
+        warning: Some(format!(
+            "{problem}; {fallback}, and {} will be left as it is",
+            file_name(path)
+        )),
     }
+}
+
+fn file_name(path: &Path) -> Cow<'_, str> {
+    path.file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy()
 }
 
 fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -190,11 +233,37 @@ pub(crate) mod scratch {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+
+    /// Takes every backup name of `path`, so that it cannot be moved aside.
+    pub(crate) fn occupy_every_backup(path: &Path) {
+        for number in 1..=super::MAX_BACKUPS {
+            fs::write(super::backup_path(path, number), "older backup").expect("write backup");
+        }
+    }
+
+    /// Removes every permission on `path`. Returns `false` when the file can
+    /// still be read anyway, as it can by root.
+    #[cfg(unix)]
+    pub(crate) fn make_unreadable(path: &Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o000)).expect("chmod 000");
+        fs::read(path).is_err()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn read_unreadable(path: &Path) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("chmod 600");
+        fs::read_to_string(path).expect("read")
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{scratch::TempDir, *};
+    use super::{
+        scratch::{TempDir, occupy_every_backup},
+        *,
+    };
 
     fn parse_number(contents: &str) -> Result<u32, String> {
         contents
@@ -270,7 +339,7 @@ mod tests {
     fn missing_file_reads_as_none_without_warning() {
         let dir = TempDir::new();
         let loaded = read_or_recover(&dir.join("absent"), "defaults loaded", parse_number);
-        assert_eq!(loaded, Loaded::clean(None));
+        assert_eq!(loaded, Loaded::clean(Recovered::Absent));
         assert!(dir.file_names().is_empty());
     }
 
@@ -281,7 +350,7 @@ mod tests {
         fs::write(&path, "42\n").expect("write");
         assert_eq!(
             read_or_recover(&path, "defaults loaded", parse_number),
-            Loaded::clean(Some(42))
+            Loaded::clean(Recovered::Parsed(42))
         );
         assert!(path.exists());
     }
@@ -295,7 +364,7 @@ mod tests {
         let loaded = read_or_recover(&path, "defaults loaded", parse_number);
 
         let backup = dir.join("number.bak");
-        assert_eq!(loaded.value, None);
+        assert_eq!(loaded.value, Recovered::Absent);
         assert_eq!(
             loaded.warning,
             Some(format!(
@@ -308,17 +377,60 @@ mod tests {
     }
 
     #[test]
-    fn unreadable_file_is_moved_aside_too() {
+    fn file_that_is_not_text_is_moved_aside_too() {
         let dir = TempDir::new();
         let path = dir.join("binary");
         fs::write(&path, [0xff, 0xfe, 0x00]).expect("write");
 
         let loaded = read_or_recover(&path, "starting over", parse_number);
 
-        assert_eq!(loaded.value, None);
+        assert_eq!(loaded.value, Recovered::Absent);
         let warning = loaded.warning.expect("warning");
         assert!(warning.starts_with("binary was invalid ("), "{warning}");
         assert!(warning.contains("starting over, backup at"), "{warning}");
         assert!(dir.join("binary.bak").exists());
+    }
+
+    #[test]
+    fn invalid_file_without_a_free_backup_name_is_left_in_place() {
+        let dir = TempDir::new();
+        let path = dir.join("number");
+        fs::write(&path, "forty-two").expect("write");
+        occupy_every_backup(&path);
+
+        let loaded = read_or_recover(&path, "defaults loaded", parse_number);
+
+        assert_eq!(loaded.value, Recovered::LeftInPlace);
+        assert_eq!(
+            loaded.warning.as_deref(),
+            Some(
+                "number was invalid (not a number) and could not be backed up \
+                 (99 backups already exist); defaults loaded, and number will be left as it is"
+            )
+        );
+        assert_eq!(fs::read_to_string(&path).expect("read"), "forty-two");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_that_cannot_be_read_is_left_in_place() {
+        let dir = TempDir::new();
+        let path = dir.join("number");
+        fs::write(&path, "42").expect("write");
+        if !scratch::make_unreadable(&path) {
+            return;
+        }
+
+        let loaded = read_or_recover(&path, "defaults loaded", parse_number);
+
+        assert_eq!(loaded.value, Recovered::LeftInPlace);
+        let warning = loaded.warning.expect("warning");
+        assert!(warning.starts_with("cannot read number ("), "{warning}");
+        assert!(
+            warning.ends_with("); defaults loaded, and number will be left as it is"),
+            "{warning}"
+        );
+        assert_eq!(dir.file_names(), ["number"]);
+        assert_eq!(scratch::read_unreadable(&path), "42");
     }
 }

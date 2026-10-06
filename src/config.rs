@@ -16,8 +16,8 @@ use code_racer_protocol::{RACE_WORD_COUNTS, Username};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::persist;
 pub use crate::persist::Loaded;
+use crate::persist::{self, Recovered};
 
 /// Color scheme of the interface.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
@@ -236,12 +236,28 @@ impl Paths {
 }
 
 /// Reads the configuration, falling back to defaults when the file is missing
-/// or invalid. An invalid file is moved aside and explained in the warning.
+/// or unusable. An invalid file is moved aside and explained in the warning.
 pub fn load_config(path: &Path) -> Loaded<Config> {
-    persist::read_or_recover(path, "defaults loaded", parse_config).map(Option::unwrap_or_default)
+    persist::read_or_recover(path, "defaults loaded", parse_config).map(|found| match found {
+        Recovered::Parsed(config) => config,
+        Recovered::Absent | Recovered::LeftInPlace => Config::default(),
+    })
 }
 
+/// Writes `config` to `path`.
+///
+/// A file that cannot be read, or that does not hold valid settings, is
+/// refused rather than overwritten: it is what failed to load, and the
+/// settings in memory are only defaults.
 pub fn save_config(path: &Path, config: &Config) -> io::Result<()> {
+    if let Some(existing) = persist::read_existing(path)? {
+        parse_config(&existing).map_err(|problem| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("the file is invalid ({problem}), fix or delete it first"),
+            )
+        })?;
+    }
     let contents = toml::to_string(config).map_err(io::Error::other)?;
     persist::write_atomically(path, contents.as_bytes())
 }
@@ -281,7 +297,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::persist::scratch::TempDir;
+    use crate::persist::scratch::{TempDir, occupy_every_backup};
 
     const DOCUMENTED_EXAMPLE: &str = r#"username = "Jean"
 language = "french"
@@ -449,6 +465,55 @@ server = "ws://127.0.0.1:8080"
             "username = \"Jean\"\ntheme = \n"
         );
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn invalid_file_that_cannot_be_backed_up_is_never_overwritten() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, "username = \"Jean\"\ntheme = \"solarized\"\n");
+        occupy_every_backup(&path);
+
+        let loaded = load_config(&path);
+        let saved = save_config(&path, &loaded.value);
+
+        assert_eq!(loaded.value, Config::default());
+        assert!(loaded.warning.is_some());
+        let error = saved.expect_err("the invalid file is kept");
+        assert!(
+            error
+                .to_string()
+                .starts_with("the file is invalid (line 2: "),
+            "{error}"
+        );
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "username = \"Jean\"\ntheme = \"solarized\"\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_that_cannot_be_read_is_never_overwritten() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, DOCUMENTED_EXAMPLE);
+        if !crate::persist::scratch::make_unreadable(&path) {
+            return;
+        }
+
+        let loaded = load_config(&path);
+        let saved = save_config(&path, &loaded.value);
+
+        assert_eq!(loaded.value, Config::default());
+        let warning = loaded.warning.expect("warning");
+        assert!(
+            warning.starts_with("cannot read config.toml ("),
+            "{warning}"
+        );
+        assert!(saved.is_err());
+        assert_eq!(
+            crate::persist::scratch::read_unreadable(&path),
+            DOCUMENTED_EXAMPLE
+        );
     }
 
     #[test]
