@@ -1,9 +1,11 @@
+# Race server image: docker build -t code-racer-server . && docker run -p 8080:8080 code-racer-server
+
 FROM rust:1-slim-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY texts ./texts
-RUN cargo build --locked --release -p code-racer-server
+COPY src ./src
+RUN cargo build --locked --release --package code-racer-server
 
 FROM debian:bookworm-slim
 RUN useradd --system --uid 10001 racer

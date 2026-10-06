@@ -1,12 +1,20 @@
 name: CI
+
 on:
   push:
   pull_request:
+
 permissions:
   contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   quality:
+    name: Quality (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -16,25 +24,45 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo build --release --workspace
-      - name: Terminal interaction smoke test
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release --workspace
+      - name: Terminal end-to-end tests
         if: runner.os == 'Linux'
         run: |
-          python3 tests/terminal_smoke.py
-          python3 tests/multiplayer_terminal_smoke.py
+          python3 tests/e2e/solo.py
+          python3 tests/e2e/multiplayer.py
       - uses: actions/upload-artifact@v4
         with:
-          name: code-racer-${{ matrix.os }}
+          name: code-racer-${{ runner.os }}
           path: |
             target/release/code-racer
             target/release/code-racer.exe
             target/release/code-racer-server
             target/release/code-racer-server.exe
+          if-no-files-found: error
+
+  fedora:
+    name: Fedora packages
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust from Fedora
+        run: dnf install -y --setopt=install_weak_deps=False rust cargo gcc
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Install
+        run: cargo install --locked --path . && cargo install --locked --path crates/server
+
   container:
-    needs: quality
+    name: Server container
+    needs: [quality, fedora]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -55,27 +83,32 @@ jobs:
           tags: code-racer-server:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Smoke test server container
+      - name: Smoke test the image
         run: |
           docker run -d --name race -p 8080:8080 code-racer-server:ci
-          for i in $(seq 1 20); do
-            if curl -s -o /dev/null http://127.0.0.1:8080; then break; fi
-            sleep 1
-          done
-          docker logs race
-          test "$(docker inspect -f '{{.State.Running}}' race)" = true
           python3 - <<'PY'
-          import socket
-          s = socket.create_connection(('127.0.0.1', 8080), timeout=5)
-          s.sendall(b'GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n')
-          assert b'101 Switching Protocols' in s.recv(4096)
-          s.close()
+          import socket, time
+          for attempt in range(40):
+              try:
+                  connection = socket.create_connection(("127.0.0.1", 8080), timeout=5)
+                  break
+              except OSError:
+                  time.sleep(0.25)
+          else:
+              raise SystemExit("server did not start")
+          connection.sendall(
+              b"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+              b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+          )
+          assert b"101 Switching Protocols" in connection.recv(4096)
           PY
+          docker logs race
           docker stop race
-      - name: Publish validated server image
+      - name: Publish the image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          docker tag code-racer-server:ci ghcr.io/klugko/code-racer-server:latest
-          docker tag code-racer-server:ci ghcr.io/klugko/code-racer-server:${{ github.sha }}
-          docker push ghcr.io/klugko/code-racer-server:latest
-          docker push ghcr.io/klugko/code-racer-server:${{ github.sha }}
+          image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/code-racer-server
+          docker tag code-racer-server:ci "$image:latest"
+          docker tag code-racer-server:ci "$image:${{ github.sha }}"
+          docker push "$image:latest"
+          docker push "$image:${{ github.sha }}"
