@@ -1,7 +1,9 @@
 //! Results of finished sessions, stored in `history.json`.
 //!
 //! The file is a JSON array of records, oldest first. Files written by
-//! code-racer 0.1 are understood and migrated on the next save.
+//! code-racer 0.1 are understood and migrated on the next save. Several
+//! running instances can share the file: each result is appended to what the
+//! file holds at that moment, not to what it held at start-up.
 
 use std::{
     io,
@@ -58,6 +60,8 @@ pub struct Summary {
 #[derive(Debug, Clone, PartialEq)]
 pub struct History {
     records: Vec<Record>,
+    /// How many of the newest records are not in the file yet.
+    unsaved: usize,
     path: Option<PathBuf>,
 }
 
@@ -81,6 +85,7 @@ impl History {
     fn saved_at(path: &Path, records: Vec<Record>) -> Self {
         Self {
             records,
+            unsaved: 0,
             path: Some(path.to_owned()),
         }
     }
@@ -89,6 +94,7 @@ impl History {
     pub fn in_memory() -> Self {
         Self {
             records: Vec::new(),
+            unsaved: 0,
             path: None,
         }
     }
@@ -98,16 +104,16 @@ impl History {
         &self.records
     }
 
-    /// Appends a record and saves the history.
+    /// Appends a record and saves it, along with the records saved meanwhile
+    /// by other running instances, which then show up here too.
     ///
-    /// On a write error the record stays in memory and the error is returned.
+    /// On a write error the record stays in memory, is saved with the next
+    /// one, and the error is returned.
     pub fn add(&mut self, record: Record) -> io::Result<()> {
         self.records.push(record.sanitized());
+        self.unsaved = (self.unsaved + 1).min(MAX_RECORDS);
         keep_newest(&mut self.records);
-        match &self.path {
-            Some(path) => self.save(path),
-            None => Ok(()),
-        }
+        self.save()
     }
 
     pub fn summary(&self) -> Summary {
@@ -137,10 +143,34 @@ impl History {
             .reduce(f64::max)
     }
 
-    fn save(&self, path: &Path) -> io::Result<()> {
-        let json = serde_json::to_vec_pretty(&self.records).map_err(io::Error::other)?;
-        persist::write_atomically(path, &json)
+    fn save(&mut self) -> io::Result<()> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let unsaved = &self.records[self.records.len().saturating_sub(self.unsaved)..];
+        self.records = append_to_file(path, unsaved)?;
+        self.unsaved = 0;
+        Ok(())
     }
+}
+
+/// Appends `records` to the file and returns everything it then holds.
+///
+/// The file is read again under the lock, rather than rewritten from memory,
+/// so that the results another instance saved since start-up are kept.
+fn append_to_file(path: &Path, records: &[Record]) -> io::Result<Vec<Record>> {
+    let _lock = persist::lock(path)?;
+    let mut saved = match persist::read_existing(path)? {
+        Some(contents) => {
+            parse_records(&contents).map_err(|problem| persist::invalid_contents(&problem))?
+        }
+        None => Vec::new(),
+    };
+    saved.extend_from_slice(records);
+    keep_newest(&mut saved);
+    let json = serde_json::to_vec_pretty(&saved).map_err(io::Error::other)?;
+    persist::write_atomically(path, &json)?;
+    Ok(saved)
 }
 
 impl Record {
@@ -494,6 +524,75 @@ mod tests {
 
         assert!(saved.is_err());
         assert_eq!(history.records().len(), 1);
+        assert_eq!(history.personal_best("quote", "english"), Some(66.0));
+    }
+
+    #[test]
+    fn two_running_instances_keep_each_others_results() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let mut practising = History::load(&path).value;
+        let mut racing = History::load(&path).value;
+
+        practising
+            .add(record("words 50", "english", 61.0, 97.0))
+            .expect("add");
+        racing
+            .add(record("race", "french", 72.0, 95.0))
+            .expect("add");
+        practising
+            .add(record("quote", "english", 55.0, 99.0))
+            .expect("add");
+
+        let speeds = |history: &History| -> Vec<f64> {
+            history.records().iter().map(|record| record.wpm).collect()
+        };
+        let reloaded = History::load(&path).value;
+        assert_eq!(speeds(&reloaded), [61.0, 72.0, 55.0]);
+        assert_eq!(speeds(&practising), [61.0, 72.0, 55.0]);
+        assert_eq!(racing.personal_best("words 50", "english"), Some(61.0));
+    }
+
+    #[test]
+    fn a_result_that_could_not_be_saved_is_saved_with_the_next_one() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let mut history = History::load(&path).value;
+        fs::create_dir(&path).expect("put a directory in the way");
+        assert!(history.add(record("quote", "english", 40.0, 90.0)).is_err());
+        fs::remove_dir(&path).expect("clear the way");
+
+        history
+            .add(record("quote", "english", 50.0, 92.0))
+            .expect("add");
+
+        let saved: Vec<f64> = History::load(&path)
+            .value
+            .records()
+            .iter()
+            .map(|record| record.wpm)
+            .collect();
+        assert_eq!(saved, [40.0, 50.0]);
+        assert_eq!(history.records().len(), 2);
+    }
+
+    #[test]
+    fn a_file_that_became_invalid_meanwhile_is_not_overwritten() {
+        let dir = TempDir::new();
+        let path = dir.join("history.json");
+        let mut history = History::load(&path).value;
+        fs::write(&path, "[{\"wpm\": 1").expect("break the file");
+
+        let error = history
+            .add(record("quote", "english", 66.0, 97.0))
+            .expect_err("the broken file is kept");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error.to_string().starts_with("the file is invalid ("),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(&path).expect("read"), "[{\"wpm\": 1");
         assert_eq!(history.personal_best("quote", "english"), Some(66.0));
     }
 

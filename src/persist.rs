@@ -1,10 +1,10 @@
-//! Crash-safe writes and recovery of unusable files, shared by the
+//! Crash-safe writes, locking and recovery of unusable files, shared by the
 //! configuration and the history.
 
 use std::{
     borrow::Cow,
     ffi::OsString,
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
 };
@@ -43,18 +43,30 @@ impl<T> Loaded<T> {
 /// dotfiles repository stays linked.
 pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent)?;
-    }
+    create_parent_directory(&path)?;
     let temporary = with_suffix(&path, &format!(".{}.tmp", std::process::id()));
     let result = write_synced(&temporary, bytes).and_then(|()| fs::rename(&temporary, &path));
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+/// Waits for the advisory lock that guards `path` against other running
+/// instances of code-racer, held until the returned file is dropped.
+///
+/// The lock is taken on a `<name>.lock` sibling rather than on `path`, which
+/// [`write_atomically`] replaces by another file.
+pub fn lock(path: &Path) -> io::Result<File> {
+    let lock_path = with_suffix(path, ".lock");
+    create_parent_directory(&lock_path)?;
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_path)?;
+    fs4::FileExt::lock(&file)?;
+    Ok(file)
 }
 
 /// The contents of `path`, `None` when the file does not exist.
@@ -64,6 +76,15 @@ pub fn read_existing(path: &Path) -> io::Result<Option<String>> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// Why a file that does not hold what it should is refused rather than
+/// overwritten: the user may want to repair it.
+pub fn invalid_contents(problem: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("the file is invalid ({problem}), fix or delete it first"),
+    )
 }
 
 /// Renames an unusable file to `<name>.bak`, or `<name>.<n>.bak` when older
@@ -155,6 +176,16 @@ fn file_name(path: &Path) -> Cow<'_, str> {
     path.file_name()
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
+}
+
+fn create_parent_directory(path: &Path) -> io::Result<()> {
+    match path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        Some(parent) => fs::create_dir_all(parent),
+        None => Ok(()),
+    }
 }
 
 fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -317,6 +348,25 @@ mod tests {
         assert!(fs::symlink_metadata(&link).expect("link").is_symlink());
         assert_eq!(fs::read_to_string(&real).expect("read"), "new");
         assert_eq!(dir.file_names(), ["config.toml", "dotfiles-config.toml"]);
+    }
+
+    #[test]
+    fn lock_is_held_until_dropped() {
+        let dir = TempDir::new();
+        let path = dir.join("data/history.json");
+        let other_handle = || {
+            File::options()
+                .write(true)
+                .open(dir.join("data/history.json.lock"))
+                .expect("open the lock file")
+        };
+
+        let held = lock(&path).expect("lock");
+        assert!(fs4::FileExt::try_lock(&other_handle()).is_err());
+
+        drop(held);
+        assert!(fs4::FileExt::try_lock(&other_handle()).is_ok());
+        assert!(!path.exists());
     }
 
     #[test]

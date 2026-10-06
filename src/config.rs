@@ -251,12 +251,7 @@ pub fn load_config(path: &Path) -> Loaded<Config> {
 /// settings in memory are only defaults.
 pub fn save_config(path: &Path, config: &Config) -> io::Result<()> {
     if let Some(existing) = persist::read_existing(path)? {
-        parse_config(&existing).map_err(|problem| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("the file is invalid ({problem}), fix or delete it first"),
-            )
-        })?;
+        parse_config(&existing).map_err(|problem| persist::invalid_contents(&problem))?;
     }
     let contents = toml::to_string(config).map_err(io::Error::other)?;
     persist::write_atomically(path, contents.as_bytes())
