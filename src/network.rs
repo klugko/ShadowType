@@ -283,12 +283,35 @@ fn decode(frame: Option<Result<Message, tungstenite::Error>>) -> Incoming {
 
 fn describe(error: &tungstenite::Error) -> String {
     match error {
-        tungstenite::Error::Io(io) if io.raw_os_error().is_some() => io.kind().to_string(),
-        tungstenite::Error::Io(io) => io.to_string(),
+        tungstenite::Error::Io(io) => describe_io(io),
         tungstenite::Error::Http(response) => {
             format!("not a race server (HTTP {})", response.status())
         }
         other => other.to_string(),
+    }
+}
+
+/// The short, platform-independent name of common network failures, and
+/// otherwise the system's own message. The kind alone is useless for codes
+/// that std does not map, such as an unknown host on Windows, which would
+/// read "uncategorized error".
+fn describe_io(error: &std::io::Error) -> String {
+    use std::io::ErrorKind::{
+        AddrNotAvailable, ConnectionAborted, ConnectionRefused, ConnectionReset, HostUnreachable,
+        NetworkDown, NetworkUnreachable, PermissionDenied, TimedOut,
+    };
+    match error.kind() {
+        ConnectionRefused | ConnectionReset | ConnectionAborted | TimedOut | HostUnreachable
+        | NetworkUnreachable | NetworkDown | AddrNotAvailable | PermissionDenied => {
+            error.kind().to_string()
+        }
+        _ => {
+            let mut message = error.to_string();
+            if let Some(code) = message.rfind(" (os error ") {
+                message.truncate(code);
+            }
+            message
+        }
     }
 }
 
@@ -387,6 +410,29 @@ mod tests {
         for (input, expected) in cases {
             assert_eq!(server_url(input), Err(expected), "{input:?}");
         }
+    }
+
+    #[test]
+    fn socket_errors_are_described_without_os_codes() {
+        let describe_io = |error: std::io::Error| describe(&tungstenite::Error::Io(error));
+        let unknown_host = describe_io(std::io::Error::from_raw_os_error(11001));
+
+        assert!(!unknown_host.contains("uncategorized"), "{unknown_host}");
+        assert!(!unknown_host.contains("os error"), "{unknown_host}");
+        assert!(!unknown_host.is_empty());
+        assert_eq!(
+            describe_io(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "No connection could be made (os error 10061)"
+            )),
+            "connection refused"
+        );
+        assert_eq!(
+            describe_io(std::io::Error::other(
+                "failed to lookup address information"
+            )),
+            "failed to lookup address information"
+        );
     }
 
     #[tokio::test]
