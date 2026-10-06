@@ -14,7 +14,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    app::{Activity, App, Buffer, EditorMode, Focus, Message, TextField},
+    app::{Activity, App, Buffer, EditorMode, Focus, MessageKind, TextField},
     ui::theme::Palette,
 };
 
@@ -288,24 +288,20 @@ pub fn cmdline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> O
         });
     }
     let line = match &app.message {
-        Some(Message::Error(text)) => Line::from(Span::styled(
-            error_text(text),
-            palette.fg(palette.error).add_modifier(Modifier::BOLD),
+        Some(message) => Line::from(Span::styled(
+            message.text.clone(),
+            message_style(message.kind, palette),
         )),
-        Some(Message::Info(text)) => {
-            Line::from(Span::styled(text.clone(), palette.fg(palette.text)))
-        }
         None => hints(app, palette),
     };
     frame.render_widget(Paragraph::new(line), area);
     None
 }
 
-fn error_text(text: &str) -> String {
-    if text.starts_with('E') && text.contains(':') {
-        text.to_owned()
-    } else {
-        format!("E: {text}")
+fn message_style(kind: MessageKind, palette: &Palette) -> Style {
+    match kind {
+        MessageKind::Error => palette.fg(palette.error).add_modifier(Modifier::BOLD),
+        MessageKind::Info => palette.fg(palette.text),
     }
 }
 

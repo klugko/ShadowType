@@ -1,13 +1,13 @@
 //! Vim-style `:` commands.
 
-use std::path::PathBuf;
+use std::{ops::RangeInclusive, path::PathBuf};
 
 use clap::ValueEnum;
-use code_racer_engine::{CodeLanguage, Language};
+use code_racer_engine::{CodeLanguage, Language, WORD_COUNTS};
 use code_racer_protocol::{RoomCode, Username};
 use thiserror::Error;
 
-use crate::config::Theme;
+use crate::config::{Practice, Theme};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -17,8 +17,12 @@ pub enum Command {
     Words(Option<u16>),
     Time(Option<u16>),
     Quote,
+    /// Start a code session, in this language if given.
     Code(Option<CodeLanguage>),
+    /// Set the natural language of words and quotes.
     Language(Language),
+    /// Set the programming language of code sessions, without starting one.
+    CodeLanguage(CodeLanguage),
     /// Practise on the content of a file.
     Edit(PathBuf),
     Set(Setting),
@@ -72,8 +76,14 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
     match name {
         "q" | "q!" | "qa" | "qa!" | "quit" | "wq" | "x" => Ok(Command::Quit),
         "solo" | "start" | "s" => Ok(Command::Solo),
-        "words" | "w" => argument.map(number).transpose().map(Command::Words),
-        "time" | "t" => argument.map(number).transpose().map(Command::Time),
+        "words" | "w" => argument
+            .map(|count| number_in(count, &WORD_COUNTS))
+            .transpose()
+            .map(Command::Words),
+        "time" | "t" => argument
+            .map(|seconds| number_in(seconds, &Practice::DURATION_LIMITS))
+            .transpose()
+            .map(Command::Time),
         "quote" => Ok(Command::Quote),
         "code" => argument.map(code_language).transpose().map(Command::Code),
         "lang" | "language" => language_command(required(argument, "lang")?),
@@ -112,12 +122,19 @@ fn required<'a>(argument: Option<&'a str>, command: &'static str) -> Result<&'a 
         .ok_or(CommandError::MissingArgument(command))
 }
 
-fn number(argument: &str) -> Result<u16, CommandError> {
+/// A number within `range`, refused rather than clamped as on the command line.
+fn number_in(argument: &str, range: &RangeInclusive<u16>) -> Result<u16, CommandError> {
     argument
         .parse::<u16>()
         .ok()
-        .filter(|value| *value > 0)
-        .ok_or_else(|| invalid(argument))
+        .filter(|value| range.contains(value))
+        .ok_or_else(|| {
+            invalid(format!(
+                "{argument}, use {} to {}",
+                range.start(),
+                range.end()
+            ))
+        })
 }
 
 fn code_language(argument: &str) -> Result<CodeLanguage, CommandError> {
@@ -128,7 +145,7 @@ fn language_command(argument: &str) -> Result<Command, CommandError> {
     if let Ok(language) = argument.parse::<Language>() {
         return Ok(Command::Language(language));
     }
-    code_language(argument).map(|language| Command::Code(Some(language)))
+    code_language(argument).map(Command::CodeLanguage)
 }
 
 fn setting(argument: &str) -> Result<Setting, CommandError> {
@@ -196,6 +213,16 @@ mod tests {
     }
 
     #[test]
+    fn lengths_out_of_range_are_refused_with_the_range() {
+        assert_eq!(
+            parse("words 9999").map_err(|error| error.to_string()),
+            Err("E474: Invalid argument: 9999, use 1 to 500".to_owned())
+        );
+        assert!(parse("time 4").is_err());
+        assert_eq!(parse("time 600"), Ok(Command::Time(Some(600))));
+    }
+
+    #[test]
     fn language_accepts_natural_and_code_languages() {
         assert_eq!(
             parse("lang french"),
@@ -203,7 +230,7 @@ mod tests {
         );
         assert_eq!(
             parse("lang rust"),
-            Ok(Command::Code(Some(CodeLanguage::Rust)))
+            Ok(Command::CodeLanguage(CodeLanguage::Rust))
         );
         assert_eq!(parse("lang"), Err(CommandError::MissingArgument("lang")));
     }

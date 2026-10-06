@@ -5,7 +5,7 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::{
-    Activity, App, Buffer, FieldEdit, Focus, Prompt, TextField, command,
+    Activity, App, Buffer, FieldEdit, Focus, Message, Prompt, TextField, command,
     form::{Cursor, Step},
     help,
     input::{Edit, TextInput, control_letter, erases_word, normalized, typed_char},
@@ -18,7 +18,7 @@ const PAGE: usize = 10;
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent, now: Instant) {
         let key = normalized(key);
-        self.message = None;
+        self.dismiss_message();
         if is_control(key, 'c') {
             self.quit = true;
         } else if is_control(key, 'b') {
@@ -273,7 +273,7 @@ impl App {
                 self.prompt = None;
                 match command::parse(&line) {
                     Ok(command) => self.run_command(command),
-                    Err(error) => self.error(error.to_string()),
+                    Err(error) => self.message = Some(Message::command_error(&error)),
                 }
             }
             Edit::Cancelled => self.prompt = None,

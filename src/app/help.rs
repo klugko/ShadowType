@@ -54,7 +54,10 @@ pub const LINES: &[Line] = &[
     Heading("commands"),
     Key(":solo", "start with the current settings"),
     Key(":words 50", "words session (also :time, :quote, :code)"),
-    Key(":lang french", "natural or programming language"),
+    Key(
+        ":lang french",
+        "language of words and quotes, :lang rust for code",
+    ),
     Key(":e src/lib.rs", "practise on one of your own files"),
     Key(":set punctuation", "also nopunctuation, numbers, nonumbers"),
     Key(":set theme=mono", "editor, dark or mono"),

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use code_racer_engine::{Language, Status};
+use code_racer_engine::{CodeLanguage, Language, Status};
 use code_racer_protocol::Phase;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -105,7 +105,7 @@ fn first_launch_asks_for_a_username_then_continues() {
     assert_eq!(app.editor_mode(), EditorMode::Insert);
     press(&mut app, KeyCode::Enter);
     assert!(
-        matches!(app.message, Some(Message::Error(_))),
+        app.message.as_ref().is_some_and(Message::is_error),
         "empty name refused"
     );
     assert!(app.editing.is_some());
@@ -148,10 +148,7 @@ fn completing_a_session_records_it_and_shows_results() {
     press(&mut app, KeyCode::Esc);
     assert!(app.activity.is_none());
     assert_eq!(app.buffer, Buffer::Practice);
-    assert_eq!(
-        app.message,
-        Some(Message::Info("session abandoned".to_owned()))
-    );
+    assert_eq!(app.message, Some(Message::info("session abandoned")));
 }
 
 #[test]
@@ -196,7 +193,11 @@ fn commands_change_settings_and_report_errors() {
     command(&mut app, "lang french");
     assert_eq!(app.config.practice.language, Language::French);
     command(&mut app, "frobnicate");
-    assert!(matches!(&app.message, Some(Message::Error(text)) if text.starts_with("E492")));
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|message| message.is_error() && message.text.starts_with("E492"))
+    );
     command(&mut app, "q");
     assert!(app.should_quit());
 }
@@ -231,7 +232,74 @@ fn pasting_is_refused_while_typing() {
     press(&mut app, KeyCode::Char('s'));
     app.handle_paste("the whole text");
     assert_eq!(session(&app).cursor(), 0);
-    assert!(matches!(app.message, Some(Message::Error(_))));
+    assert!(app.message.as_ref().is_some_and(Message::is_error));
+}
+
+#[test]
+fn errors_stay_on_screen_while_typing() {
+    let mut app = app();
+    press(&mut app, KeyCode::Char('s'));
+    app.handle_paste("the whole text");
+    type_text(&mut app, "ab");
+    assert!(app.message.as_ref().is_some_and(Message::is_error));
+    assert_eq!(session(&app).cursor(), 2);
+}
+
+#[test]
+fn lang_with_a_programming_language_only_sets_the_code_language() {
+    let mut app = room::joined(Instant::now());
+    command(&mut app, "lang python");
+    assert!(app.race().is_some(), "still in the room");
+    assert_eq!(app.config.practice.code_language, CodeLanguage::Python);
+    assert_eq!(app.race_settings.code_language, CodeLanguage::Python);
+    assert_eq!(
+        app.message,
+        Some(Message::info("code language set to python"))
+    );
+}
+
+#[test]
+fn server_errors_are_shown_and_a_closed_room_is_left() {
+    use code_racer_protocol::{ErrorCode, ServerMessage};
+    let now = Instant::now();
+    let mut app = room::racing(now);
+    room::deliver(
+        &mut app,
+        ServerMessage::error(ErrorCode::InvalidProgress, "progress rejected"),
+        now,
+    );
+    assert!(app.race().is_some(), "a rejected message keeps the race");
+    assert_eq!(app.message, Some(Message::error("progress rejected")));
+    room::deliver(
+        &mut app,
+        ServerMessage::error(ErrorCode::RoomNotFound, "room FK72AD closed"),
+        now,
+    );
+    assert!(app.activity.is_none());
+    assert_eq!(app.buffer, Buffer::Race);
+    assert_eq!(app.message, Some(Message::error("room FK72AD closed")));
+}
+
+#[test]
+fn a_failed_save_is_the_message_left_on_screen() {
+    let directory = TempDir::new();
+    let not_a_directory = directory.join("file");
+    std::fs::write(&not_a_directory, "").expect("write");
+    let mut app = App::new(
+        configured("jean"),
+        Some(not_a_directory.join("config.toml")),
+        History::in_memory(),
+        Launch::Home,
+    );
+    let failed_save = |app: &App| {
+        app.message
+            .as_ref()
+            .is_some_and(|message| message.is_error() && message.text.contains("cannot save"))
+    };
+    command(&mut app, "lang french");
+    assert!(failed_save(&app), "{:?}", app.message);
+    command(&mut app, "set username=Ada");
+    assert!(failed_save(&app), "{:?}", app.message);
 }
 
 #[test]
@@ -303,7 +371,7 @@ fn invalid_room_codes_are_rejected_before_connecting() {
     assert!(matches!(&app.editing, Some(edit) if edit.field == TextField::RoomCode));
     type_text(&mut app, "AB0");
     press(&mut app, KeyCode::Enter);
-    assert!(matches!(app.message, Some(Message::Error(_))));
+    assert!(app.message.as_ref().is_some_and(Message::is_error));
     assert!(app.activity.is_none());
     press(&mut app, KeyCode::Esc);
     assert!(app.editing.is_none());
@@ -326,6 +394,88 @@ fn scrolling_is_clamped_to_the_content() {
     assert_eq!(app.help_scroll, help::LINES.len() - 1);
     press(&mut app, KeyCode::Char('k'));
     assert_eq!(app.help_scroll, help::LINES.len() - 2);
+}
+
+/// Rooms fed with server messages instead of a real server.
+mod room {
+    use code_racer_engine::TextSource;
+    use code_racer_protocol::{PlayerId, PlayerProgress, PlayerView, RoomView, ServerMessage};
+
+    use super::*;
+    use crate::network::NetworkEvent;
+
+    pub const ME: PlayerId = PlayerId(1);
+    pub const TEXT: &str = "Simplicity is prerequisite.";
+
+    /// The room with the player and a rival, `progress` being the player's.
+    pub fn view(phase: Phase, progress: PlayerProgress) -> RoomView {
+        let player = |id, name: &str, progress| PlayerView {
+            id,
+            name: name.parse().expect("name"),
+            ready: true,
+            connected: true,
+            progress,
+        };
+        RoomView {
+            code: "FK72AD".parse().expect("code"),
+            host: ME,
+            text: TextSource::Quote {
+                language: Language::English,
+            },
+            text_length: 27,
+            phase,
+            max_players: 8,
+            players: vec![
+                player(ME, "jean", progress),
+                player(PlayerId(2), "alice", PlayerProgress::default()),
+            ],
+        }
+    }
+
+    pub fn deliver(app: &mut App, message: ServerMessage, at: Instant) {
+        app.handle_network(NetworkEvent::Message(message), at);
+    }
+
+    /// In the lobby of room FK72AD, hosting it.
+    pub fn joined(at: Instant) -> App {
+        let mut app = app();
+        command(&mut app, "join FK72AD");
+        app.handle_network(NetworkEvent::Connected(ME), at);
+        deliver(
+            &mut app,
+            ServerMessage::Room(view(Phase::Lobby, PlayerProgress::default())),
+            at,
+        );
+        app
+    }
+
+    pub fn counting_down(at: Instant) -> App {
+        let mut app = joined(at);
+        deliver(
+            &mut app,
+            ServerMessage::Countdown {
+                text: TEXT.to_owned(),
+                duration_ms: 3_000,
+            },
+            at,
+        );
+        deliver(
+            &mut app,
+            ServerMessage::Room(view(Phase::Countdown, PlayerProgress::default())),
+            at,
+        );
+        app
+    }
+
+    pub fn racing(at: Instant) -> App {
+        let mut app = counting_down(at);
+        deliver(
+            &mut app,
+            ServerMessage::Room(view(Phase::Racing, PlayerProgress::default())),
+            at,
+        );
+        app
+    }
 }
 
 mod multiplayer {
@@ -412,7 +562,7 @@ mod multiplayer {
 
         press(&mut alice, KeyCode::Char('s'));
         assert!(
-            matches!(alice.message, Some(Message::Error(_))),
+            alice.message.as_ref().is_some_and(Message::is_error),
             "nobody is ready yet"
         );
         press(&mut alice, KeyCode::Char('r'));
@@ -493,7 +643,11 @@ mod multiplayer {
         })
         .await;
         assert!(waited.is_ok());
-        assert!(matches!(&app.message, Some(Message::Error(text)) if text.contains("ABCDEF")));
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|message| message.is_error() && message.text.contains("ABCDEF"))
+        );
         assert_eq!(app.buffer, Buffer::Race);
         let _ = stop.send(());
     }
@@ -519,7 +673,7 @@ mod multiplayer {
         })
         .await;
         assert!(waited.is_ok());
-        assert!(matches!(app.message, Some(Message::Error(_))));
+        assert!(app.message.as_ref().is_some_and(Message::is_error));
     }
 
     #[tokio::test]
@@ -535,6 +689,6 @@ mod multiplayer {
         .await;
         assert!(waited.is_ok());
         assert!(app.activity.is_none());
-        assert!(matches!(app.message, Some(Message::Error(_))));
+        assert!(app.message.as_ref().is_some_and(Message::is_error));
     }
 }

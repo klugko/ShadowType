@@ -5,6 +5,7 @@
 //! the running session) and the editor pane shows the selected one.
 
 mod actions;
+mod changes;
 pub mod command;
 pub mod form;
 pub mod help;
@@ -15,7 +16,7 @@ pub mod race;
 pub mod settings;
 pub mod text_settings;
 
-use std::{path::PathBuf, time::Instant};
+use std::{fmt::Display, path::PathBuf, time::Instant};
 
 use code_racer_engine::{CodeLanguage, TypingSession};
 use code_racer_protocol::{RoomCode, Username};
@@ -26,6 +27,7 @@ use crate::{
     history::History,
     network::{Connection, NetworkEvent},
 };
+use command::CommandError;
 use form::Cursor;
 use input::TextInput;
 use practice::SoloRun;
@@ -78,10 +80,47 @@ pub enum EditorMode {
     Command,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageKind {
+    Info,
+    Error,
+}
+
+/// A line shown in the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Message {
-    Info(String),
-    Error(String),
+pub struct Message {
+    pub kind: MessageKind,
+    /// Exactly what is shown, errors with their Vim-like prefix.
+    pub text: String,
+}
+
+impl Message {
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            kind: MessageKind::Info,
+            text: text.into(),
+        }
+    }
+
+    /// An error, prefixed with `E:` like the Vim errors that have no number.
+    pub fn error(text: impl Display) -> Self {
+        Self {
+            kind: MessageKind::Error,
+            text: format!("E: {text}"),
+        }
+    }
+
+    /// The error of a `:` command, which carries its Vim error number.
+    pub fn command_error(error: &CommandError) -> Self {
+        Self {
+            kind: MessageKind::Error,
+            text: error.to_string(),
+        }
+    }
+
+    pub fn is_error(&self) -> bool {
+        self.kind == MessageKind::Error
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,11 +401,20 @@ impl App {
     }
 
     fn info(&mut self, text: impl Into<String>) {
-        self.message = Some(Message::Info(text.into()));
+        self.message = Some(Message::info(text));
     }
 
-    fn error(&mut self, text: impl Into<String>) {
-        self.message = Some(Message::Error(text.into()));
+    fn error(&mut self, text: impl Display) {
+        self.message = Some(Message::error(text));
+    }
+
+    /// A key press dismisses the message, except an error while typing: it
+    /// would vanish at the next character, before it could be read.
+    fn dismiss_message(&mut self) {
+        let keep = self.is_typing() && self.message.as_ref().is_some_and(Message::is_error);
+        if !keep {
+            self.message = None;
+        }
     }
 
     fn open(&mut self, buffer: Buffer) {
