@@ -10,7 +10,7 @@ use code_racer_protocol::{
 };
 use futures_util::{SinkExt, StreamExt};
 use thiserror::Error;
-use tokio::{net::TcpStream, runtime::Handle, sync::mpsc, task::JoinHandle, time::timeout};
+use tokio::{net::TcpStream, runtime::Handle, sync::mpsc, time::timeout};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, connect_async_with_config,
     tungstenite::{self, Message, protocol::WebSocketConfig},
@@ -30,6 +30,9 @@ struct Timeouts {
     connect: Duration,
     /// Getting the welcome once the hello is sent.
     handshake: Duration,
+    /// Sending one frame, or closing: a server that takes longer stopped
+    /// reading.
+    write: Duration,
 }
 
 impl Default for Timeouts {
@@ -37,6 +40,7 @@ impl Default for Timeouts {
         Self {
             connect: Duration::from_secs(5),
             handshake: Duration::from_secs(5),
+            write: Duration::from_secs(5),
         }
     }
 }
@@ -120,12 +124,15 @@ pub enum NetworkEvent {
     },
 }
 
-/// A connection to a race server, closed when dropped.
+/// A connection to a race server.
+///
+/// Dropping it never blocks: the background task still sends the messages
+/// already queued, such as a last [`ClientMessage::LeaveRoom`], then closes
+/// the WebSocket and stops.
 #[derive(Debug)]
 pub struct Connection {
     outgoing: mpsc::Sender<ClientMessage>,
     events: mpsc::Receiver<NetworkEvent>,
-    task: Option<JoinHandle<()>>,
 }
 
 impl Connection {
@@ -139,25 +146,22 @@ impl Connection {
     fn open_with(url: String, username: Username, timeouts: Timeouts) -> Self {
         let (outgoing, outgoing_receiver) = mpsc::channel(OUTGOING_CAPACITY);
         let (event_sender, events) = mpsc::channel(EVENT_CAPACITY);
-        let task = match Handle::try_current() {
-            Ok(runtime) => Some(runtime.spawn(run(
-                url,
-                username,
-                outgoing_receiver,
-                event_sender,
-                timeouts,
-            ))),
+        match Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn(run(
+                    url,
+                    username,
+                    outgoing_receiver,
+                    event_sender,
+                    timeouts,
+                ));
+            }
             Err(error) => {
                 let reason = error.to_string();
                 let _ = event_sender.try_send(NetworkEvent::Closed { reason });
-                None
             }
-        };
-        Self {
-            outgoing,
-            events,
-            task,
         }
+        Self { outgoing, events }
     }
 
     /// Queues a message for the server. Returns `false` when the connection
@@ -173,14 +177,6 @@ impl Connection {
     }
 }
 
-impl Drop for Connection {
-    fn drop(&mut self) {
-        if let Some(task) = &self.task {
-            task.abort();
-        }
-    }
-}
-
 async fn run(
     url: String,
     username: Username,
@@ -188,16 +184,14 @@ async fn run(
     events: mpsc::Sender<NetworkEvent>,
     timeouts: Timeouts,
 ) {
-    let reason = match connect(&url, username, timeouts).await {
+    let connected = tokio::select! {
+        connected = connect(&url, username, timeouts) => connected,
+        () = events.closed() => return,
+    };
+    let reason = match connected {
         Ok((socket, player_id)) => {
-            if events
-                .send(NetworkEvent::Connected(player_id))
-                .await
-                .is_err()
-            {
-                return;
-            }
-            relay(socket, &mut outgoing, &events).await
+            let _ = events.send(NetworkEvent::Connected(player_id)).await;
+            relay(socket, &mut outgoing, &events, timeouts).await
         }
         Err(reason) => reason,
     };
@@ -251,32 +245,61 @@ async fn handshake(socket: &mut Socket, username: Username) -> Result<PlayerId, 
     }
 }
 
+/// Forwards messages both ways until the server goes away or the
+/// [`Connection`] is dropped, and returns why it stopped.
+///
+/// Outgoing messages come first, so that the ones queued before the drop
+/// are all sent before the socket is closed.
 async fn relay(
     mut socket: Socket,
     outgoing: &mut mpsc::Receiver<ClientMessage>,
     events: &mpsc::Sender<NetworkEvent>,
+    timeouts: Timeouts,
 ) -> String {
     loop {
         tokio::select! {
-            message = outgoing.recv() => {
-                let Some(message) = message else {
-                    let _ = socket.close(None).await;
-                    return CLOSED_BY_CLIENT.to_owned();
-                };
-                if socket.send(Message::text(message.to_json())).await.is_err() {
-                    return CONNECTION_LOST.to_owned();
+            biased;
+            message = outgoing.recv() => match message {
+                Some(message) => {
+                    let frame = Message::text(message.to_json());
+                    if !write(&mut socket, frame, timeouts.write).await {
+                        return CONNECTION_LOST.to_owned();
+                    }
                 }
-            }
+                None => {
+                    hang_up(&mut socket, timeouts.write).await;
+                    return CLOSED_BY_CLIENT.to_owned();
+                }
+            },
             frame = socket.next() => match decode(frame) {
                 Incoming::Message(message) => {
                     if events.send(NetworkEvent::Message(message)).await.is_err() {
-                        return CLOSED_BY_CLIENT.to_owned();
+                        outgoing.close();
                     }
                 }
                 Incoming::Ignored => {}
                 Incoming::Closed => return CONNECTION_LOST.to_owned(),
             },
         }
+    }
+}
+
+/// Sends `frame`, giving up after `limit`.
+async fn write(socket: &mut Socket, frame: Message, limit: Duration) -> bool {
+    matches!(timeout(limit, socket.send(frame)).await, Ok(Ok(())))
+}
+
+/// Sends a close frame and reads until the server answers it, for at most
+/// `limit`. Dropping a socket with unread data would reset the connection,
+/// which can destroy the last messages before the server reads them.
+async fn hang_up(socket: &mut Socket, limit: Duration) {
+    let closing = async {
+        socket.close(None).await?;
+        while let Some(Ok(_)) = socket.next().await {}
+        Ok::<(), tungstenite::Error>(())
+    };
+    if let Ok(Err(error)) = timeout(limit, closing).await {
+        tracing::debug!(%error, "could not close the connection cleanly");
     }
 }
 
@@ -726,12 +749,18 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn dropping_the_connection_hangs_up() {
-            let (report, gone) = oneshot::channel();
+        async fn dropping_the_connection_sends_what_was_queued_then_closes() {
+            let (report, received) = oneshot::channel();
             let url = scripted_server(|mut socket| async move {
                 accept_hello(&mut socket, 5).await;
-                let after_drop = socket.next().await;
-                let _ = report.send(!matches!(after_drop, Some(Ok(Message::Text(_)))));
+                let queued = receive(&mut socket).await;
+                let after = loop {
+                    match socket.next().await {
+                        Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                        other => break other,
+                    }
+                };
+                let _ = report.send((queued, after));
             })
             .await;
             let mut connection = Connection::open(url, username());
@@ -739,6 +768,36 @@ mod tests {
                 next(&mut connection).await,
                 Some(NetworkEvent::Connected(PlayerId(5)))
             );
+
+            assert!(connection.send(ClientMessage::LeaveRoom));
+            drop(connection);
+
+            let (queued, after) = timeout(EVENT_TIMEOUT, received)
+                .await
+                .expect("in time")
+                .expect("the server saw the client leave");
+            assert_eq!(queued, ClientMessage::LeaveRoom);
+            assert!(matches!(after, Some(Ok(Message::Close(_)))), "{after:?}");
+        }
+
+        #[tokio::test]
+        async fn dropping_during_the_handshake_hangs_up_at_once() {
+            let (greeted, hello) = oneshot::channel();
+            let (report, gone) = oneshot::channel();
+            let url = scripted_server(|mut socket| async move {
+                let _ = greeted.send(receive(&mut socket).await);
+                let _ = report.send(!matches!(socket.next().await, Some(Ok(_))));
+            })
+            .await;
+            let timeouts = Timeouts {
+                handshake: Duration::from_secs(60),
+                ..Timeouts::default()
+            };
+            let connection = Connection::open_with(url, username(), timeouts);
+            timeout(EVENT_TIMEOUT, hello)
+                .await
+                .expect("in time")
+                .expect("hello");
 
             drop(connection);
 
@@ -771,7 +830,7 @@ mod tests {
         use code_racer_engine::{Language, TextSource, WordOptions};
         use code_racer_protocol::Phase;
         use code_racer_server::{ServerConfig, serve};
-        use tokio::sync::oneshot;
+        use tokio::{sync::oneshot, task::JoinHandle};
 
         use super::*;
 
