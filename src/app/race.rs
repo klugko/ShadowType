@@ -412,6 +412,7 @@ fn progress(cursor: usize, stats: &Stats) -> Progress {
     Progress {
         typed: clamp(cursor),
         correct: clamp(stats.correct_chars),
+        indentation: clamp(stats.indentation),
         keystrokes: clamp(stats.typed_chars),
         errors: clamp(stats.errors),
     }
@@ -453,7 +454,8 @@ mod tests {
     fn progress_converts_session_counters() {
         let stats = Stats {
             correct_chars: 9,
-            typed_chars: 14,
+            typed_chars: 7,
+            indentation: 4,
             errors: 3,
             ..Stats::default()
         };
@@ -462,7 +464,8 @@ mod tests {
             Progress {
                 typed: 10,
                 correct: 9,
-                keystrokes: 14,
+                indentation: 4,
+                keystrokes: 7,
                 errors: 3
             }
         );

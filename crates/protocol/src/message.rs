@@ -3,7 +3,7 @@
 //! A connection starts with [`ClientMessage::Hello`], answered by
 //! [`ServerMessage::Welcome`] or an [`ErrorCode::IncompatibleVersion`] error.
 
-use code_racer_engine::TextSource;
+use code_racer_engine::{Tally, TextSource};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -49,12 +49,30 @@ pub enum ClientMessage {
 pub struct Progress {
     /// Characters entered, right or wrong, i.e. the cursor position.
     pub typed: u32,
-    /// Characters currently matching the text.
+    /// Characters currently matching the text, auto-filled indentation included.
     pub correct: u32,
-    /// Characters ever entered, corrected mistakes included.
+    /// Characters of `correct` that auto-indentation filled in. Older clients
+    /// leave it out and count the indentation as keystrokes instead.
+    #[serde(default)]
+    pub indentation: u32,
+    /// Keys pressed, corrected mistakes included.
     pub keystrokes: u32,
     /// Keystrokes that did not match the text.
     pub errors: u32,
+}
+
+impl Progress {
+    /// The counters in the engine's terms, to score them with its rules.
+    pub fn tally(&self) -> Tally {
+        let count = |value: u32| usize::try_from(value).unwrap_or(usize::MAX);
+        Tally {
+            typed: count(self.typed),
+            correct: count(self.correct),
+            indentation: count(self.indentation),
+            keystrokes: count(self.keystrokes),
+            errors: count(self.errors),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -196,7 +214,8 @@ mod tests {
             ClientMessage::Progress(Progress {
                 typed: 12,
                 correct: 11,
-                keystrokes: 14,
+                indentation: 4,
+                keystrokes: 10,
                 errors: 2,
             }),
             ClientMessage::ReturnToLobby,
@@ -268,6 +287,31 @@ mod tests {
         ] {
             assert!(ClientMessage::from_json(json).is_err(), "{json}");
         }
+    }
+
+    #[test]
+    fn progress_of_older_clients_has_no_indentation() {
+        let json =
+            r#"{"type":"progress","data":{"typed":9,"correct":8,"keystrokes":9,"errors":1}}"#;
+        let Ok(ClientMessage::Progress(progress)) = ClientMessage::from_json(json) else {
+            panic!("older progress reports must still parse");
+        };
+        assert_eq!(progress.indentation, 0);
+        assert_eq!(progress.keystrokes, 9);
+    }
+
+    #[test]
+    fn progress_is_scored_by_the_engine_rules() {
+        let progress = Progress {
+            typed: 30,
+            correct: 28,
+            indentation: 8,
+            keystrokes: 25,
+            errors: 5,
+        };
+        let tally = progress.tally();
+        assert_eq!(tally.correctly_typed(), 20);
+        assert_eq!(tally.accuracy(), 80.0);
     }
 
     #[test]

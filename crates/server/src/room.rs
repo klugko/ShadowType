@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use code_racer_engine::{TextSource, grapheme_count, percentage, words_per_minute};
+use code_racer_engine::{Indentation, TextSource, grapheme_count};
 use code_racer_protocol::{
     ErrorCode, Phase, PlayerId, PlayerProgress, PlayerView, Progress, RoomCode, RoomView,
     ServerError, Username,
@@ -17,26 +17,28 @@ const MAX_CHARS_PER_SECOND: f64 = 30.0;
 /// Head start of the speed check, absorbing network delays and clock drift.
 const SPEED_CHECK_GRACE_SECS: f64 = 2.0;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Race {
     length: u32,
+    /// What auto-indentation fills in, to check the indentation players report.
+    indentation: Indentation,
     announced_at: Instant,
     countdown: Duration,
 }
 
 impl Race {
-    fn countdown_over(self, now: Instant) -> bool {
+    fn countdown_over(&self, now: Instant) -> bool {
         now.saturating_duration_since(self.announced_at) >= self.countdown
     }
 
     /// Time since the end of the countdown, as measured by the server.
-    fn elapsed(self, now: Instant) -> Duration {
+    fn elapsed(&self, now: Instant) -> Duration {
         now.saturating_duration_since(self.announced_at)
             .saturating_sub(self.countdown)
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum Stage {
     Lobby,
     Countdown(Race),
@@ -45,7 +47,7 @@ enum Stage {
 }
 
 impl Stage {
-    fn phase(self) -> Phase {
+    fn phase(&self) -> Phase {
         match self {
             Self::Lobby => Phase::Lobby,
             Self::Countdown(_) => Phase::Countdown,
@@ -54,7 +56,7 @@ impl Stage {
         }
     }
 
-    fn race(self) -> Option<Race> {
+    fn race(&self) -> Option<&Race> {
         match self {
             Self::Lobby => None,
             Self::Countdown(race) | Self::Racing(race) | Self::Finished(race) => Some(race),
@@ -91,15 +93,15 @@ impl Member {
         self.counters = Progress::default();
     }
 
-    fn record(&mut self, counters: Progress, race: Race, now: Instant) {
+    fn record(&mut self, counters: Progress, race: &Race, now: Instant) {
         let elapsed = race.elapsed(now);
-        let accurate = counters.keystrokes.saturating_sub(counters.errors);
+        let tally = counters.tally();
         self.progress = PlayerProgress {
             typed: counters.typed,
             correct: counters.correct,
             errors: counters.errors,
-            wpm: words_per_minute(counters.correct as usize, elapsed),
-            accuracy: percentage(accurate as usize, counters.keystrokes as usize),
+            wpm: tally.wpm(elapsed),
+            accuracy: tally.accuracy(),
             finish_ms: (counters.correct == race.length).then(|| millis(elapsed)),
         };
         self.counters = counters;
@@ -226,6 +228,7 @@ impl Room {
         let length = u32::try_from(grapheme_count(text)).unwrap_or(u32::MAX);
         self.stage = Stage::Countdown(Race {
             length,
+            indentation: Indentation::of(text),
             announced_at: now,
             countdown,
         });
@@ -246,7 +249,7 @@ impl Room {
     ) -> Result<(), ServerError> {
         let index = self.member_index(by)?;
         self.start_race_if_due(now);
-        let Stage::Racing(race) = self.stage else {
+        let Stage::Racing(race) = &self.stage else {
             return Err(ServerError::new(
                 ErrorCode::RaceNotRunning,
                 format!("room {} is not racing", self.code),
@@ -256,14 +259,12 @@ impl Room {
         if member.progress.is_finished() {
             return Ok(());
         }
-        check_progress(member.counters, counters, race.length, race.elapsed(now)).map_err(
-            |reason| {
-                ServerError::new(
-                    ErrorCode::InvalidProgress,
-                    format!("progress rejected: {reason}"),
-                )
-            },
-        )?;
+        check_progress(member.counters, counters, race, now).map_err(|reason| {
+            ServerError::new(
+                ErrorCode::InvalidProgress,
+                format!("progress rejected: {reason}"),
+            )
+        })?;
         member.record(counters, race, now);
         self.last_activity = now;
         Ok(())
@@ -332,9 +333,9 @@ impl Room {
     }
 
     fn start_race_if_due(&mut self, now: Instant) -> bool {
-        match self.stage {
+        match &self.stage {
             Stage::Countdown(race) if race.countdown_over(now) => {
-                self.stage = Stage::Racing(race);
+                self.stage = Stage::Racing(race.clone());
                 true
             }
             _ => false,
@@ -342,11 +343,11 @@ impl Room {
     }
 
     fn finish_race_if_due(&mut self, now: Instant, race_timeout: Duration) -> bool {
-        match self.stage {
+        match &self.stage {
             Stage::Racing(race)
                 if race.elapsed(now) >= race_timeout || self.everyone_finished() =>
             {
-                self.stage = Stage::Finished(race);
+                self.stage = Stage::Finished(race.clone());
                 true
             }
             _ => false,
@@ -404,26 +405,39 @@ impl Room {
     }
 }
 
+/// Checks a report against the previous one and the race text. Auto-filled
+/// indentation needs no keystroke, so it is exempt from the keystroke and
+/// speed checks but must match indentation the text actually has.
 fn check_progress(
     previous: Progress,
     next: Progress,
-    length: u32,
-    elapsed: Duration,
+    race: &Race,
+    now: Instant,
 ) -> Result<(), &'static str> {
+    let elapsed = race.elapsed(now);
     let speed_limit =
         ((elapsed.as_secs_f64() + SPEED_CHECK_GRACE_SECS) * MAX_CHARS_PER_SECOND).ceil();
+    let counts = next.tally();
     let rules = [
-        (next.typed <= length, "typed past the end of the text"),
+        (next.typed <= race.length, "typed past the end of the text"),
         (
             next.correct <= next.typed,
             "more correct characters than typed ones",
+        ),
+        (
+            next.indentation <= next.correct,
+            "more indentation than correct characters",
+        ),
+        (
+            counts.indentation <= race.indentation.within(counts.typed),
+            "more indentation than the text has",
         ),
         (
             next.errors <= next.keystrokes,
             "more errors than keystrokes",
         ),
         (
-            next.typed <= next.keystrokes,
+            next.typed <= next.keystrokes.saturating_add(next.indentation),
             "more characters than keystrokes",
         ),
         (
@@ -432,7 +446,7 @@ fn check_progress(
         ),
         (next.errors >= previous.errors, "errors cannot decrease"),
         (
-            f64::from(next.correct) <= speed_limit,
+            counts.correctly_typed() as f64 <= speed_limit,
             "faster than humanly possible",
         ),
     ];
@@ -448,7 +462,7 @@ fn millis(duration: Duration) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use code_racer_engine::Language;
+    use code_racer_engine::{CodeLanguage, Language, SessionOptions, Tally, TypingSession};
 
     use super::*;
 
@@ -497,12 +511,15 @@ mod tests {
     }
 
     fn counting_down(clock: &Clock, players: &[PlayerId]) -> Room {
+        counting_down_on(clock, players, &"a".repeat(TEXT_LENGTH as usize))
+    }
+
+    fn counting_down_on(clock: &Clock, players: &[PlayerId], text: &str) -> Room {
         let mut room = lobby(clock, players, 8);
         for id in std::iter::once(ALICE).chain(players.iter().copied()) {
             room.set_ready(id, true, clock.at(0)).expect("ready");
         }
-        let text = "a".repeat(TEXT_LENGTH as usize);
-        room.start_countdown(ALICE, &text, clock.at(0), COUNTDOWN)
+        room.start_countdown(ALICE, text, clock.at(0), COUNTDOWN)
             .expect("start");
         room
     }
@@ -513,12 +530,26 @@ mod tests {
         room
     }
 
+    fn racing_on(clock: &Clock, text: &str) -> Room {
+        let mut room = counting_down_on(clock, &[], text);
+        assert!(room.advance(clock.racing(0), TIMEOUT));
+        room
+    }
+
     fn progress(typed: u32, correct: u32, keystrokes: u32, errors: u32) -> Progress {
         Progress {
             typed,
             correct,
+            indentation: 0,
             keystrokes,
             errors,
+        }
+    }
+
+    fn indented(typed: u32, correct: u32, indentation: u32, keystrokes: u32) -> Progress {
+        Progress {
+            indentation,
+            ..progress(typed, correct, keystrokes, 0)
         }
     }
 
@@ -742,6 +773,98 @@ mod tests {
         assert!((progress.wpm - 50.0).abs() < 1e-9, "{}", progress.wpm);
         assert!((progress.accuracy - 50.0 / 55.0 * 100.0).abs() < 1e-9);
         assert_eq!(progress.finish_ms, None);
+    }
+
+    #[test]
+    fn reported_indentation_must_be_indentation_of_the_text() {
+        let clock = Clock(Instant::now());
+        let mut room = racing_on(&clock, "{\n    x\n}");
+        let invalid = [
+            indented(6, 6, 5, 2),
+            indented(3, 3, 2, 2),
+            indented(6, 3, 4, 3),
+            indented(6, 6, 4, 1),
+        ];
+        for counters in invalid {
+            assert_eq!(
+                error_code(room.report_progress(ALICE, counters, clock.racing(5_000))),
+                Some(ErrorCode::InvalidProgress),
+                "{counters:?}"
+            );
+        }
+        room.report_progress(ALICE, indented(6, 6, 4, 2), clock.racing(5_000))
+            .expect("the newline filled in four spaces");
+        assert_eq!(player(&room, ALICE).progress.typed, 6);
+    }
+
+    #[test]
+    fn auto_filled_indentation_counts_for_finishing_but_not_for_speed_or_accuracy() {
+        let clock = Clock(Instant::now());
+        let mut room = racing_on(&clock, "{\n    x\n}");
+        let finished = Progress {
+            errors: 1,
+            ..indented(9, 9, 4, 6)
+        };
+        room.report_progress(ALICE, finished, clock.racing(2_000))
+            .expect("finish");
+        let progress = player(&room, ALICE).progress;
+        assert_eq!(progress.finish_ms, Some(2_000));
+        assert_eq!(
+            progress.wpm,
+            code_racer_engine::words_per_minute(5, Duration::from_secs(2))
+        );
+        assert_eq!(progress.accuracy, 5.0 / 6.0 * 100.0);
+    }
+
+    #[test]
+    fn a_code_race_is_scored_like_the_session_that_typed_it() {
+        let clock = Clock(Instant::now());
+        let snippet = TextSource::Code {
+            language: CodeLanguage::Python,
+        }
+        .generate(3)
+        .text;
+        let mut room = racing_on(&clock, &snippet);
+        let options = SessionOptions {
+            auto_indent: true,
+            ..SessionOptions::default()
+        };
+        let mut session = TypingSession::new(&snippet, options);
+        session.start(clock.racing(0));
+        let mut now = clock.racing(0);
+        let mut keys = 0;
+        while let Some(expected) = session.target().get(session.cursor()).cloned() {
+            if keys == 3 {
+                session.type_char('#', now);
+                session.backspace(now);
+            }
+            keys += 1;
+            now = clock.racing(keys * 100);
+            expected.chars().for_each(|ch| {
+                session.type_char(ch, now);
+            });
+            let tally = session.tally();
+            room.report_progress(ALICE, reported(tally), now)
+                .expect("an honest report");
+        }
+        let stats = session.stats(now);
+        let progress = player(&room, ALICE).progress;
+        assert_eq!(progress.finish_ms, Some(keys * 100));
+        assert_eq!(progress.wpm, stats.wpm);
+        assert_eq!(progress.accuracy, stats.accuracy);
+        assert!(stats.indentation > 0, "the snippet is indented");
+        assert!(stats.accuracy < 100.0);
+    }
+
+    fn reported(tally: Tally) -> Progress {
+        let count = |value: usize| u32::try_from(value).expect("small counter");
+        Progress {
+            typed: count(tally.typed),
+            correct: count(tally.correct),
+            indentation: count(tally.indentation),
+            keystrokes: count(tally.keystrokes),
+            errors: count(tally.errors),
+        }
     }
 
     #[test]

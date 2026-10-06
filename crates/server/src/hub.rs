@@ -531,6 +531,7 @@ mod tests {
         ClientMessage::Progress(Progress {
             typed: correct,
             correct,
+            indentation: 0,
             keystrokes: correct,
             errors: 0,
         })

@@ -149,6 +149,7 @@ fn typed(length: u32, keystrokes: u32, errors: u32) -> ClientMessage {
     ClientMessage::Progress(Progress {
         typed: length,
         correct: length,
+        indentation: 0,
         keystrokes,
         errors,
     })
