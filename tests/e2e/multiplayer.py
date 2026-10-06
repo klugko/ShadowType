@@ -1,37 +1,26 @@
 """A real server and two real terminal clients race against each other."""
 
-import signal
-import subprocess
+import re
 import tempfile
-import time
 
-from harness import CLIENT, SERVER, Terminal, environment, free_port, history
+from harness import CLIENT, Terminal, environment, history, race_server
 
-SIDEBAR_AND_GUTTER = 29
+EDITOR_LINE_ONE = re.compile(r"^(?:.*│)? *1  (\S.*)$", re.MULTILINE)
 
 
 def main():
-    port = free_port()
-    url = f"ws://127.0.0.1:{port}"
-    server = subprocess.Popen(
-        [str(SERVER), "--port", str(port), "--countdown", "2"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    terminals = []
-    try:
-        time.sleep(0.3)
-        with tempfile.TemporaryDirectory(prefix="code-racer-race-") as home:
+    with race_server("--countdown", "2") as url, tempfile.TemporaryDirectory(prefix="code-racer-race-") as home:
+        terminals = []
+        try:
             race(url, home, terminals)
-    finally:
-        for terminal in terminals:
-            terminal.close()
-        server.send_signal(signal.SIGINT)
-        assert server.wait(timeout=5) == 0, "the server shuts down cleanly"
+        finally:
+            for terminal in terminals:
+                terminal.close()
     print("multiplayer: create, join, ready, countdown, typing, standings, results, history, lobby again: PASS")
 
 
 def race(url, home, terminals):
+    """Alice hosts and types the whole text before Bob starts, so she finishes first."""
     alice_home, bob_home = f"{home}/alice", f"{home}/bob"
     alice = Terminal(
         [str(CLIENT), "--server", url, "create", "--mode", "words", "--words", "5"],
@@ -58,11 +47,11 @@ def race(url, home, terminals):
 
     text = race_text(alice)
     assert text == race_text(bob), "both players type the same text"
-    for terminal in (alice, bob):
-        terminal.send(text, delay=0.03)
-    for terminal in (alice, bob):
+    alice.send(text, delay=0.03)
+    bob.send(text, delay=0.03)
+    for terminal, place in ((alice, "1st"), (bob, "2nd")):
         terminal.wait_for(r"results · room")
-        terminal.wait_for(r"you finished (1st|2nd) of 2")
+        terminal.wait_for(rf"you finished {place} of 2")
 
     for player_home in (alice_home, bob_home):
         records = history(player_home)
@@ -77,9 +66,17 @@ def race(url, home, terminals):
 
 
 def race_text(terminal):
-    """The race text: five words fit on the first row of the editor."""
-    first_row = terminal.screen.text().splitlines()[1]
-    return first_row[SIDEBAR_AND_GUTTER:].strip()
+    """The race text, read from the editor row numbered 1.
+
+    The row is found by its gutter (the explorer border when the explorer is
+    shown, then the right-aligned number and two spaces) rather than by a fixed
+    column, so a wider explorer or gutter does not break it. Five words fit on
+    that row.
+    """
+    screen = terminal.screen.text()
+    match = EDITOR_LINE_ONE.search(screen)
+    assert match, f"no editor row numbered 1 on the screen:\n{screen}"
+    return match.group(1)
 
 
 if __name__ == "__main__":

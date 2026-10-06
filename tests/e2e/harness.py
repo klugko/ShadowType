@@ -5,18 +5,20 @@ Unix pseudo-terminal are available.
 """
 
 import codecs
-import json
 import fcntl
+import json
 import os
 import pty
 import re
 import select
 import signal
-import socket
 import struct
 import subprocess
+import sys
+import tempfile
 import termios
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +28,7 @@ SERVER = ROOT / "target" / "release" / "code-racer-server"
 ESCAPE = r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[^\[]"
 TOKEN = re.compile(ESCAPE + r"|[^\x1b]", re.DOTALL)
 COMPLETE_ESCAPE = re.compile(ESCAPE)
+LISTENING = re.compile(r"race server listening.*?address=(\S+)")
 
 
 class Screen:
@@ -166,7 +169,47 @@ def history(home):
     return json.loads(files[0].read_text())
 
 
-def free_port():
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
+@contextmanager
+def race_server(*arguments, timeout=10.0):
+    """Runs the race server on a port picked by the system and yields its URL.
+
+    The server's log goes to a temporary file that is printed when the block
+    fails. Leaving the block normally checks that Ctrl+C stops the server
+    cleanly.
+    """
+    with tempfile.NamedTemporaryFile(prefix="code-racer-server-", suffix=".log") as log_file:
+        log = Path(log_file.name)
+        server = subprocess.Popen(
+            [str(SERVER), "--port", "0", *arguments],
+            stdout=subprocess.DEVNULL,
+            stderr=log_file,
+        )
+        try:
+            yield f"ws://{listening_address(server, log, timeout)}"
+            interrupt(server)
+        except BaseException:
+            print(f"--- server log ---\n{log.read_text(errors='replace')}", file=sys.stderr)
+            raise
+        finally:
+            if server.poll() is None:
+                server.kill()
+                server.wait()
+
+
+def listening_address(server, log, timeout):
+    """Waits for the line the server logs once its socket is bound."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        match = LISTENING.search(COMPLETE_ESCAPE.sub("", log.read_text(errors="replace")))
+        if match:
+            return match.group(1)
+        if server.poll() is not None:
+            raise AssertionError(f"the server exited with status {server.returncode} before listening")
+        time.sleep(0.02)
+    raise AssertionError(f"the server was not listening after {timeout} s")
+
+
+def interrupt(server):
+    assert server.poll() is None, f"the server stopped early with status {server.returncode}"
+    server.send_signal(signal.SIGINT)
+    assert server.wait(timeout=5) == 0, "the server shuts down cleanly on Ctrl+C"
