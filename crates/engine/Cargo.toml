@@ -1,0 +1,21 @@
+[package]
+name = "code-racer-engine"
+description = "Typing session, statistics and text generation for code-racer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rand.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
