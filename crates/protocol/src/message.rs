@@ -14,7 +14,8 @@ use crate::{
 /// Incremented whenever a change breaks compatibility with older peers.
 pub const PROTOCOL_VERSION: u16 = 2;
 
-/// Largest WebSocket message either side accepts.
+/// Largest WebSocket message either side accepts. Every valid message fits:
+/// usernames are bounded in bytes and rooms in players for that purpose.
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

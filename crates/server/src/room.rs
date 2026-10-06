@@ -463,6 +463,7 @@ fn millis(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use code_racer_engine::{CodeLanguage, Language, SessionOptions, Tally, TypingSession};
+    use code_racer_protocol::{MAX_MESSAGE_BYTES, MAX_ROOM_PLAYERS, ServerMessage};
 
     use super::*;
 
@@ -670,6 +671,48 @@ mod tests {
             error_code(room.start_countdown(ALICE, "again", clock.at(3), COUNTDOWN)),
             Some(ErrorCode::RaceInProgress)
         );
+    }
+
+    /// The valid name with the longest JSON: as many bytes as allowed, and a
+    /// quote, which JSON escapes, at the start of each of its characters.
+    fn widest_name() -> Username {
+        let marks = (Username::MAX_BYTES - Username::MAX_LENGTH) / '\u{301}'.len_utf8();
+        let quotes = "\"".repeat(Username::MAX_LENGTH - 1);
+        format!("\"{}{quotes}", "\u{301}".repeat(marks))
+            .parse()
+            .expect("the widest valid name")
+    }
+
+    #[test]
+    fn a_full_room_of_the_longest_names_still_fits_in_every_message() {
+        let clock = Clock(Instant::now());
+        let code = "ABC234".parse().expect("valid code");
+        let text = TextSource::Quote {
+            language: Language::English,
+        };
+        let host = PlayerId(0);
+        let mut room = Room::new(
+            code,
+            host,
+            widest_name(),
+            text,
+            MAX_ROOM_PLAYERS,
+            clock.at(0),
+        );
+        for id in 1..u64::from(MAX_ROOM_PLAYERS) {
+            room.join(PlayerId(id), widest_name(), clock.at(0))
+                .expect("room for everyone");
+        }
+        let waiting = room
+            .start_countdown(host, "text", clock.at(1), COUNTDOWN)
+            .expect_err("nobody is ready");
+        assert_eq!(waiting.code, ErrorCode::PlayersNotReady);
+        for message in [
+            ServerMessage::Error(waiting),
+            ServerMessage::Room(room.view()),
+        ] {
+            assert!(message.to_json().len() <= MAX_MESSAGE_BYTES);
+        }
     }
 
     #[test]

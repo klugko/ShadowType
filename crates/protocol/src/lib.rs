@@ -9,4 +9,6 @@ pub use message::{
     ClientMessage, ErrorCode, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, Progress, ServerError,
     ServerMessage,
 };
-pub use room::{Phase, PlayerProgress, PlayerView, RACE_WORD_COUNTS, RoomView, is_raceable};
+pub use room::{
+    MAX_ROOM_PLAYERS, Phase, PlayerProgress, PlayerView, RACE_WORD_COUNTS, RoomView, is_raceable,
+};

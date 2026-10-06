@@ -10,6 +10,10 @@ use crate::ids::{PlayerId, RoomCode, Username};
 /// Word counts accepted for a race.
 pub const RACE_WORD_COUNTS: RangeInclusive<u16> = 5..=200;
 
+/// Most players a room can hold, so that a view listing all of them with the
+/// longest names still fits in [`MAX_MESSAGE_BYTES`](crate::MAX_MESSAGE_BYTES).
+pub const MAX_ROOM_PLAYERS: u8 = 32;
+
 /// Whether a text can be raced on: every quote and snippet can, words within [`RACE_WORD_COUNTS`].
 pub fn is_raceable(text: &TextSource) -> bool {
     match text {

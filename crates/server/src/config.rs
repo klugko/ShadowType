@@ -2,10 +2,12 @@
 
 use std::time::Duration;
 
+use code_racer_protocol::MAX_ROOM_PLAYERS;
+
 /// Everything an operator can tune about a server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerConfig {
-    /// Players allowed in one room.
+    /// Players allowed in one room, capped at [`MAX_ROOM_PLAYERS`].
     pub max_players: u8,
     /// Inactivity after which a room is closed and its members are told so.
     pub room_ttl: Duration,
@@ -28,5 +30,13 @@ impl Default for ServerConfig {
             max_rooms: 256,
             max_connections: 512,
         }
+    }
+}
+
+impl ServerConfig {
+    /// Players a room holds: beyond [`MAX_ROOM_PLAYERS`], room views could
+    /// outgrow the messages clients accept.
+    pub(crate) fn room_capacity(&self) -> u8 {
+        self.max_players.min(MAX_ROOM_PLAYERS)
     }
 }

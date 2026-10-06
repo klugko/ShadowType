@@ -154,7 +154,14 @@ impl Hub {
         }
         let name = self.name_of(id)?;
         let code = self.unused_code();
-        let room = Room::new(code.clone(), id, name, text, self.config.max_players, now);
+        let room = Room::new(
+            code.clone(),
+            id,
+            name,
+            text,
+            self.config.room_capacity(),
+            now,
+        );
         self.rooms.insert(code.clone(), room);
         self.move_player(id, code, now);
         Ok(())
@@ -547,6 +554,21 @@ mod tests {
         assert_eq!(view.phase, Phase::Lobby);
         assert_eq!(view.max_players, 8);
         assert_eq!(view.text, words(10));
+    }
+
+    #[test]
+    fn rooms_never_hold_more_players_than_the_protocol_allows() {
+        let config = ServerConfig {
+            max_players: u8::MAX,
+            ..ServerConfig::default()
+        };
+        let mut harness = Harness::new(config);
+        harness.connect(ALICE, "Alice", 8);
+        harness.send(ALICE, create(words(10)), 0);
+        assert_eq!(
+            harness.last_view(ALICE).max_players,
+            code_racer_protocol::MAX_ROOM_PLAYERS
+        );
     }
 
     #[test]

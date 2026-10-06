@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::Parser;
+use code_racer_protocol::MAX_ROOM_PLAYERS;
 use code_racer_server::{ServerConfig, serve};
 use tokio::net::TcpListener;
 use tracing::{info, warn};
@@ -19,7 +20,7 @@ struct Args {
     #[arg(long, default_value_t = 8080)]
     port: u16,
     /// Players allowed in one room.
-    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u8).range(2..=32))]
+    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u8).range(2..=i64::from(MAX_ROOM_PLAYERS)))]
     max_players: u8,
     /// Seconds of inactivity after which a room is closed.
     #[arg(long, value_name = "SECONDS", default_value_t = 1800, value_parser = clap::value_parser!(u64).range(1..))]
