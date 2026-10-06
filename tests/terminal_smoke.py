@@ -1,5 +1,6 @@
 """Unix PTY smoke test against the real release client; no third-party packages."""
 import errno
+import json
 import fcntl
 import os
 from pathlib import Path
@@ -49,7 +50,10 @@ with tempfile.TemporaryDirectory(prefix='code-racer-pty-') as directory:
             os.write(master, character.encode())
             collect(0.005)
         collect(1.0)
-        assert b'Session complete' in output, 'results missing'
+        history = list(Path(directory).rglob('history.json'))
+        assert history, 'completed session was not saved'
+        stats = json.loads(history[0].read_text())[0]['stats']
+        assert stats['accuracy'] == 100 and stats['position'] == stats['length'], stats
         os.write(master, b'r')
         collect()
         os.write(master, b'q')

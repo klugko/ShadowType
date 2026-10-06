@@ -22,7 +22,9 @@ jobs:
       - run: cargo build --release --workspace
       - name: Terminal interaction smoke test
         if: runner.os == 'Linux'
-        run: python3 tests/terminal_smoke.py
+        run: |
+          python3 tests/terminal_smoke.py
+          python3 tests/multiplayer_terminal_smoke.py
       - uses: actions/upload-artifact@v4
         with:
           name: code-racer-${{ matrix.os }}
@@ -32,6 +34,7 @@ jobs:
             target/release/code-racer-server
             target/release/code-racer-server.exe
   container:
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: read

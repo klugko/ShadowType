@@ -169,6 +169,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --release --workspace
 python3 tests/terminal_smoke.py  # Unix only, after release build
+python3 tests/multiplayer_terminal_smoke.py
 ```
 
 ## Architecture
@@ -184,7 +185,7 @@ The server uses a shared hub with short synchronous operations under a Tokio mut
 
 ## Testing
 
-Unit tests verify WPM/accuracy, correction accounting, graphemes/combining characters/emoji, time limits, navigation, renderer resize safety, persistence, room validation/limits/cleanup and protocol roundtrip. Two actual WebSocket clients test create → join → ready → countdown → race → progress → finish → ranking → reset, non-host and invalid-progress rejection, malformed JSON, disconnection, host promotion and timeout. The Unix PTY smoke test types a full quote using the actual release client, verifies results/restart/history/resize and checks terminal flags after Ctrl+C.
+Unit tests verify WPM/accuracy, correction accounting, graphemes/combining characters/emoji, time limits, navigation, renderer resize safety, persistence, room validation/limits/cleanup and protocol roundtrip. Two actual WebSocket clients test create → join → ready → countdown → race → progress → finish → ranking → reset, non-host and invalid-progress rejection, malformed JSON, disconnection, host promotion and timeout. The Unix PTY smoke test types a full quote using the actual release client, verifies results/restart/history/resize and checks terminal flags after Ctrl+C. A second PTY test runs the real server and two actual TUI clients through room creation, ready, countdown, typing, results and a second lobby.
 
 GitHub Actions runs format, Clippy, tests and release builds on Linux and Windows, plus the PTY test on Linux. A separate job builds and starts the Docker image, verifies a WebSocket handshake and publishes the validated image to GHCR on `main`. Downloadable client/server artifacts are attached to each successful CI run.
 
