@@ -10,7 +10,9 @@ use thiserror::Error;
 #[serde(rename_all = "lowercase")]
 pub enum Language {
     #[default]
+    #[serde(alias = "en")]
     English,
+    #[serde(alias = "fr")]
     French,
 }
 
@@ -42,9 +44,13 @@ impl Language {
 #[serde(rename_all = "lowercase")]
 pub enum CodeLanguage {
     #[default]
+    #[serde(alias = "rs")]
     Rust,
+    #[serde(alias = "py")]
     Python,
+    #[serde(alias = "ts")]
     TypeScript,
+    #[serde(alias = "js")]
     JavaScript,
     Sql,
 }
@@ -161,6 +167,8 @@ mod tests {
         assert_eq!(json, "\"typescript\"");
         let parsed: Language = serde_json::from_str("\"french\"").expect("deserialize");
         assert_eq!(parsed, Language::French);
+        let alias: CodeLanguage = serde_json::from_str("\"ts\"").expect("alias");
+        assert_eq!(alias, CodeLanguage::TypeScript);
     }
 
     #[test]
