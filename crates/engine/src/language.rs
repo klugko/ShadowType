@@ -7,29 +7,21 @@ use thiserror::Error;
 
 /// A natural language with a bundled word list and quote collection.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(try_from = "String", into = "&'static str")]
 pub enum Language {
     #[default]
-    #[serde(alias = "en")]
     English,
-    #[serde(alias = "fr")]
     French,
 }
 
 impl Language {
     pub const ALL: [Self; 2] = [Self::English, Self::French];
 
-    pub const fn name(self) -> &'static str {
+    /// Every accepted spelling, ignoring case, the canonical name first.
+    const fn names(self) -> &'static [&'static str] {
         match self {
-            Self::English => "english",
-            Self::French => "french",
-        }
-    }
-
-    const fn aliases(self) -> &'static [&'static str] {
-        match self {
-            Self::English => &["en", "eng"],
-            Self::French => &["fr", "francais", "français"],
+            Self::English => &["english", "en", "eng"],
+            Self::French => &["french", "fr", "francais", "français"],
         }
     }
 
@@ -41,16 +33,12 @@ impl Language {
 
 /// A programming language with a bundled collection of code snippets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(try_from = "String", into = "&'static str")]
 pub enum CodeLanguage {
     #[default]
-    #[serde(alias = "rs")]
     Rust,
-    #[serde(alias = "py")]
     Python,
-    #[serde(alias = "ts")]
     TypeScript,
-    #[serde(alias = "js")]
     JavaScript,
     Sql,
 }
@@ -64,13 +52,14 @@ impl CodeLanguage {
         Self::Sql,
     ];
 
-    pub const fn name(self) -> &'static str {
+    /// Every accepted spelling, ignoring case, the canonical name first.
+    const fn names(self) -> &'static [&'static str] {
         match self {
-            Self::Rust => "rust",
-            Self::Python => "python",
-            Self::TypeScript => "typescript",
-            Self::JavaScript => "javascript",
-            Self::Sql => "sql",
+            Self::Rust => &["rust", "rs"],
+            Self::Python => &["python", "py"],
+            Self::TypeScript => &["typescript", "ts"],
+            Self::JavaScript => &["javascript", "js"],
+            Self::Sql => &["sql", "postgres", "postgresql"],
         }
     }
 
@@ -95,25 +84,28 @@ impl CodeLanguage {
                 .find(|language| language.extension() == extension),
         }
     }
-
-    const fn aliases(self) -> &'static [&'static str] {
-        match self {
-            Self::Rust => &["rs"],
-            Self::Python => &["py"],
-            Self::TypeScript => &["ts"],
-            Self::JavaScript => &["js"],
-            Self::Sql => &["postgres", "postgresql"],
-        }
-    }
 }
 
 /// Returned when a language name is not recognised.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("unknown language `{0}`")]
-pub struct UnknownLanguage(String);
+#[error("unknown language `{name}`, expected one of {expected}")]
+pub struct UnknownLanguage {
+    name: String,
+    expected: String,
+}
 
+/// Names, display, parsing and serde all go through the `names` table of a
+/// language enum, so the command line, the configuration file and the wire
+/// accept exactly the same spellings.
 macro_rules! impl_language_traits {
     ($language:ty) => {
+        impl $language {
+            /// Canonical lowercase name, used for display and when saving.
+            pub const fn name(self) -> &'static str {
+                self.names()[0]
+            }
+        }
+
         impl fmt::Display for $language {
             fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str(self.name())
@@ -123,14 +115,30 @@ macro_rules! impl_language_traits {
         impl FromStr for $language {
             type Err = UnknownLanguage;
 
+            /// Accepts any spelling from the names table, ignoring case and surrounding spaces.
             fn from_str(input: &str) -> Result<Self, Self::Err> {
                 let wanted = input.trim().to_lowercase();
                 <$language>::ALL
                     .into_iter()
-                    .find(|language| {
-                        language.name() == wanted || language.aliases().contains(&wanted.as_str())
+                    .find(|language| language.names().contains(&wanted.as_str()))
+                    .ok_or_else(|| UnknownLanguage {
+                        name: input.to_owned(),
+                        expected: <$language>::ALL.map(<$language>::name).join(", "),
                     })
-                    .ok_or_else(|| UnknownLanguage(input.to_owned()))
+            }
+        }
+
+        impl TryFrom<String> for $language {
+            type Error = UnknownLanguage;
+
+            fn try_from(name: String) -> Result<Self, Self::Error> {
+                name.parse()
+            }
+        }
+
+        impl From<$language> for &'static str {
+            fn from(language: $language) -> Self {
+                language.name()
             }
         }
     };
@@ -169,6 +177,64 @@ mod tests {
         assert_eq!(parsed, Language::French);
         let alias: CodeLanguage = serde_json::from_str("\"ts\"").expect("alias");
         assert_eq!(alias, CodeLanguage::TypeScript);
+    }
+
+    fn spellings(name: &str) -> [String; 3] {
+        let mut chars = name.chars();
+        let capitalized = chars
+            .next()
+            .map(|first| first.to_uppercase().chain(chars).collect())
+            .unwrap_or_default();
+        [name.to_owned(), name.to_uppercase(), capitalized]
+    }
+
+    fn assert_serde_agrees_with_from_str<L>(all: &[L], names: fn(L) -> &'static [&'static str])
+    where
+        L: Copy + fmt::Debug + PartialEq + FromStr + serde::de::DeserializeOwned,
+    {
+        for &language in all {
+            for spelling in names(language).iter().flat_map(|name| spellings(name)) {
+                let json = format!("\"{spelling}\"");
+                let deserialized = serde_json::from_str::<L>(&json).ok();
+                assert_eq!(deserialized, Some(language), "{spelling}");
+                assert_eq!(spelling.parse::<L>().ok(), Some(language), "{spelling}");
+            }
+        }
+    }
+
+    #[test]
+    fn serde_accepts_every_name_from_str_accepts() {
+        assert_serde_agrees_with_from_str(&Language::ALL, Language::names);
+        assert_serde_agrees_with_from_str(&CodeLanguage::ALL, CodeLanguage::names);
+    }
+
+    #[test]
+    fn hand_written_config_names_deserialize() {
+        for (json, expected) in [
+            ("\"French\"", Language::French),
+            ("\"français\"", Language::French),
+        ] {
+            assert_eq!(serde_json::from_str::<Language>(json).ok(), Some(expected));
+        }
+        for json in ["\"postgres\"", "\"PostgreSQL\""] {
+            assert_eq!(
+                serde_json::from_str::<CodeLanguage>(json).ok(),
+                Some(CodeLanguage::Sql)
+            );
+        }
+        assert!(serde_json::from_str::<Language>("\"klingon\"").is_err());
+    }
+
+    #[test]
+    fn unknown_names_list_the_valid_ones() {
+        let error = "klingon"
+            .parse::<Language>()
+            .err()
+            .map(|error| error.to_string());
+        assert_eq!(
+            error.as_deref(),
+            Some("unknown language `klingon`, expected one of english, french")
+        );
     }
 
     #[test]
