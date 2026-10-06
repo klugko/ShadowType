@@ -7,6 +7,7 @@ from pathlib import Path
 from harness import CLIENT, Terminal, environment, history
 
 TEXT = "Typing fast is fun.\nfn main() {\n    run();\n}\n"
+QUIET_PERIOD = 0.7  # seconds during which keys are ignored once a text is complete
 TYPED = "Typing fast is fun.\rfn main() {\rrun();\r}"
 
 
@@ -35,6 +36,7 @@ def run(terminal, home):
     assert len(records) == 1, records
     assert records[0]["mode"] == "file" and records[0]["accuracy"] == 100, records[0]
 
+    terminal.read(QUIET_PERIOD)
     terminal.send("r")
     terminal.wait_for(r"INSERT")
     terminal.send("q")

@@ -6,6 +6,7 @@ import tempfile
 from harness import CLIENT, Terminal, environment, history, race_server
 
 EDITOR_LINE_ONE = re.compile(r"^(?:.*│)? *1  (\S.*)$", re.MULTILINE)
+QUIET_PERIOD = 0.7  # seconds during which keys are ignored once a player finished
 
 
 def main():
@@ -57,6 +58,7 @@ def race(url, home, terminals):
         records = history(player_home)
         assert len(records) == 1 and records[0]["mode"] == "race", records
 
+    alice.read(QUIET_PERIOD)
     alice.send("r")
     for terminal in (alice, bob):
         terminal.wait_for(r"toggle ready")

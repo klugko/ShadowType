@@ -1,6 +1,6 @@
 //! Things the user can do, whichever key or command triggered them.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use code_racer_protocol::RoomCode;
 
@@ -16,6 +16,9 @@ use crate::{
     config::{Mode, Practice},
     network,
 };
+
+/// Longest time between the two presses of Esc that leave a session.
+const LEAVE_CONFIRMATION: Duration = Duration::from_secs(2);
 
 impl App {
     pub fn warn(&mut self, warning: String) {
@@ -115,28 +118,38 @@ impl App {
         self.open(Buffer::Session);
     }
 
-    pub(super) fn leave_room(&mut self, now: Instant) {
-        let Some(Activity::Race(client)) = &mut self.activity else {
-            return;
+    /// Abandons the solo session or leaves the room. While the player is
+    /// typing, it takes a second Esc: in an editor Esc is a reflex, and one
+    /// press would throw the text away.
+    pub(super) fn leave_session(&mut self, now: Instant) {
+        let (asked, done) = match &self.activity {
+            Some(Activity::Solo(_)) => (
+                "press Esc again to abandon the session",
+                "session abandoned".to_owned(),
+            ),
+            Some(Activity::Race(client)) => (
+                "press Esc again to leave the race",
+                format!("left {}", client.room_label()),
+            ),
+            None => return,
         };
-        if client.confirm_leave(now) {
-            let room = client.room_label();
+        if self.confirm_leave(now) {
             self.close_session();
-            self.info(format!("left {room}"));
+            self.info(done);
         } else {
-            self.info("press Esc again to leave the race");
+            self.info(asked);
         }
     }
 
-    pub(super) fn stop_typing(&mut self, now: Instant) {
-        match &self.activity {
-            Some(Activity::Solo(_)) => {
-                self.close_session();
-                self.info("session abandoned");
-            }
-            Some(Activity::Race(_)) => self.leave_room(now),
-            None => {}
-        }
+    /// Whether leaving is confirmed: at once when no text is in progress,
+    /// otherwise by a second Esc within [`LEAVE_CONFIRMATION`] of the first.
+    fn confirm_leave(&mut self, now: Instant) -> bool {
+        let confirmed = !self.session_in_progress()
+            || self
+                .leave_armed
+                .is_some_and(|armed| now.duration_since(armed) <= LEAVE_CONFIRMATION);
+        self.leave_armed = (!confirmed).then_some(now);
+        confirmed
     }
 
     /// Ends the running activity and goes back to the buffer it was started from.
@@ -159,14 +172,15 @@ impl App {
     }
 
     pub(super) fn type_char(&mut self, ch: char, now: Instant) {
-        match &mut self.activity {
+        let accepted = match &mut self.activity {
             Some(Activity::Solo(run)) => run.type_char(ch, now),
-            Some(Activity::Race(client)) if client.accepts_typing() => {
-                if let Some(session) = client.session_mut() {
-                    session.type_char(ch, now);
-                }
-            }
+            Some(Activity::Race(client)) if client.accepts_typing() => client
+                .session_mut()
+                .is_some_and(|session| session.type_char(ch, now)),
             _ => return,
+        };
+        if !accepted && self.is_typing_blocked() {
+            self.info("fix the mistake first: Backspace or Ctrl+W");
         }
         self.after_typing(now);
     }

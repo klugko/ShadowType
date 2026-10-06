@@ -16,12 +16,30 @@ use code_racer_protocol::Phase;
 const PAGE: usize = 10;
 
 impl App {
+    /// Handles a key press. Ctrl+C always quits; any other key is ignored
+    /// during the quiet period that follows the end of typing.
     pub fn handle_key(&mut self, key: KeyEvent, now: Instant) {
         let key = normalized(key);
-        self.dismiss_message();
         if is_control(key, 'c') {
             self.quit = true;
-        } else if is_control(key, 'b') {
+            return;
+        }
+        if self.is_quiet(now) {
+            return;
+        }
+        if key.code != KeyCode::Esc {
+            self.leave_armed = None;
+        }
+        let was_typing = self.is_typing();
+        self.dismiss_message();
+        self.dispatch_key(key, now);
+        if key.code != KeyCode::Esc {
+            self.quiet_if_typing_stopped(was_typing, now);
+        }
+    }
+
+    fn dispatch_key(&mut self, key: KeyEvent, now: Instant) {
+        if is_control(key, 'b') {
             self.sidebar = !self.sidebar;
         } else if self.prompt.is_some() {
             self.prompt_key(key);
@@ -231,7 +249,7 @@ impl App {
                     self.info(reason);
                 }
             }
-            (_, KeyCode::Esc) => self.leave_room(now),
+            (_, KeyCode::Esc) => self.leave_session(now),
             _ => return false,
         }
         true
@@ -250,7 +268,7 @@ impl App {
             }
             (_, KeyCode::Backspace) => self.edit_session(now, SessionEdit::Backspace),
             (_, KeyCode::Enter) => self.type_char('\n', now),
-            (_, KeyCode::Esc) => self.stop_typing(now),
+            (_, KeyCode::Esc) => self.leave_session(now),
             _ => {}
         }
     }

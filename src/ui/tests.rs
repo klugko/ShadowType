@@ -318,6 +318,8 @@ async fn preview_screens() {
     type_prefix(&mut app, 140);
     screens.push(("code", screen(&app, 100, 26)));
     press(&mut app, KeyCode::Esc);
+    screens.push(("leaving", screen(&app, 100, 26)));
+    press(&mut app, KeyCode::Esc);
     command(&mut app, "words 50");
     type_prefix(&mut app, 60);
     press(&mut app, KeyCode::Char('x'));

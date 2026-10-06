@@ -63,7 +63,7 @@ fn handle_terminal_event(app: &mut App, event: Event) -> bool {
             true
         }
         Event::Paste(text) => {
-            app.handle_paste(&text);
+            app.handle_paste(&text, Instant::now());
             true
         }
         Event::Resize(..) => true,

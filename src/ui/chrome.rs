@@ -343,7 +343,7 @@ fn key_hints(app: &App) -> Vec<(&'static str, &'static str)> {
         return match app.activity {
             Some(Activity::Race(_)) => vec![("Esc Esc", "leave race")],
             _ => vec![
-                ("Esc", "stop"),
+                ("Esc Esc", "abandon"),
                 ("Ctrl+R", "restart"),
                 ("Ctrl+W", "delete word"),
             ],

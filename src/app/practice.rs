@@ -310,10 +310,13 @@ impl SoloRun {
         }
     }
 
-    pub fn type_char(&mut self, ch: char, now: Instant) {
-        if self.session.type_char(ch, now) {
+    /// Types one character; returns whether the session accepted it.
+    pub fn type_char(&mut self, ch: char, now: Instant) -> bool {
+        let accepted = self.session.type_char(ch, now);
+        if accepted {
             self.refill();
         }
+        accepted
     }
 
     pub fn is_finished(&self) -> bool {

@@ -7,6 +7,7 @@
 mod actions;
 mod changes;
 pub mod command;
+mod events;
 pub mod form;
 pub mod help;
 pub mod input;
@@ -25,13 +26,13 @@ use crate::{
     cli::Launch,
     config::{Config, Practice},
     history::History,
-    network::{Connection, NetworkEvent},
+    network::Connection,
 };
 use command::CommandError;
 use form::Cursor;
 use input::TextInput;
 use practice::SoloRun;
-use race::{Outcome, RaceClient};
+use race::RaceClient;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -203,6 +204,10 @@ pub struct App {
     pub activity: Option<Activity>,
     pub sidebar: bool,
     pending: Option<Launch>,
+    /// Until when keys are ignored, after typing stopped by itself.
+    quiet_until: Option<Instant>,
+    /// When Esc was pressed once to leave a session in progress.
+    leave_armed: Option<Instant>,
     quit: bool,
 }
 
@@ -233,6 +238,8 @@ impl App {
             activity: None,
             sidebar: true,
             pending: None,
+            quiet_until: None,
+            leave_armed: None,
             quit: false,
         };
         app.launch(launch);
@@ -343,61 +350,12 @@ impl App {
         }
     }
 
-    pub fn handle_paste(&mut self, text: &str) {
-        if let Some(prompt) = &mut self.prompt {
-            prompt.input.insert_str(text);
-        } else if let Some(edit) = &mut self.editing {
-            edit.input.insert_str(text);
-        } else if self.is_typing() {
-            self.error("pasting is disabled while typing");
-        }
-    }
-
-    pub fn handle_network(&mut self, event: NetworkEvent, now: Instant) {
-        let Some(Activity::Race(client)) = &mut self.activity else {
-            return;
-        };
-        match client.handle(event, now) {
-            Outcome::Nothing => {}
-            Outcome::Entered(code) => {
-                self.room_code = code.to_string();
-                if self.buffer == Buffer::Race {
-                    self.open(Buffer::Session);
-                }
-                self.info(format!(
-                    "in room {code}, share the code with your teammates"
-                ));
-            }
-            Outcome::Failure(text) => self.error(text),
-            Outcome::Closed(reason) => {
-                self.activity = None;
-                if self.buffer == Buffer::Session {
-                    self.open(Buffer::Race);
-                }
-                self.error(reason);
-            }
-            Outcome::Finished(record) => {
-                if let Err(error) = self.history.add(record) {
-                    self.error(format!("cannot save history: {error}"));
-                }
-            }
-        }
-    }
-
-    pub fn tick(&mut self, now: Instant) {
-        match &mut self.activity {
-            Some(Activity::Solo(run)) => {
-                run.session.update(now);
-                self.conclude_solo(now);
-            }
-            Some(Activity::Race(client)) => {
-                if let Some(session) = client.session_mut() {
-                    session.update(now);
-                }
-                client.report_progress(now);
-            }
-            None => {}
-        }
+    /// Whether the text refuses input until its first mistake is fixed.
+    pub fn is_typing_blocked(&self) -> bool {
+        self.is_typing()
+            && self
+                .session_view()
+                .is_some_and(|view| view.session.is_blocked())
     }
 
     fn info(&mut self, text: impl Into<String>) {

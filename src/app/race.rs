@@ -20,7 +20,6 @@ use crate::{
 };
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
-const LEAVE_CONFIRMATION: Duration = Duration::from_secs(2);
 /// Modes a race can use: time mode is solo only.
 const RACE_MODES: [Mode; 3] = [Mode::Words, Mode::Quote, Mode::Code];
 /// [`Record::mode`] of races.
@@ -118,7 +117,6 @@ pub struct RaceClient {
     pub race: Option<LiveRace>,
     intent: Option<Intent>,
     reported: Option<(Instant, Progress)>,
-    leave_armed: Option<Instant>,
 }
 
 impl RaceClient {
@@ -131,7 +129,6 @@ impl RaceClient {
             race: None,
             intent: Some(intent),
             reported: None,
-            leave_armed: None,
         }
     }
 
@@ -281,16 +278,6 @@ impl RaceClient {
 
     pub fn leave(&self) {
         self.connection.send(ClientMessage::LeaveRoom);
-    }
-
-    /// Leaving a running race takes two presses of Esc.
-    pub fn confirm_leave(&mut self, now: Instant) -> bool {
-        let confirmed = !self.is_live()
-            || self
-                .leave_armed
-                .is_some_and(|armed| now.duration_since(armed) <= LEAVE_CONFIRMATION);
-        self.leave_armed = (!confirmed).then_some(now);
-        confirmed
     }
 
     fn countdown_left(&self, now: Instant) -> Duration {

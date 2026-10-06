@@ -39,7 +39,7 @@ pub const LINES: &[Line] = &[
     Key("Ctrl+W", "delete a word, also Alt+Backspace"),
     Key("Enter", "new line, code is indented for you"),
     Key("Ctrl+R", "restart with a new text"),
-    Key("Esc", "stop, press it twice to leave a race"),
+    Key("Esc Esc", "abandon the text, or leave the race"),
     Blank,
     Heading("results"),
     Key("r Enter", "new text, or another race when you host"),

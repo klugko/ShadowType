@@ -22,7 +22,7 @@ what you typed becomes real, syntax-highlighted code.
    best     78 wpm     │~
    last 10  68 wpm     │~
  INSERT  main.rs  code · rust                        84 wpm  97%  2 errors  00:18   41%
--- INSERT --  Esc stop  Ctrl+R restart  Ctrl+W delete word
+-- INSERT --  Esc Esc abandon  Ctrl+R restart  Ctrl+W delete word
 ```
 
 During a race the standings sit in a panel under the text, like an IDE's terminal panel:
@@ -114,7 +114,9 @@ setting, `h`/`l` change it, Enter on `▶ start session` starts. Settings are sa
 The clock starts with the first keystroke. A session ends when the whole text is typed correctly, or
 when the timer runs out in time mode. Mistakes stay in your statistics even once corrected. In code,
 Enter goes to the next line and the indentation is filled in for you. `Ctrl+R` restarts with a new
-text, `Esc` stops.
+text, and `Esc` twice abandons the session (one `Esc` is harmless, as in an editor). Keys typed
+right after the end of a text are ignored for a moment, so that a word typed on the run is not
+taken as commands.
 
 | Metric      | Definition                                              |
 | ----------- | ------------------------------------------------------- |
@@ -204,9 +206,9 @@ such as `wss://race.example.com`.
 | settings buffers       | `j` `k`, `h` `l`, Enter | move, change a value, select               |
 |                        | `i`                     | edit a text value (Enter saves, Esc cancels) |
 | typing                 | any key                 | type                                       |
-|                        | Backspace, `Ctrl+W`     | delete a character, a word                 |
+|                        | Backspace, `Ctrl+W`     | delete a character, a word (also `Alt+Backspace`) |
 |                        | Enter                   | new line (code is auto-indented)           |
-|                        | `Ctrl+R`, `Esc`         | restart, stop                              |
+|                        | `Ctrl+R`, `Esc` `Esc`   | restart, abandon                           |
 | results                | `r` / `e` / `Esc`       | new text / settings / close                |
 | room                   | `r` or Space, `s`, `Esc`| ready, start (host), leave                 |
 | history, help          | `j` `k`, `Ctrl+D` `Ctrl+U`, `g` `G` | scroll                         |
@@ -218,7 +220,7 @@ such as `wss://race.example.com`.
 | `:solo`                         | start a session with the current settings        |
 | `:words 50`, `:time 60`         | words or time session                            |
 | `:quote`, `:code rust`          | quote or code session                            |
-| `:lang french`                  | language (natural or programming)                |
+| `:lang french`, `:lang rust`    | language of words and quotes, or of code         |
 | `:e path/to/file`               | practise on a file                               |
 | `:set punctuation`, `:set nonumbers` | toggle options                              |
 | `:set theme=mono`               | `editor`, `dark` or `mono`                       |

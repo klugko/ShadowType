@@ -27,8 +27,15 @@ fn app() -> App {
     app_with(configured("jean"), Launch::Home)
 }
 
+/// Comfortably longer than the quiet period that follows the end of typing.
+const AFTER_QUIET: Duration = Duration::from_secs(1);
+
 fn press(app: &mut App, code: KeyCode) {
-    app.handle_key(KeyEvent::from(code), Instant::now());
+    press_at(app, code, Instant::now());
+}
+
+fn press_at(app: &mut App, code: KeyCode, at: Instant) {
+    app.handle_key(KeyEvent::from(code), at);
 }
 
 fn press_with(app: &mut App, ch: char, modifiers: KeyModifiers) {
@@ -36,13 +43,17 @@ fn press_with(app: &mut App, ch: char, modifiers: KeyModifiers) {
 }
 
 fn type_text(app: &mut App, text: &str) {
+    type_text_at(app, text, Instant::now());
+}
+
+fn type_text_at(app: &mut App, text: &str, at: Instant) {
     for ch in text.chars() {
         let code = if ch == '\n' {
             KeyCode::Enter
         } else {
             KeyCode::Char(ch)
         };
-        press(app, code);
+        press_at(app, code, at);
     }
 }
 
@@ -54,13 +65,17 @@ fn command(app: &mut App, line: &str) {
 
 /// Types whatever the session expects next until it is complete.
 fn type_remaining(app: &mut App) {
+    type_remaining_at(app, Instant::now());
+}
+
+fn type_remaining_at(app: &mut App, at: Instant) {
     while let Some(view) = app.session_view() {
         let session = view.session;
         if session.is_finished() || session.cursor() >= session.target().len() {
             break;
         }
         let next = session.target()[session.cursor()].clone();
-        type_text(app, &next);
+        type_text_at(app, &next, at);
     }
 }
 
@@ -134,18 +149,19 @@ fn completing_a_session_records_it_and_shows_results() {
     let mut app = app();
     command(&mut app, "quote");
     assert_eq!(app.config.practice.mode, Mode::Quote);
-    type_remaining(&mut app);
+    let now = Instant::now();
+    type_remaining_at(&mut app, now);
     let run = app.solo().expect("solo run");
     assert_eq!(run.session.status(), Status::Completed);
     assert!(run.result.is_some());
     assert_eq!(app.history.records().len(), 1);
     assert_eq!(app.editor_mode(), EditorMode::Normal);
-    press(&mut app, KeyCode::Char('r'));
+    press_at(&mut app, KeyCode::Char('r'), now + AFTER_QUIET);
     assert!(
         app.solo().is_some_and(|run| run.result.is_none()),
         "r restarts"
     );
-    press(&mut app, KeyCode::Esc);
+    press_at(&mut app, KeyCode::Esc, now + AFTER_QUIET);
     assert!(app.activity.is_none());
     assert_eq!(app.buffer, Buffer::Practice);
     assert_eq!(app.message, Some(Message::info("session abandoned")));
@@ -170,6 +186,140 @@ fn timed_sessions_end_on_the_clock() {
     app.tick(start + Duration::from_secs(16));
     assert_eq!(session(&app).status(), Status::TimeUp);
     assert_eq!(app.history.records()[0].mode, "time 15");
+}
+
+#[test]
+fn keys_right_after_the_time_runs_out_are_ignored() {
+    let mut app = app();
+    command(&mut app, "time 15");
+    let start = Instant::now();
+    press_at(&mut app, KeyCode::Char('x'), start);
+    let end = start + Duration::from_secs(16);
+    app.tick(end);
+    let in_flight = end + Duration::from_millis(50);
+    for code in [
+        KeyCode::Char('q'),
+        KeyCode::Char('e'),
+        KeyCode::Char(':'),
+        KeyCode::Tab,
+        KeyCode::Enter,
+    ] {
+        press_at(&mut app, code, in_flight);
+    }
+    assert!(!app.should_quit());
+    assert!(app.solo().is_some_and(|run| run.result.is_some()));
+    assert_eq!((app.buffer, app.focus), (Buffer::Session, Focus::Editor));
+    assert!(app.prompt.is_none());
+    press_at(&mut app, KeyCode::Char('r'), end + AFTER_QUIET);
+    assert!(
+        app.solo().is_some_and(|run| run.result.is_none()),
+        "r restarts once the quiet period is over"
+    );
+}
+
+#[test]
+fn a_reflex_enter_after_the_last_character_keeps_the_results() {
+    let mut app = app();
+    command(&mut app, "code rust");
+    let now = Instant::now();
+    type_remaining_at(&mut app, now);
+    press_at(&mut app, KeyCode::Enter, now + Duration::from_millis(100));
+    assert!(app.solo().is_some_and(|run| run.result.is_some()));
+    press_with(&mut app, 'c', KeyModifiers::CONTROL);
+    assert!(app.should_quit(), "Ctrl+C is never ignored");
+}
+
+#[test]
+fn keys_right_after_losing_the_connection_keep_the_reason_on_screen() {
+    let now = Instant::now();
+    let mut app = room::racing(now);
+    let settings = app.race_settings;
+    app.handle_network(
+        crate::network::NetworkEvent::Closed {
+            reason: "connection lost".to_owned(),
+        },
+        now,
+    );
+    let in_flight = now + Duration::from_millis(50);
+    for code in [
+        KeyCode::Char('s'),
+        KeyCode::Char('l'),
+        KeyCode::Char('q'),
+        KeyCode::Enter,
+    ] {
+        press_at(&mut app, code, in_flight);
+    }
+    assert!(!app.should_quit());
+    assert!(app.activity.is_none());
+    assert_eq!(app.buffer, Buffer::Race);
+    assert_eq!(app.race_settings, settings);
+    assert_eq!(app.message, Some(Message::error("connection lost")));
+}
+
+#[test]
+fn abandoning_a_started_session_takes_two_escapes() {
+    let mut app = app();
+    let now = Instant::now();
+    press_at(&mut app, KeyCode::Char('s'), now);
+    press_at(&mut app, KeyCode::Char('x'), now);
+    press_at(&mut app, KeyCode::Esc, now);
+    assert!(app.solo().is_some());
+    assert_eq!(
+        app.message,
+        Some(Message::info("press Esc again to abandon the session"))
+    );
+    press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(3));
+    assert!(app.solo().is_some(), "too late: the first press expired");
+    press_at(&mut app, KeyCode::Char('y'), now + Duration::from_secs(3));
+    press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(4));
+    assert!(app.solo().is_some(), "a key in between cancels leaving");
+    press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(5));
+    assert!(app.activity.is_none());
+    assert_eq!(app.buffer, Buffer::Practice);
+    assert_eq!(app.message, Some(Message::info("session abandoned")));
+}
+
+#[test]
+fn leaving_a_race_in_progress_takes_two_escapes() {
+    for start in [room::counting_down, room::racing] {
+        let now = Instant::now();
+        let mut app = start(now);
+        press_at(&mut app, KeyCode::Esc, now);
+        assert!(app.race().is_some());
+        assert_eq!(
+            app.message,
+            Some(Message::info("press Esc again to leave the race"))
+        );
+        press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(1));
+        assert!(app.activity.is_none());
+        assert_eq!(app.buffer, Buffer::Race);
+        assert_eq!(app.message, Some(Message::info("left FK72AD")));
+    }
+}
+
+#[test]
+fn a_lobby_is_left_with_one_escape() {
+    let now = Instant::now();
+    let mut app = room::joined(now);
+    press_at(&mut app, KeyCode::Esc, now);
+    assert!(app.activity.is_none());
+}
+
+#[test]
+fn typing_blocked_by_a_mistake_says_how_to_go_on() {
+    let mut app = app();
+    command(&mut app, "words 10");
+    type_text(&mut app, &"#".repeat(code_racer_engine::ERROR_RUN_LIMIT));
+    assert!(app.is_typing_blocked());
+    press(&mut app, KeyCode::Char('a'));
+    assert_eq!(session(&app).cursor(), code_racer_engine::ERROR_RUN_LIMIT);
+    assert_eq!(
+        app.message,
+        Some(Message::info("fix the mistake first: Backspace or Ctrl+W"))
+    );
+    press(&mut app, KeyCode::Backspace);
+    assert!(!app.is_typing_blocked());
+    assert_eq!(app.message, None);
 }
 
 #[test]
@@ -230,7 +380,7 @@ fn backspace_on_an_empty_command_line_cancels_it() {
 fn pasting_is_refused_while_typing() {
     let mut app = app();
     press(&mut app, KeyCode::Char('s'));
-    app.handle_paste("the whole text");
+    app.handle_paste("the whole text", Instant::now());
     assert_eq!(session(&app).cursor(), 0);
     assert!(app.message.as_ref().is_some_and(Message::is_error));
 }
@@ -239,7 +389,7 @@ fn pasting_is_refused_while_typing() {
 fn errors_stay_on_screen_while_typing() {
     let mut app = app();
     press(&mut app, KeyCode::Char('s'));
-    app.handle_paste("the whole text");
+    app.handle_paste("the whole text", Instant::now());
     type_text(&mut app, "ab");
     assert!(app.message.as_ref().is_some_and(Message::is_error));
     assert_eq!(session(&app).cursor(), 2);
@@ -589,8 +739,15 @@ mod multiplayer {
 
         let length = session(&alice).target().len();
         tokio::time::sleep(believable_typing_time(length)).await;
-        type_remaining(&mut alice);
         type_remaining(&mut bob);
+        pump_until(&mut bob, |app| {
+            app.race()
+                .and_then(RaceClient::me)
+                .is_some_and(|me| me.progress.is_finished())
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        type_remaining(&mut alice);
         both(
             pump_until(&mut alice, |app| phase(app) == Some(Phase::Finished)),
             pump_until(&mut bob, |app| phase(app) == Some(Phase::Finished)),
@@ -608,22 +765,27 @@ mod multiplayer {
         );
         assert_eq!(
             room.standings()[0].name.as_str(),
-            "alice",
-            "alice typed first"
+            "bob",
+            "bob finished first, although alice joined first"
         );
         assert_eq!(alice.history.records().len(), 1);
         assert_eq!(bob.history.records()[0].mode, "race");
 
-        press(&mut bob, KeyCode::Char('r'));
-        assert_eq!(phase(&bob), Some(Phase::Finished), "only the host restarts");
-        press(&mut alice, KeyCode::Char('r'));
+        let later = Instant::now() + AFTER_QUIET;
+        press_at(&mut bob, KeyCode::Char('r'), later);
+        assert_eq!(
+            bob.message,
+            Some(Message::info("waiting for the host to start another race")),
+            "only the host restarts"
+        );
+        press_at(&mut alice, KeyCode::Char('r'), later);
         both(
             pump_until(&mut alice, |app| phase(app) == Some(Phase::Lobby)),
             pump_until(&mut bob, |app| phase(app) == Some(Phase::Lobby)),
         )
         .await;
 
-        press(&mut bob, KeyCode::Esc);
+        press_at(&mut bob, KeyCode::Esc, later);
         assert!(bob.activity.is_none());
         assert_eq!(bob.buffer, Buffer::Race);
         pump_until(&mut alice, |app| players(app) == 1).await;
