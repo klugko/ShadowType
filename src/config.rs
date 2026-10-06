@@ -193,14 +193,31 @@ impl Default for Multiplayer {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub username: String,
     pub theme: Theme,
+    /// Settings of solo sessions, kept at the top level of the file as in
+    /// earlier versions.
     #[serde(flatten)]
     pub practice: Practice,
+    /// Settings of the races this player creates, in a `[race]` table. They
+    /// are always raceable once loaded: see [`Practice::for_race`].
+    pub race: Practice,
     pub multiplayer: Multiplayer,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            username: String::new(),
+            theme: Theme::default(),
+            practice: Practice::default(),
+            race: Practice::default().for_race(),
+            multiplayer: Multiplayer::default(),
+        }
+    }
 }
 
 impl Config {
@@ -261,6 +278,7 @@ fn parse_config(contents: &str) -> Result<Config, String> {
     let config: Config = toml::from_str(contents).map_err(|error| describe(&error, contents))?;
     Ok(Config {
         practice: config.practice.sanitized(),
+        race: config.race.sanitized().for_race(),
         ..config
     })
 }
@@ -325,6 +343,7 @@ server = "ws://127.0.0.1:8080"
                     word_count: 50,
                     ..Practice::default()
                 },
+                race: Practice::default().for_race(),
                 multiplayer: Multiplayer {
                     server: "ws://127.0.0.1:8080".to_owned(),
                 },
@@ -404,6 +423,15 @@ server = "ws://127.0.0.1:8080"
                 punctuation: true,
                 numbers: true,
             },
+            race: Practice {
+                mode: Mode::Code,
+                language: Language::English,
+                code_language: CodeLanguage::Rust,
+                word_count: 200,
+                duration: 30,
+                punctuation: false,
+                numbers: true,
+            },
             multiplayer: Multiplayer {
                 server: "ws://192.168.1.20:9000".to_owned(),
             },
@@ -425,6 +453,7 @@ server = "ws://127.0.0.1:8080"
             "default_mode = \"words\"",
             "word_count = 50",
             "theme = \"editor\"",
+            "[race]",
             "[multiplayer]",
         ] {
             assert!(
@@ -532,6 +561,55 @@ server = "ws://127.0.0.1:8080"
 
         assert_eq!(practice.word_count, *WORD_COUNTS.end());
         assert_eq!(practice.duration, *Practice::DURATION_LIMITS.start());
+    }
+
+    #[test]
+    fn race_settings_are_kept_apart_from_solo_settings() {
+        let dir = TempDir::new();
+        let contents = "default_mode = \"time\"\nword_count = 10\n\
+                        [race]\ndefault_mode = \"quote\"\nlanguage = \"french\"\n";
+
+        let config = load_config(&write_config(&dir, contents)).value;
+
+        assert_eq!(
+            (config.practice.mode, config.practice.word_count),
+            (Mode::Time, 10)
+        );
+        assert_eq!(
+            config.race,
+            Practice {
+                mode: Mode::Quote,
+                language: Language::French,
+                ..Practice::default().for_race()
+            }
+        );
+    }
+
+    #[test]
+    fn hand_edited_race_settings_are_made_raceable() {
+        let dir = TempDir::new();
+        let contents = "[race]\ndefault_mode = \"time\"\nword_count = 1000\nduration = 1\n";
+
+        let race = load_config(&write_config(&dir, contents)).value.race;
+
+        assert_eq!(race.mode, Mode::Words);
+        assert_eq!(race.word_count, *RACE_WORD_COUNTS.end());
+        assert_eq!(race.duration, *Practice::DURATION_LIMITS.start());
+        assert!(
+            race.text_source()
+                .is_some_and(|text| code_racer_protocol::is_raceable(&text))
+        );
+    }
+
+    #[test]
+    fn missing_race_settings_default_to_the_solo_defaults_made_raceable() {
+        let dir = TempDir::new();
+        let path = write_config(&dir, DOCUMENTED_EXAMPLE);
+
+        assert_eq!(
+            load_config(&path).value.race,
+            Practice::default().for_race()
+        );
     }
 
     #[test]
