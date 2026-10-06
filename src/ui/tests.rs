@@ -236,6 +236,26 @@ fn history_shows_records_and_a_chart() {
 }
 
 #[test]
+fn the_oldest_session_can_be_scrolled_into_view() {
+    let mut app = app();
+    app.history
+        .add(Record {
+            mode: "words 10".to_owned(),
+            ..record(50.0)
+        })
+        .expect("in memory");
+    for wpm in [60.0, 70.0] {
+        app.history.add(record(wpm)).expect("in memory");
+    }
+    app.resize(80, 20);
+    command(&mut app, "history");
+    press(&mut app, KeyCode::Char('G'));
+    let text = screen(&app, 80, 20);
+    let last_editor_row = text.lines().nth(17).unwrap_or_default();
+    assert!(last_editor_row.contains("words 10"), "{text}");
+}
+
+#[test]
 fn command_line_shows_the_command_and_errors() {
     let mut app = app();
     press(&mut app, KeyCode::Char(':'));

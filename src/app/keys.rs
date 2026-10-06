@@ -7,7 +7,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use super::{
     Activity, App, Buffer, FieldEdit, Focus, Message, Prompt, TextField, command,
     form::{Cursor, Step},
-    help,
     input::{Edit, TextInput, control_letter, erases_word, normalized, typed_char},
     practice,
     race::{self, RoomRequest},
@@ -42,7 +41,7 @@ impl App {
 
     fn dispatch_key(&mut self, key: KeyEvent, now: Instant) {
         if is_control(key, 'b') {
-            self.sidebar = !self.sidebar;
+            self.set_sidebar(!self.sidebar);
         } else if self.prompt.is_some() {
             self.prompt_key(key);
         } else if self.editing.is_some() {
@@ -67,9 +66,13 @@ impl App {
             Buffer::Race => self.form_key(key, FormKind::Race),
             Buffer::Settings => self.form_key(key, FormKind::Settings),
             Buffer::History => {
-                scroll_key(key, &mut self.history_scroll, self.history.records().len())
+                let last = self.last_scroll(Buffer::History);
+                scroll_key(key, &mut self.history_scroll, last)
             }
-            Buffer::Help => scroll_key(key, &mut self.help_scroll, help::LINES.len()),
+            Buffer::Help => {
+                let last = self.last_scroll(Buffer::Help);
+                scroll_key(key, &mut self.help_scroll, last)
+            }
             Buffer::Session => self.session_key(key, now),
         }
     }
@@ -89,16 +92,16 @@ impl App {
             KeyCode::Char('m') => self.open(Buffer::Race),
             KeyCode::Char('c') => self.create_room(),
             KeyCode::Tab => self.toggle_focus(),
-            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Left => self.focus = Focus::Explorer,
+            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Left => self.focus_explorer(),
             _ => {}
         }
     }
 
     fn toggle_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Explorer => Focus::Editor,
-            Focus::Editor => Focus::Explorer,
-        };
+        match self.focus {
+            Focus::Explorer => self.focus = Focus::Editor,
+            Focus::Editor => self.focus_explorer(),
+        }
     }
 
     fn explorer_key(&mut self, key: KeyEvent) -> bool {
@@ -387,20 +390,20 @@ fn value_intent(key: KeyEvent) -> Option<ValueIntent> {
     }
 }
 
-fn scroll_key(key: KeyEvent, scroll: &mut usize, len: usize) -> bool {
-    let control = key.modifiers.contains(KeyModifiers::CONTROL);
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => *scroll += 1,
-        KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
-        KeyCode::Char('d') if control => *scroll += PAGE,
-        KeyCode::Char('u') if control => *scroll = scroll.saturating_sub(PAGE),
-        KeyCode::PageDown => *scroll += PAGE,
-        KeyCode::PageUp => *scroll = scroll.saturating_sub(PAGE),
-        KeyCode::Char('g') | KeyCode::Home => *scroll = 0,
-        KeyCode::Char('G') | KeyCode::End => *scroll = len,
+/// Scrolls between the first line and `last`, the scroll that shows the
+/// last line of the buffer at the bottom of the editor.
+fn scroll_key(key: KeyEvent, scroll: &mut usize, last: usize) -> bool {
+    let target = match (control_letter(key), key.code) {
+        (Some('d'), _) | (_, KeyCode::PageDown) => scroll.saturating_add(PAGE),
+        (Some('u'), _) | (_, KeyCode::PageUp) => scroll.saturating_sub(PAGE),
+        (Some(_), _) => return false,
+        (_, KeyCode::Char('j') | KeyCode::Down) => scroll.saturating_add(1),
+        (_, KeyCode::Char('k') | KeyCode::Up) => scroll.saturating_sub(1),
+        (_, KeyCode::Char('g') | KeyCode::Home) => 0,
+        (_, KeyCode::Char('G') | KeyCode::End) => last,
         _ => return false,
-    }
-    *scroll = (*scroll).min(len.saturating_sub(1));
+    };
+    *scroll = target.min(last);
     true
 }
 

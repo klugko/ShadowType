@@ -22,6 +22,8 @@ const TICK: Duration = Duration::from_millis(100);
 pub async fn run(mut app: App) -> anyhow::Result<()> {
     let mut shutdown = pin!(shutdown_signal());
     let mut guard = TerminalGuard::enter()?;
+    let size = guard.terminal().size()?;
+    app.resize(size.width, size.height);
     let mut events = EventStream::new();
     let mut ticker = tokio::time::interval(TICK);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -66,7 +68,10 @@ fn handle_terminal_event(app: &mut App, event: Event) -> bool {
             app.handle_paste(&text, Instant::now());
             true
         }
-        Event::Resize(..) => true,
+        Event::Resize(width, height) => {
+            app.resize(width, height);
+            true
+        }
         _ => false,
     }
 }

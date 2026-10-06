@@ -4,16 +4,16 @@ use ratatui::{Frame, layout::Rect, style::Modifier, text::Span};
 
 use super::{doc, session::chart_rows};
 use crate::{
-    app::App,
+    app::{
+        App,
+        history_log::{CHART_HEIGHT, CHART_SESSIONS},
+    },
     history::Summary,
     ui::{
         editor::{self, Row},
         theme::Palette,
     },
 };
-
-const CHART_SESSIONS: usize = 60;
-const CHART_HEIGHT: u16 = 6;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     let records = app.history.records();

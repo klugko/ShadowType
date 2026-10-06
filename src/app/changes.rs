@@ -32,7 +32,7 @@ impl App {
         match setting {
             Setting::Punctuation(enabled) => self.change_text(|text| text.punctuation = enabled),
             Setting::Numbers(enabled) => self.change_text(|text| text.numbers = enabled),
-            Setting::Sidebar(visible) => self.sidebar = visible,
+            Setting::Sidebar(visible) => self.set_sidebar(visible),
             Setting::Theme(theme) => {
                 self.config.theme = theme;
                 self.save_config();

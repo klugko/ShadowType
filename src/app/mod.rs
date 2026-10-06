@@ -10,6 +10,7 @@ pub mod command;
 mod events;
 pub mod form;
 pub mod help;
+pub mod history_log;
 pub mod input;
 mod keys;
 pub mod practice;
@@ -91,6 +92,33 @@ impl Buffer {
             Self::Settings => "config.toml",
             Self::Help => "help.md",
             Self::Session => "session",
+        }
+    }
+}
+
+/// Size of the terminal, as last reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Viewport {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl Viewport {
+    /// Rows around the editor pane: the tab line, the status line and the
+    /// command line.
+    const CHROME_ROWS: u16 = 3;
+
+    /// Lines of a buffer the editor pane shows at once.
+    pub fn editor_rows(self) -> usize {
+        usize::from(self.height.saturating_sub(Self::CHROME_ROWS))
+    }
+}
+
+impl Default for Viewport {
+    fn default() -> Self {
+        Self {
+            width: 80,
+            height: 24,
         }
     }
 }
@@ -224,7 +252,10 @@ pub struct App {
     pub prompt: Option<Prompt>,
     pub message: Option<Message>,
     pub activity: Option<Activity>,
+    /// Whether the explorer is shown. The explorer has the focus only while
+    /// it is shown: keys would otherwise switch buffers out of sight.
     pub sidebar: bool,
+    pub viewport: Viewport,
     pending: Option<Launch>,
     /// Until when keys are ignored, after typing stopped by itself.
     quiet_until: Option<Instant>,
@@ -262,6 +293,7 @@ impl App {
             message: None,
             activity: None,
             sidebar: true,
+            viewport: Viewport::default(),
             pending: None,
             quiet_until: None,
             leave_armed: None,
@@ -374,6 +406,38 @@ impl App {
             Some(Activity::Race(client)) => client.is_player_racing(),
             None => false,
         }
+    }
+
+    /// Takes the new size of the terminal, keeping the scrolled buffers
+    /// within their content.
+    pub fn resize(&mut self, width: u16, height: u16) {
+        self.viewport = Viewport { width, height };
+        self.history_scroll = self.history_scroll.min(self.last_scroll(Buffer::History));
+        self.help_scroll = self.help_scroll.min(self.last_scroll(Buffer::Help));
+    }
+
+    /// The scroll of `buffer` that shows its last line at the bottom of the
+    /// editor pane, zero for buffers that do not scroll.
+    fn last_scroll(&self, buffer: Buffer) -> usize {
+        let lines = match buffer {
+            Buffer::History => history_log::line_count(self.history.records().len()),
+            Buffer::Help => help::LINES.len(),
+            _ => 0,
+        };
+        lines.saturating_sub(self.viewport.editor_rows())
+    }
+
+    fn set_sidebar(&mut self, visible: bool) {
+        self.sidebar = visible;
+        if !visible {
+            self.focus = Focus::Editor;
+        }
+    }
+
+    /// Focuses the explorer, showing it if it was hidden.
+    fn focus_explorer(&mut self) {
+        self.sidebar = true;
+        self.focus = Focus::Explorer;
     }
 
     /// Whether the text refuses input until its first mistake is fixed.

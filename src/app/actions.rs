@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use code_racer_protocol::RoomCode;
 
 use super::{
-    Activity, App, Buffer, Focus, TextField,
+    Activity, App, Buffer, TextField,
     command::{Command, Page},
     keys::SessionEdit,
     practice::{CustomText, Plan, SoloRun},
@@ -48,7 +48,7 @@ impl App {
         match launch {
             Launch::Home => {
                 self.buffer = Buffer::Practice;
-                self.focus = Focus::Explorer;
+                self.focus_explorer();
             }
             Launch::Solo { practice, file } => {
                 self.saved

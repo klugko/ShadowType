@@ -769,13 +769,57 @@ fn settings_changes_the_theme_in_place() {
 }
 
 #[test]
-fn scrolling_is_clamped_to_the_content() {
+fn scrolling_stops_with_the_last_line_at_the_bottom() {
     let mut app = app();
+    app.resize(80, 20);
+    let rows = app.viewport.editor_rows();
+    assert_eq!(rows, 17);
     command(&mut app, "help");
     press(&mut app, KeyCode::Char('G'));
-    assert_eq!(app.help_scroll, help::LINES.len() - 1);
+    assert_eq!(app.help_scroll, help::LINES.len() - rows);
+    press(&mut app, KeyCode::Char('j'));
+    assert_eq!(app.help_scroll, help::LINES.len() - rows);
     press(&mut app, KeyCode::Char('k'));
-    assert_eq!(app.help_scroll, help::LINES.len() - 2);
+    assert_eq!(app.help_scroll, help::LINES.len() - rows - 1);
+    app.resize(200, 100);
+    assert_eq!(app.help_scroll, 0, "everything fits");
+    press(&mut app, KeyCode::Char('j'));
+    assert_eq!(app.help_scroll, 0);
+}
+
+#[test]
+fn history_scrolls_to_its_oldest_session() {
+    let mut app = app();
+    let stats = code_racer_engine::Stats::default();
+    for _ in 0..3 {
+        let record =
+            crate::history::Record::from_stats("quote".to_owned(), "english".to_owned(), &stats);
+        app.history.add(record).expect("in memory");
+    }
+    app.resize(80, 20);
+    command(&mut app, "history");
+    press(&mut app, KeyCode::Char('G'));
+    assert_eq!(
+        app.history_scroll,
+        history_log::line_count(3) - app.viewport.editor_rows()
+    );
+}
+
+#[test]
+fn the_explorer_has_the_focus_only_while_it_is_shown() {
+    let mut app = app();
+    press_with(&mut app, 'b', KeyModifiers::CONTROL);
+    assert!(!app.sidebar);
+    assert_eq!(app.focus, Focus::Editor);
+    press(&mut app, KeyCode::Char('j'));
+    assert_eq!(app.buffer, Buffer::Practice, "j moves in the form");
+    press(&mut app, KeyCode::Esc);
+    assert!(app.sidebar, "Esc brings the explorer back");
+    assert_eq!(app.focus, Focus::Explorer);
+    command(&mut app, "set nosidebar");
+    assert_eq!((app.sidebar, app.focus), (false, Focus::Editor));
+    press(&mut app, KeyCode::Tab);
+    assert_eq!((app.sidebar, app.focus), (true, Focus::Explorer));
 }
 
 /// Settings saved to a real `config.toml`, read back as the next run would.
