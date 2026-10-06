@@ -1,8 +1,9 @@
 //! User settings stored in `config.toml`.
 //!
 //! The file is meant to be edited by hand too: missing keys take their
-//! default, unknown keys are ignored and a file that cannot be parsed is moved
-//! aside rather than overwritten.
+//! default, and saving changes only the values of the settings, so comments
+//! and keys this version does not know are kept. A file that cannot be parsed
+//! is moved aside rather than overwritten.
 
 use std::{
     fmt, io,
@@ -15,6 +16,7 @@ use code_racer_engine::{CodeLanguage, Language, TextSource, WORD_COUNTS, WordOpt
 use code_racer_protocol::{RACE_WORD_COUNTS, Username};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use toml_edit::{DocumentMut, Item, TableLike, Value};
 
 pub use crate::persist::Loaded;
 use crate::persist::{self, Recovered};
@@ -261,17 +263,70 @@ pub fn load_config(path: &Path) -> Loaded<Config> {
     })
 }
 
-/// Writes `config` to `path`.
+/// Writes `config` to `path`, updating the values of the existing file in
+/// place so that its comments, layout and unknown keys survive.
 ///
 /// A file that cannot be read, or that does not hold valid settings, is
 /// refused rather than overwritten: it is what failed to load, and the
 /// settings in memory are only defaults.
 pub fn save_config(path: &Path, config: &Config) -> io::Result<()> {
-    if let Some(existing) = persist::read_existing(path)? {
-        parse_config(&existing).map_err(|problem| persist::invalid_contents(&problem))?;
-    }
-    let contents = toml::to_string(config).map_err(io::Error::other)?;
+    let existing = persist::read_existing(path)?.unwrap_or_default();
+    parse_config(&existing).map_err(|problem| persist::invalid_contents(&problem))?;
+    let contents = updated_document(&existing, config)?;
     persist::write_atomically(path, contents.as_bytes())
+}
+
+fn updated_document(existing: &str, config: &Config) -> io::Result<String> {
+    let mut document: DocumentMut = existing.parse().map_err(io::Error::other)?;
+    let settings: DocumentMut = toml::to_string(config)
+        .map_err(io::Error::other)?
+        .parse()
+        .map_err(io::Error::other)?;
+    update_table(document.as_table_mut(), settings.as_table());
+    Ok(document.to_string())
+}
+
+/// Copies every setting into `table`, inserting the missing ones and
+/// leaving keys that are not settings alone.
+fn update_table(table: &mut dyn TableLike, settings: &dyn TableLike) {
+    for (key, setting) in settings.iter() {
+        match table.get_mut(key) {
+            Some(item) => update_item(item, setting),
+            None => {
+                table.insert(key, setting.clone());
+            }
+        }
+    }
+}
+
+fn update_item(item: &mut Item, setting: &Item) {
+    if let (Some(table), Some(settings)) = (item.as_table_like_mut(), setting.as_table_like()) {
+        update_table(table, settings);
+    } else if let (Some(value), Some(new_value)) = (item.as_value_mut(), setting.as_value()) {
+        update_value(value, new_value);
+    } else {
+        *item = setting.clone();
+    }
+}
+
+/// Replaces a changed value, keeping the whitespace and comment around it.
+/// An unchanged one keeps its spelling too, such as single quotes.
+fn update_value(value: &mut Value, new_value: &Value) {
+    if !same_setting(value, new_value) {
+        let decor = value.decor().clone();
+        *value = new_value.clone();
+        *value.decor_mut() = decor;
+    }
+}
+
+/// Settings are only ever strings, integers or booleans.
+fn same_setting(value: &Value, other: &Value) -> bool {
+    match (value, other) {
+        (Value::String(value), Value::String(other)) => value.value() == other.value(),
+        (Value::Integer(value), Value::Integer(other)) => value.value() == other.value(),
+        (Value::Boolean(value), Value::Boolean(other)) => value.value() == other.value(),
+        _ => false,
+    }
 }
 
 fn parse_config(contents: &str) -> Result<Config, String> {
@@ -364,6 +419,46 @@ server = "ws://127.0.0.1:8080"
         save_config(&path, &loaded).expect("save");
 
         assert_eq!(load_config(&path), Loaded::clean(loaded));
+    }
+
+    #[test]
+    fn saving_keeps_comments_spelling_and_unknown_keys() {
+        let dir = TempDir::new();
+        let path = write_config(
+            &dir,
+            "# code-racer settings\n\
+             username = 'Jean'  # shown to other racers\n\
+             theme = \"dark\"     # editor, dark or mono\n\
+             default_mode = \"words\"\n\
+             future_key = true\n\
+             \n\
+             [multiplayer]\n\
+             # the LAN server\n\
+             server = \"ws://127.0.0.1:8080\"\n\
+             retries = 3\n",
+        );
+        let config = Config {
+            theme: Theme::Mono,
+            ..load_config(&path).value
+        };
+
+        save_config(&path, &config).expect("save");
+
+        let saved = fs::read_to_string(&path).expect("read");
+        for line in [
+            "# code-racer settings",
+            "username = 'Jean'  # shown to other racers",
+            "theme = \"mono\"     # editor, dark or mono",
+            "future_key = true",
+            "# the LAN server",
+            "retries = 3",
+        ] {
+            assert!(
+                saved.lines().any(|saved| saved == line),
+                "{line} in {saved}"
+            );
+        }
+        assert_eq!(load_config(&path), Loaded::clean(config));
     }
 
     #[test]
