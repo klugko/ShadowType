@@ -1,11 +1,18 @@
 //! A typing session: keystrokes compared against a target text, grapheme by grapheme.
 
-use std::time::{Duration, Instant};
+use std::{
+    iter::Peekable,
+    slice,
+    time::{Duration, Instant},
+};
 
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::stats::{Sample, Stats, percentage, words_per_minute};
+use crate::{
+    indentation::indentation_run,
+    stats::{Sample, Stats, Tally, sample_ends, words_per_minute},
+};
 
 /// How many characters may be typed past an uncorrected mistake before input
 /// is refused. Mistakes have to be fixed for a session to complete, so this
@@ -46,10 +53,28 @@ struct Entry {
     auto: bool,
 }
 
+impl Entry {
+    fn auto_space() -> Self {
+        Self {
+            text: " ".to_owned(),
+            correct: true,
+            auto: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Keystroke {
     at: Duration,
     correct: bool,
+}
+
+/// How many characters were correctly typed right after an input, on the
+/// basis of [`Tally::correctly_typed`].
+#[derive(Debug, Clone, Copy)]
+struct Checkpoint {
+    at: Duration,
+    correctly_typed: usize,
 }
 
 /// How some input compares with the character expected at its position.
@@ -81,7 +106,7 @@ pub struct TypingSession {
     /// of the expected one. Those keystrokes count as correct until the
     /// character is completed, and become errors if it is left unfinished.
     pending_since: Option<usize>,
-    auto_filled: usize,
+    checkpoints: Vec<Checkpoint>,
     options: SessionOptions,
     started_at: Option<Instant>,
     finished_at: Option<Instant>,
@@ -95,7 +120,7 @@ impl TypingSession {
             entries: Vec::new(),
             keystrokes: Vec::new(),
             pending_since: None,
-            auto_filled: 0,
+            checkpoints: Vec::new(),
             options,
             started_at: None,
             finished_at: None,
@@ -123,59 +148,23 @@ impl TypingSession {
         if self.is_finished() || (ch.is_control() && ch != '\n') {
             return false;
         }
-        if self.merge_into_last(ch, now) {
-            return true;
+        let accepted = self.merge_into_last(ch, now) || self.push_char(ch, now);
+        if accepted {
+            self.record_checkpoint(now);
+            self.complete_if_done(now);
         }
-        if self.cursor() >= self.target.len() || self.is_blocked() {
-            return false;
-        }
-        self.start(now);
-        self.abandon_pending();
-        let text = ch.to_string();
-        let judgement = judge(&text, &self.target[self.cursor()]);
-        let correct = judgement == Judgement::Correct;
-        self.record_keystroke(judgement, now);
-        self.entries.push(Entry {
-            text,
-            correct,
-            auto: false,
-        });
-        if correct && ch == '\n' && self.options.auto_indent {
-            self.fill_indentation();
-        }
-        self.complete_if_done(now);
-        true
+        accepted
     }
 
     /// Removes the last typed character, or the whole automatic indentation
     /// together with the newline that produced it.
     pub fn backspace(&mut self, now: Instant) -> bool {
-        self.update(now);
-        if self.is_finished() {
-            return false;
-        }
-        self.abandon_pending();
-        self.pop_entry()
+        self.erase(now, Self::pop_entry)
     }
 
     /// Removes the last typed word and the blanks that follow it.
     pub fn delete_word(&mut self, now: Instant) -> bool {
-        self.update(now);
-        if self.is_finished() {
-            return false;
-        }
-        self.abandon_pending();
-        let mut removed_any = false;
-        let mut removed_word = false;
-        while let Some(last) = self.entries.last() {
-            let blank = last.text.chars().all(char::is_whitespace);
-            if blank && removed_word {
-                break;
-            }
-            removed_word |= !blank;
-            removed_any |= self.pop_entry();
-        }
-        removed_any
+        self.erase(now, Self::pop_word)
     }
 
     /// Ends the session if its time limit has passed.
@@ -258,50 +247,29 @@ impl TypingSession {
             .map(|limit| limit.saturating_sub(self.elapsed(now)))
     }
 
-    pub fn stats(&self, now: Instant) -> Stats {
-        let elapsed = self.elapsed(now);
-        let correct_chars = self.entries.iter().filter(|entry| entry.correct).count();
-        let keystrokes = self.keystrokes.len();
-        let correct_keystrokes = self.keystrokes.iter().filter(|k| k.correct).count();
-        let typed_chars = keystrokes + self.auto_filled;
-        Stats {
-            wpm: words_per_minute(correct_chars, elapsed),
-            raw_wpm: words_per_minute(typed_chars, elapsed),
-            accuracy: percentage(correct_keystrokes, keystrokes),
-            errors: keystrokes - correct_keystrokes,
-            correct_chars,
-            incorrect_chars: self.entries.len() - correct_chars,
-            typed_chars,
-            elapsed,
-            progress: self.progress(elapsed),
+    /// The counters every speed and accuracy figure is derived from.
+    pub fn tally(&self) -> Tally {
+        Tally {
+            typed: self.cursor(),
+            correct: self.entries.iter().filter(|entry| entry.correct).count(),
+            indentation: self.entries.iter().filter(|entry| entry.auto).count(),
+            keystrokes: self.keystrokes.len(),
+            errors: self.keystrokes.iter().filter(|k| !k.correct).count(),
         }
     }
 
-    /// Speed and errors for every whole second elapsed so far.
+    pub fn stats(&self, now: Instant) -> Stats {
+        let elapsed = self.elapsed(now);
+        Stats::new(self.tally(), elapsed, self.progress(elapsed))
+    }
+
+    /// Speed and errors second by second, from the start of the session to `now`.
     pub fn samples(&self, now: Instant) -> Vec<Sample> {
-        let seconds = self.elapsed(now).as_secs();
-        let mut keystrokes = self.keystrokes.iter().peekable();
-        let mut correct_so_far = 0;
-        (1..=seconds)
-            .map(|second| {
-                let end = Duration::from_secs(second);
-                let mut in_second = 0;
-                let mut errors = 0;
-                while let Some(keystroke) = keystrokes.next_if(|k| k.at < end) {
-                    in_second += 1;
-                    if keystroke.correct {
-                        correct_so_far += 1;
-                    } else {
-                        errors += 1;
-                    }
-                }
-                Sample {
-                    second: u32::try_from(second).unwrap_or(u32::MAX),
-                    wpm: words_per_minute(correct_so_far, end),
-                    raw_wpm: words_per_minute(in_second, Duration::from_secs(1)),
-                    errors,
-                }
-            })
+        let mut replay = Replay::new(&self.keystrokes, &self.checkpoints);
+        sample_ends(self.elapsed(now))
+            .into_iter()
+            .zip(1..)
+            .map(|(end, second)| replay.sample(second, end))
             .collect()
     }
 
@@ -312,6 +280,39 @@ impl TypingSession {
             _ => self.cursor() as f64 / self.target.len() as f64,
         };
         ratio.clamp(0.0, 1.0)
+    }
+
+    fn push_char(&mut self, ch: char, now: Instant) -> bool {
+        if self.cursor() >= self.target.len() || self.is_blocked() {
+            return false;
+        }
+        self.start(now);
+        self.abandon_pending();
+        let text = ch.to_string();
+        let judgement = judge(&text, &self.target[self.cursor()]);
+        let correct = judgement == Judgement::Correct;
+        self.record_keystroke(judgement, now);
+        self.entries.push(Entry {
+            text,
+            correct,
+            auto: false,
+        });
+        if correct && ch == '\n' && self.options.auto_indent {
+            self.fill_indentation();
+        }
+        true
+    }
+
+    /// Applies a deletion, which leaves any character in progress unfinished.
+    fn erase(&mut self, now: Instant, remove: fn(&mut Self)) -> bool {
+        self.update(now);
+        if self.is_finished() || self.entries.is_empty() {
+            return false;
+        }
+        self.abandon_pending();
+        remove(self);
+        self.record_checkpoint(now);
+        true
     }
 
     /// Merges a combining character into the last typed grapheme.
@@ -335,7 +336,6 @@ impl TypingSession {
             correct: judgement == Judgement::Correct,
             auto: false,
         };
-        self.complete_if_done(now);
         true
     }
 
@@ -362,28 +362,40 @@ impl TypingSession {
         }
     }
 
-    fn fill_indentation(&mut self) {
-        while self.target.get(self.cursor()).is_some_and(|g| g == " ") {
-            self.entries.push(Entry {
-                text: " ".to_owned(),
-                correct: true,
-                auto: true,
-            });
-            self.auto_filled += 1;
-        }
+    fn record_checkpoint(&mut self, now: Instant) {
+        let checkpoint = Checkpoint {
+            at: self.elapsed(now),
+            correctly_typed: self.tally().correctly_typed(),
+        };
+        self.checkpoints.push(checkpoint);
     }
 
-    fn pop_entry(&mut self) -> bool {
-        let Some(removed) = self.entries.pop() else {
-            return false;
-        };
-        if removed.auto {
+    fn fill_indentation(&mut self) {
+        let width = indentation_run(&self.target, self.cursor());
+        self.entries
+            .extend(std::iter::repeat_n(Entry::auto_space(), width));
+    }
+
+    fn pop_entry(&mut self) {
+        let removed = self.entries.pop();
+        if removed.is_some_and(|entry| entry.auto) {
             while self.entries.last().is_some_and(|entry| entry.auto) {
                 self.entries.pop();
             }
             self.entries.pop();
         }
-        true
+    }
+
+    fn pop_word(&mut self) {
+        let mut removed_word = false;
+        while let Some(last) = self.entries.last() {
+            let blank = last.text.chars().all(char::is_whitespace);
+            if blank && removed_word {
+                break;
+            }
+            removed_word |= !blank;
+            self.pop_entry();
+        }
     }
 
     fn complete_if_done(&mut self, now: Instant) {
@@ -391,6 +403,46 @@ impl TypingSession {
             self.cursor() == self.target.len() && self.entries.iter().all(|entry| entry.correct);
         if done && self.finished_at.is_none() {
             self.finished_at = Some(now);
+        }
+    }
+}
+
+/// Walks through the history of a session one sample window after the other.
+struct Replay<'a> {
+    keystrokes: Peekable<slice::Iter<'a, Keystroke>>,
+    checkpoints: Peekable<slice::Iter<'a, Checkpoint>>,
+    correctly_typed: usize,
+    window_start: Duration,
+}
+
+impl<'a> Replay<'a> {
+    fn new(keystrokes: &'a [Keystroke], checkpoints: &'a [Checkpoint]) -> Self {
+        Self {
+            keystrokes: keystrokes.iter().peekable(),
+            checkpoints: checkpoints.iter().peekable(),
+            correctly_typed: 0,
+            window_start: Duration::ZERO,
+        }
+    }
+
+    /// Summarises what happened since the previous window, up to `end` included.
+    fn sample(&mut self, second: u32, end: Duration) -> Sample {
+        let mut keystrokes = 0;
+        let mut errors = 0;
+        while let Some(keystroke) = self.keystrokes.next_if(|k| k.at <= end) {
+            keystrokes += 1;
+            errors += u32::from(!keystroke.correct);
+        }
+        while let Some(checkpoint) = self.checkpoints.next_if(|c| c.at <= end) {
+            self.correctly_typed = checkpoint.correctly_typed;
+        }
+        let window = end - self.window_start;
+        self.window_start = end;
+        Sample {
+            second,
+            wpm: words_per_minute(self.correctly_typed, end),
+            raw_wpm: words_per_minute(keystrokes, window),
+            errors,
         }
     }
 }
@@ -431,6 +483,7 @@ fn is_partial(typed: &str, expected: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stats::consistency;
 
     fn at(start: Instant, millis: u64) -> Instant {
         start + Duration::from_millis(millis)
@@ -651,8 +704,100 @@ mod tests {
         type_text(&mut session, "x\n}", now);
         let stats = session.stats(now);
         assert_eq!(session.status(), Status::Completed);
-        assert_eq!(stats.typed_chars, 9);
+        assert_eq!(stats.correct_chars, 9);
+        assert_eq!(stats.indentation, 4);
+        assert_eq!(stats.typed_chars, 5, "indentation is not typed");
         assert_eq!(stats.accuracy, 100.0);
+    }
+
+    /// Types `keys` one every `interval_ms` from `start`, `\u{8}` standing for
+    /// Backspace, and returns the instant of the last key.
+    fn play(session: &mut TypingSession, keys: &str, start: Instant, interval_ms: u64) -> Instant {
+        let mut now = start;
+        for (index, key) in (0..).zip(keys.chars()) {
+            now = at(start, index * interval_ms);
+            if key == '\u{8}' {
+                session.backspace(now);
+            } else {
+                session.type_char(key, now);
+            }
+        }
+        now
+    }
+
+    fn auto_indented(text: &str) -> TypingSession {
+        let options = SessionOptions {
+            auto_indent: true,
+            ..SessionOptions::default()
+        };
+        TypingSession::new(text, options)
+    }
+
+    #[test]
+    fn auto_filled_indentation_counts_for_completion_but_not_for_speed() {
+        let start = Instant::now();
+        let mut session = auto_indented("fn f() {\n    x();\n}");
+        let end = play(&mut session, "fn f() {\nx();\n}", start, 100);
+        assert_eq!(session.status(), Status::Completed);
+        assert_eq!(
+            session.tally(),
+            Tally {
+                typed: 19,
+                correct: 19,
+                indentation: 4,
+                keystrokes: 15,
+                errors: 0,
+            }
+        );
+        let stats = session.stats(end);
+        assert_eq!(stats.progress, 1.0);
+        let fifteen_keys = words_per_minute(15, Duration::from_millis(1_400));
+        assert_eq!(stats.wpm, fifteen_keys);
+        assert_eq!(stats.raw_wpm, fifteen_keys);
+        assert_eq!(stats.accuracy, 100.0);
+    }
+
+    #[test]
+    fn the_last_sample_matches_the_headline_and_samples_add_up_to_its_errors() {
+        let start = Instant::now();
+        let mut session = auto_indented("if ok {\n    go();\n}");
+        let end = play(&mut session, "if oj\u{8}k {\ngo();\n}", start, 200);
+        assert_eq!(session.status(), Status::Completed);
+        let stats = session.stats(end);
+        let samples = session.samples(end);
+        assert_eq!(samples.len(), 3);
+        assert_eq!(samples.last().map(|sample| sample.wpm), Some(stats.wpm));
+        let errors: u32 = samples.iter().map(|sample| sample.errors).sum();
+        assert_eq!(errors as usize, stats.errors);
+        assert_eq!(stats.errors, 1);
+    }
+
+    #[test]
+    fn deleted_characters_do_not_count_towards_the_samples() {
+        let start = Instant::now();
+        let mut session = TypingSession::new("ab cd", SessionOptions::default());
+        play(&mut session, "ab\u{8}\u{8}ab", start, 100);
+        let second = at(start, 1_000);
+        let two_characters = words_per_minute(2, Duration::from_secs(1));
+        assert_eq!(session.stats(second).wpm, two_characters);
+        let samples = session.samples(second);
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].wpm, two_characters);
+        assert_eq!(
+            samples[0].raw_wpm,
+            words_per_minute(4, Duration::from_secs(1))
+        );
+    }
+
+    #[test]
+    fn a_session_shorter_than_a_second_has_one_steady_sample() {
+        let start = Instant::now();
+        let mut session = TypingSession::new("hello", SessionOptions::default());
+        let end = play(&mut session, "hello", start, 150);
+        let samples = session.samples(end);
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].wpm, session.stats(end).wpm);
+        assert_eq!(consistency(&samples), 100.0);
     }
 
     #[test]
@@ -724,7 +869,7 @@ mod tests {
     }
 
     #[test]
-    fn samples_cover_whole_seconds() {
+    fn samples_cover_seconds_and_the_last_one_takes_a_short_remainder() {
         let start = Instant::now();
         let mut session = TypingSession::new(&"a".repeat(40), SessionOptions::default());
         session.start(start);
@@ -735,12 +880,20 @@ mod tests {
         for i in 0..5 {
             session.type_char('a', at(start, 2_000 + 100 * i));
         }
-        let samples = session.samples(at(start, 3_200));
+        let end = at(start, 3_200);
+        let samples = session.samples(end);
         assert_eq!(samples.len(), 3);
         assert_eq!(samples[0].raw_wpm, 120.0);
         assert_eq!(samples[1].errors, 1);
-        assert_eq!(samples[2].raw_wpm, 60.0);
-        assert_eq!(samples[2].wpm, words_per_minute(15, Duration::from_secs(3)));
+        assert_eq!(
+            samples[2].raw_wpm,
+            words_per_minute(4, Duration::from_millis(1_200))
+        );
+        assert_eq!(
+            samples[2].wpm,
+            words_per_minute(15, Duration::from_millis(3_200))
+        );
+        assert_eq!(samples[2].wpm, session.stats(end).wpm);
     }
 
     #[test]
