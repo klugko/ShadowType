@@ -1,0 +1,5 @@
+SELECT username, AVG(wpm) AS average_speed
+FROM sessions
+WHERE accuracy >= 98
+GROUP BY username
+ORDER BY average_speed DESC;
