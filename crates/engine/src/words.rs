@@ -124,11 +124,12 @@ impl WordStream {
             0..45 => self.rng.random_range(0..100u32).to_string(),
             45..70 => self.rng.random_range(100..10_000u32).to_string(),
             70..85 => self.rng.random_range(1950..=2030u32).to_string(),
-            _ if decimals_allowed => format!(
-                "{}.{:02}",
-                self.rng.random_range(0..100u32),
-                self.rng.random_range(0..100u32)
-            ),
+            _ if decimals_allowed => {
+                let whole = self.rng.random_range(0..100u32);
+                let fraction = self.rng.random_range(0..100u32);
+                let separator = self.language.decimal_separator();
+                format!("{whole}{separator}{fraction:02}")
+            }
             _ => self.rng.random_range(10..1000u32).to_string(),
         }
     }
@@ -303,6 +304,31 @@ mod tests {
         }
         let english = sample(Language::English, PUNCTUATED, 13);
         assert!(!english.contains(" ?") && !english.contains(" !"));
+    }
+
+    fn has_decimal(text: &str, separator: char) -> bool {
+        let chars: Vec<char> = text.chars().collect();
+        chars.windows(3).any(|window| {
+            window[0].is_ascii_digit() && window[1] == separator && window[2].is_ascii_digit()
+        })
+    }
+
+    #[test]
+    fn decimals_use_the_separator_of_the_language() {
+        let options = WordOptions {
+            punctuation: true,
+            numbers: true,
+        };
+        let french: Vec<String> = (0..5)
+            .map(|seed| sample(Language::French, options, seed))
+            .collect();
+        let english: Vec<String> = (0..5)
+            .map(|seed| sample(Language::English, options, seed))
+            .collect();
+        assert!(french.iter().any(|text| has_decimal(text, ',')));
+        assert!(french.iter().all(|text| !has_decimal(text, '.')));
+        assert!(english.iter().any(|text| has_decimal(text, '.')));
+        assert!(english.iter().all(|text| !has_decimal(text, ',')));
     }
 
     #[test]

@@ -29,6 +29,14 @@ impl Language {
     pub(crate) const fn spaces_high_punctuation(self) -> bool {
         matches!(self, Self::French)
     }
+
+    /// French writes decimals with a comma.
+    pub(crate) const fn decimal_separator(self) -> char {
+        match self {
+            Self::English => '.',
+            Self::French => ',',
+        }
+    }
 }
 
 /// A programming language with a bundled collection of code snippets.
