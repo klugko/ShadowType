@@ -260,7 +260,7 @@ async fn an_incompatible_client_is_told_the_versions_and_disconnected() {
         panic!("expected an error");
     };
     assert_eq!(error.code, ErrorCode::IncompatibleVersion);
-    assert_eq!(error.message, "server speaks protocol v2, client v1");
+    assert_eq!(error.message, "server speaks protocol v3, client v1");
     assert_closed(&mut socket).await;
 }
 

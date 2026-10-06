@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Incremented whenever a change breaks compatibility with older peers.
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;
 
 /// Largest WebSocket message either side accepts. Every valid message fits:
 /// usernames are bounded in bytes and rooms in players for that purpose.
@@ -282,7 +282,7 @@ mod tests {
         for json in [
             r#"{"type":"unknown"}"#,
             r#"{"type":"join_room","data":{"code":"0000OO"}}"#,
-            r#"{"type":"hello","data":{"version":2,"username":""}}"#,
+            r#"{"type":"hello","data":{"version":3,"username":""}}"#,
             r#"{"type":"progress","data":{"typed":-1,"correct":0,"keystrokes":0,"errors":0}}"#,
             "not json",
         ] {
