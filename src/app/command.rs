@@ -1,10 +1,14 @@
 //! Vim-style `:` commands.
 
-use std::{ops::RangeInclusive, path::PathBuf};
+use std::{
+    ops::RangeInclusive,
+    path::{Path, PathBuf},
+};
 
 use clap::ValueEnum;
 use code_racer_engine::{CodeLanguage, Language, WORD_COUNTS};
 use code_racer_protocol::{RoomCode, Username};
+use directories::BaseDirs;
 use thiserror::Error;
 
 use crate::config::{Practice, Theme};
@@ -87,7 +91,14 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "quote" => Ok(Command::Quote),
         "code" => argument.map(code_language).transpose().map(Command::Code),
         "lang" | "language" => language_command(required(argument, "lang")?),
-        "e" | "edit" | "open" => Ok(Command::Edit(PathBuf::from(required(argument, "edit")?))),
+        "e" | "edit" | "open" => {
+            let home = BaseDirs::new();
+            let path = file_argument(
+                required(argument, "edit")?,
+                home.as_ref().map(BaseDirs::home_dir),
+            );
+            Ok(Command::Edit(path))
+        }
         "set" | "se" => setting(required(argument, "set")?).map(Command::Set),
         "create" | "new" => Ok(Command::Create),
         "join" | "j" => required(argument, "join")?
@@ -114,6 +125,34 @@ pub fn complete(input: &str, index: usize) -> Option<&'static str> {
         .filter(|name| name.starts_with(input))
         .collect();
     (!candidates.is_empty()).then(|| candidates[index % candidates.len()])
+}
+
+/// The file named by `argument` as a shell would read it: without the
+/// quotes around it, such as those of a path copied from a file manager,
+/// and from the `home` directory when it starts with `~` alone, as in
+/// `~/projects/lib.rs`. `~user` forms are left alone.
+fn file_argument(argument: &str, home: Option<&Path>) -> PathBuf {
+    let path = unquoted(argument);
+    let Some(rest) = path.strip_prefix('~') else {
+        return PathBuf::from(path);
+    };
+    let mut after_tilde = rest.chars();
+    let from_home = after_tilde
+        .next()
+        .is_none_or(std::path::is_separator)
+        .then_some(after_tilde.as_str());
+    match (home, from_home) {
+        (Some(home), Some(relative)) => home.join(relative),
+        _ => PathBuf::from(path),
+    }
+}
+
+/// `text` without one pair of matching quotes around it.
+fn unquoted(text: &str) -> &str {
+    ['"', '\'']
+        .into_iter()
+        .find_map(|quote| text.strip_prefix(quote)?.strip_suffix(quote))
+        .unwrap_or(text)
 }
 
 fn required<'a>(argument: Option<&'a str>, command: &'static str) -> Result<&'a str, CommandError> {
@@ -277,6 +316,60 @@ mod tests {
             parse("e src/main.rs"),
             Ok(Command::Edit(PathBuf::from("src/main.rs")))
         );
+        assert_eq!(
+            parse("e \"notes/my code.rs\""),
+            Ok(Command::Edit(PathBuf::from("notes/my code.rs")))
+        );
+    }
+
+    #[test]
+    fn file_arguments_start_from_the_home_directory_with_a_tilde() {
+        let home = Path::new("/home/ada");
+        let cases = [
+            ("~", "/home/ada"),
+            ("~/projects/lib.rs", "/home/ada/projects/lib.rs"),
+            ("~ada/lib.rs", "~ada/lib.rs"),
+            ("~notes.txt", "~notes.txt"),
+            ("a/~/b.rs", "a/~/b.rs"),
+            ("src/main.rs", "src/main.rs"),
+        ];
+        for (argument, path) in cases {
+            assert_eq!(
+                file_argument(argument, Some(home)),
+                PathBuf::from(path),
+                "{argument}"
+            );
+        }
+        assert_eq!(file_argument("~/lib.rs", None), PathBuf::from("~/lib.rs"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_arguments_take_a_backslash_after_the_tilde_on_windows() {
+        let home = Path::new(r"C:\Users\ada");
+        assert_eq!(
+            file_argument(r"~\code\main.rs", Some(home)),
+            home.join(r"code\main.rs")
+        );
+    }
+
+    #[test]
+    fn file_arguments_lose_the_quotes_around_them() {
+        let cases = [
+            (r#""C:\a b\c.rs""#, r"C:\a b\c.rs"),
+            ("'x y'", "x y"),
+            (r#"""#, r#"""#),
+            (r#""x'"#, r#""x'"#),
+            ("my notes.txt", "my notes.txt"),
+            (r#""~/my notes.txt""#, "/home/ada/my notes.txt"),
+        ];
+        for (argument, path) in cases {
+            assert_eq!(
+                file_argument(argument, Some(Path::new("/home/ada"))),
+                PathBuf::from(path),
+                "{argument}"
+            );
+        }
     }
 
     #[test]
