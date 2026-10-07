@@ -3,7 +3,7 @@
 use code_racer_engine::Status;
 use ratatui::{Frame, layout::Rect, style::Modifier, text::Span};
 
-use super::{doc, race_time};
+use super::doc;
 use crate::{
     app::{
         App, SessionView,
@@ -12,6 +12,7 @@ use crate::{
     ui::{
         chart,
         editor::{self, Row},
+        format::race_time,
         theme::Palette,
         typing,
     },

@@ -10,10 +10,8 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
-use super::{doc, ordinal, race_time, session::text_rows};
+use super::{doc, session::text_rows};
 use crate::{
     app::{
         App,
@@ -21,6 +19,7 @@ use crate::{
     },
     ui::{
         editor::{self, Row},
+        format::{self, ordinal, percent_done, race_time},
         theme::Palette,
     },
 };
@@ -234,8 +233,8 @@ fn standing_line(
     };
     let fixed = 4 + NAME_WIDTH + 2 + 5 + 9 + 12;
     let bar_width = usize::from(width).saturating_sub(fixed).clamp(8, 48);
-    let fraction = progress.fraction(room.text_length);
-    let filled = ((fraction * bar_width as f64).round() as usize).min(bar_width);
+    let percent = percent_done(progress.fraction(room.text_length));
+    let filled = bar_width * percent as usize / 100;
     let bar_color = if Some(player.id) == client.player {
         palette.insert
     } else {
@@ -247,10 +246,7 @@ fn standing_line(
         Span::raw("  "),
         Span::styled("━".repeat(filled), palette.fg(bar_color)),
         Span::styled("─".repeat(bar_width - filled), palette.fg(palette.faint)),
-        Span::styled(
-            format!("{:>4.0}%", fraction * 100.0),
-            palette.fg(palette.text),
-        ),
+        Span::styled(format!("{percent:>4}%"), palette.fg(palette.text)),
         Span::styled(
             format!("{:>5.0} wpm", progress.wpm),
             palette.fg(palette.number),
@@ -335,34 +331,9 @@ fn name_span(player: &PlayerView, client: &RaceClient, palette: &Palette) -> Spa
     } else {
         Style::new().fg(palette.text)
     };
-    Span::styled(fit(player.name.as_str(), NAME_WIDTH), style)
-}
-
-/// Pads or truncates `text` to exactly `width` columns.
-fn fit(text: &str, width: usize) -> String {
-    let mut fitted = String::new();
-    for grapheme in text.graphemes(true) {
-        if fitted.width() + grapheme.width() > width.saturating_sub(1) {
-            break;
-        }
-        fitted.push_str(grapheme);
-    }
-    let padding = width.saturating_sub(fitted.width());
-    fitted + &" ".repeat(padding)
+    Span::styled(format::column(player.name.as_str(), NAME_WIDTH), style)
 }
 
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_are_fitted_to_their_column() {
-        assert_eq!(fit("jean", 8), "jean    ");
-        assert_eq!(fit("a-very-long-name", 8).width(), 8);
-        assert_eq!(fit("été", 5), "été  ");
-    }
 }

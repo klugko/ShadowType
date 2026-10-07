@@ -4,6 +4,7 @@
 mod chart;
 mod chrome;
 mod editor;
+mod format;
 mod syntax;
 mod theme;
 mod typing;

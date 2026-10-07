@@ -15,10 +15,14 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     app::{Activity, App, Buffer, EditorMode, Focus, MessageKind, TextField},
-    ui::theme::Palette,
+    ui::{format, theme::Palette},
 };
 
 const MEANINGFUL_SPEED_AFTER: Duration = Duration::from_secs(1);
+/// Columns below which the context of the status line is left out rather
+/// than cut to a stub, its padding included.
+const MIN_CONTEXT_WIDTH: usize = 10;
+const CONTEXT_SEPARATOR: &str = " · ";
 
 pub fn sidebar(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     let block = Block::new()
@@ -173,41 +177,81 @@ pub fn tabline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+/// Draws the status line. The statistics on the right always show in full:
+/// the context and then the buffer name on the left make room for them.
 pub fn statusline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, now: Instant) {
-    let (label, color) = match app.editor_mode() {
+    let right = right_segments(app, palette, now);
+    let room = usize::from(area.width).saturating_sub(spans_width(&right));
+    let mut spans = left_segments(app, palette, room);
+    let filler = room.saturating_sub(spans_width(&spans));
+    spans.push(Span::styled(
+        " ".repeat(filler),
+        Style::new().bg(palette.panel),
+    ));
+    spans.extend(right);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The mode, whether typing is blocked, the buffer name and its context,
+/// within `width` columns.
+fn left_segments(app: &App, palette: &Palette, width: usize) -> Vec<Span<'static>> {
+    let mut spans = vec![mode_badge(app.editor_mode(), palette)];
+    if app.is_typing_blocked() {
+        spans.push(Span::styled(
+            " fix the mistake ",
+            palette.badge(palette.error),
+        ));
+    }
+    let mut room = width.saturating_sub(spans_width(&spans));
+    if let Some(name) = segment(&app.buffer_name(app.buffer), room) {
+        room -= name.width();
+        spans.push(Span::styled(
+            name,
+            Style::new().bg(palette.highlight).fg(palette.strong),
+        ));
+    }
+    if room >= MIN_CONTEXT_WIDTH {
+        let context = format::leading_parts(&context(app), CONTEXT_SEPARATOR, room - 2);
+        spans.push(Span::styled(
+            format!(" {context} "),
+            Style::new().bg(palette.panel).fg(palette.text),
+        ));
+    }
+    spans
+}
+
+fn mode_badge(mode: EditorMode, palette: &Palette) -> Span<'static> {
+    let (label, color) = match mode {
         EditorMode::Normal => (" NORMAL ", palette.accent),
         EditorMode::Insert => (" INSERT ", palette.insert),
         EditorMode::Command => (" COMMAND ", palette.command),
     };
-    let segment = Style::new().bg(palette.highlight).fg(palette.strong);
-    let panel = Style::new().bg(palette.panel).fg(palette.muted);
-    let mut left = vec![
-        Span::styled(label, palette.badge(color)),
-        Span::styled(format!(" {} ", app.buffer_name(app.buffer)), segment),
-        Span::styled(format!(" {} ", context(app)), panel),
-    ];
-    let right = right_segments(app, palette, now);
-    let used: usize = left
-        .iter()
-        .chain(right.iter())
-        .map(|span| span.content.width())
-        .sum();
-    left.push(Span::styled(
-        " ".repeat(usize::from(area.width).saturating_sub(used)),
-        panel,
-    ));
-    left.extend(right);
-    frame.render_widget(Paragraph::new(Line::from(left)), area);
+    Span::styled(label, palette.badge(color))
 }
 
-fn context(app: &App) -> String {
+/// ` text ` within `width` columns, `None` when not a character fits.
+fn segment(text: &str, width: usize) -> Option<String> {
+    (width > 2).then(|| format!(" {} ", format::truncate(text, width - 2)))
+}
+
+fn spans_width(spans: &[Span<'_>]) -> usize {
+    spans.iter().map(Span::width).sum()
+}
+
+/// What the buffer is about, from the most telling part to the least.
+fn context(app: &App) -> Vec<String> {
     match &app.activity {
-        Some(Activity::Solo(run)) if app.buffer == Buffer::Session => run.plan.label(),
-        Some(Activity::Race(client)) if app.buffer == Buffer::Session => match &client.room {
-            Some(room) => format!("room {} · {}", room.code, client.text_label()),
-            None => format!("connecting to {}", client.server),
-        },
-        _ => app.config.username.clone(),
+        Some(Activity::Solo(run)) if app.buffer == Buffer::Session => run.plan.label_parts(),
+        Some(Activity::Race(client)) if app.buffer == Buffer::Session => {
+            match (&client.room, client.plan()) {
+                (Some(room), Some(plan)) => [format!("room {}", room.code)]
+                    .into_iter()
+                    .chain(plan.label_parts())
+                    .collect(),
+                _ => vec![format!("connecting to {}", client.server)],
+            }
+        }
+        _ => vec![app.config.username.clone()],
     }
 }
 
@@ -225,8 +269,11 @@ fn right_segments(app: &App, palette: &Palette, now: Instant) -> Vec<Span<'stati
                 ),
                 Span::styled(format!(" {:.0}% ", stats.accuracy), panel),
                 Span::styled(error_label(&stats), panel.fg(error_color(&stats, palette))),
-                Span::styled(format!(" {} ", clock_label(clock.as_secs())), panel),
-                Span::styled(format!(" {:>3.0}% ", stats.progress * 100.0), accent),
+                Span::styled(format!(" {} ", format::clock(clock.as_secs())), panel),
+                Span::styled(
+                    format!(" {:>3}% ", format::percent_done(stats.progress)),
+                    accent,
+                ),
             ]
         }
         _ => vec![Span::styled(format!(" {} ", file_type(app)), accent)],
@@ -255,10 +302,6 @@ fn error_color(stats: &Stats, palette: &Palette) -> Color {
     } else {
         palette.error
     }
-}
-
-fn clock_label(seconds: u64) -> String {
-    format!("{:02}:{:02}", seconds / 60, seconds % 60)
 }
 
 fn file_type(app: &App) -> &'static str {

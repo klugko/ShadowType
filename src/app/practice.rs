@@ -197,6 +197,11 @@ impl Plan {
 
     /// Short description such as `words 50 · english · punctuation`.
     pub fn label(&self) -> String {
+        self.label_parts().join(" · ")
+    }
+
+    /// The parts of [`Plan::label`], from the most telling to the least.
+    pub fn label_parts(&self) -> Vec<String> {
         let mut parts = vec![self.mode_label(), self.language_label()];
         if let Self::Text(TextSource::Words { options, .. }) | Self::Timed { options, .. } = self {
             if options.punctuation {
@@ -206,7 +211,7 @@ impl Plan {
                 parts.push("numbers".to_owned());
             }
         }
-        parts.join(" · ")
+        parts
     }
 
     pub fn syntax(&self) -> Option<CodeLanguage> {

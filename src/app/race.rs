@@ -265,11 +265,13 @@ impl RaceClient {
         }
     }
 
+    /// What the room races on, once in a room.
+    pub fn plan(&self) -> Option<Plan> {
+        self.room.as_ref().map(|room| Plan::Text(room.text))
+    }
+
     pub fn text_label(&self) -> String {
-        self.room
-            .as_ref()
-            .map(|room| Plan::Text(room.text).label())
-            .unwrap_or_default()
+        self.plan().map(|plan| plan.label()).unwrap_or_default()
     }
 
     pub fn handle(&mut self, event: NetworkEvent, now: Instant) -> Outcome {

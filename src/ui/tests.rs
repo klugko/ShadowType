@@ -33,17 +33,39 @@ fn screen(app: &App, width: u16, height: u16) -> String {
 }
 
 fn screen_at(app: &App, width: u16, height: u16, now: Instant) -> String {
+    text_of(&drawn(app, width, height, now))
+}
+
+/// A terminal of `width` by `height` with the app drawn on it at `now`.
+fn drawn(app: &App, width: u16, height: u16, now: Instant) -> Terminal<TestBackend> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
     terminal.draw(|frame| draw(frame, app, now)).expect("draw");
+    terminal
+}
+
+fn text_of(terminal: &Terminal<TestBackend>) -> String {
     let buffer = terminal.backend().buffer();
     let mut text = String::new();
-    for y in 0..height {
-        for x in 0..width {
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
             text.push_str(buffer[(x, y)].symbol());
         }
         text.push('\n');
     }
     text
+}
+
+/// The cell where `needle` starts on screen, for text one column per character.
+fn find(terminal: &Terminal<TestBackend>, needle: &str) -> Option<(u16, u16)> {
+    text_of(terminal).lines().enumerate().find_map(|(y, line)| {
+        let start = line.find(needle)?;
+        let x = line[..start].chars().count();
+        Some((u16::try_from(x).ok()?, u16::try_from(y).ok()?))
+    })
+}
+
+fn style_at(terminal: &Terminal<TestBackend>, (x, y): (u16, u16)) -> ratatui::style::Style {
+    terminal.backend().buffer()[(x, y)].style()
 }
 
 fn press(app: &mut App, code: KeyCode) {
@@ -202,6 +224,62 @@ fn typing_screen_shows_insert_mode_and_live_statistics() {
     for expected in ["INSERT", "wpm", "error", "notes.md", "words 10"] {
         assert!(text.contains(expected), "missing {expected}:\n{text}");
     }
+}
+
+/// Types a character other than the one the session expects next.
+fn mistake(app: &mut App) {
+    let expected = app
+        .session_view()
+        .map(|view| view.session.target()[view.session.cursor()].clone());
+    let wrong = if expected.as_deref() == Some("x") {
+        'y'
+    } else {
+        'x'
+    };
+    press(app, KeyCode::Char(wrong));
+}
+
+#[test]
+fn the_status_line_keeps_its_statistics_at_the_smallest_size() {
+    let mut app = app();
+    command(&mut app, "set punctuation");
+    command(&mut app, "set numbers");
+    command(&mut app, "words 100");
+    mistake(&mut app);
+    let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    let status = status_line(&text);
+    for expected in ["INSERT", "notes.md", "words 100", " 1 error ", " 00:00 "] {
+        assert!(status.contains(expected), "missing {expected}: {status}");
+    }
+    assert!(status.trim_end().ends_with(" 0%"), "{status}");
+}
+
+#[tokio::test]
+async fn the_race_status_line_keeps_its_statistics_at_the_smallest_size() {
+    let app = in_room(Phase::Racing);
+    let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    let status = status_line(&text);
+    for expected in ["room FK72AD", " 0 errors ", " 00:00 "] {
+        assert!(status.contains(expected), "missing {expected}: {status}");
+    }
+    assert!(status.trim_end().ends_with(" 0%"), "{status}");
+}
+
+#[test]
+fn blocked_typing_is_shown_in_the_status_line_in_the_error_colour() {
+    let mut app = app();
+    command(&mut app, "words 10");
+    for _ in 0..code_racer_engine::ERROR_RUN_LIMIT {
+        mistake(&mut app);
+    }
+    assert!(app.is_typing_blocked());
+    let terminal = drawn(&app, MIN_WIDTH, MIN_HEIGHT, Instant::now());
+    let status = MIN_HEIGHT - 2;
+    let at = find(&terminal, "fix the mistake").expect("the blocked state");
+    assert_eq!(at.1, status, "{}", text_of(&terminal));
+    let palette = Palette::of(Theme::Editor);
+    assert_eq!(style_at(&terminal, at).bg, Some(palette.error));
+    assert!(status_line(&text_of(&terminal)).contains(" 10 errors "));
 }
 
 #[test]
