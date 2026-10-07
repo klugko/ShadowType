@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
 use code_racer_engine::{Language, TextSource};
-use code_racer_protocol::{Phase, PlayerId, PlayerProgress, PlayerView, RoomView, ServerMessage};
+use code_racer_protocol::{
+    MAX_ROOM_PLAYERS, Phase, PlayerId, PlayerProgress, PlayerView, RoomView, ServerMessage,
+};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Terminal,
@@ -722,6 +724,70 @@ async fn the_standings_always_show_the_player_even_last_of_a_full_room() {
     assert!(standings[0].trim_start().starts_with("1 racer8"), "{text}");
 }
 
+/// A room of `size` players in `phase`, the client joined last, made by
+/// `player` from each id.
+fn full_room(phase: Phase, size: u8, player: impl Fn(u64) -> PlayerView) -> RoomView {
+    let others = 2..=u64::from(size);
+    RoomView {
+        max_players: size,
+        players: others.chain([1]).map(player).collect(),
+        ..room(phase)
+    }
+}
+
+fn racer(id: u64) -> String {
+    if id == 1 {
+        "jean".to_owned()
+    } else {
+        format!("racer{id}")
+    }
+}
+
+#[tokio::test]
+async fn a_full_lobby_keeps_the_players_row_and_what_to_do_next_in_view() {
+    for size in [8, MAX_ROOM_PLAYERS] {
+        let lobby = full_room(Phase::Lobby, size, |id| PlayerView {
+            ready: id != 1,
+            ..player(id, &racer(id), 0, None)
+        });
+        let mut app = in_room_at(lobby, Instant::now());
+        app.resize(MIN_WIDTH, MIN_HEIGHT);
+        let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+        for expected in [
+            "· jean            host, you   not ready",
+            "more",
+            "# waiting for 1 player to get ready",
+            "r  toggle ready",
+            "s  start the race",
+        ] {
+            assert!(
+                text.contains(expected),
+                "{size}: missing {expected}:\n{text}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn full_results_keep_the_players_place_and_what_to_do_next_in_view() {
+    let results = full_room(Phase::Finished, MAX_ROOM_PLAYERS, |id| {
+        let time = if id == 1 { 90_000 } else { 40_000 + id * 100 };
+        player(id, &racer(id), 120, Some(time))
+    });
+    let mut app = in_room_at(results, Instant::now());
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    for expected in [
+        " 32  jean ",
+        "more",
+        "you finished 32nd of 32",
+        "r  back to the lobby",
+        "Esc  leave",
+    ] {
+        assert!(text.contains(expected), "missing {expected}:\n{text}");
+    }
+}
+
 #[tokio::test]
 async fn race_results_rank_players() {
     let app = in_room(Phase::Finished);
@@ -829,6 +895,17 @@ async fn preview_screens() {
         .map(|n| player(n.into(), &format!("racer{n}"), 10 * n, None))
         .collect();
     screens.extend(shots("full room", &mut in_room_at(full, Instant::now())));
+    let lobby = full_room(Phase::Lobby, MAX_ROOM_PLAYERS, |id| {
+        player(id, &racer(id), 0, None)
+    });
+    screens.extend(shots("full lobby", &mut in_room_at(lobby, Instant::now())));
+    let results = full_room(Phase::Finished, MAX_ROOM_PLAYERS, |id| {
+        player(id, &racer(id), 120, Some(40_000 + id * 100))
+    });
+    screens.extend(shots(
+        "full results",
+        &mut in_room_at(results, Instant::now()),
+    ));
     for (name, text) in screens {
         println!("──── {name}\n{text}");
     }

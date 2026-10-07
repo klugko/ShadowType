@@ -96,22 +96,47 @@ fn lobby(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, pa
         doc::blank(),
         doc::heading("players", palette),
     ]);
-    rows.extend(
-        room.players
-            .iter()
-            .map(|player| lobby_player(player, client, room, palette)),
-    );
-    rows.push(doc::blank());
-    rows.push(lobby_hint(client, room, palette));
-    rows.push(doc::blank());
-    let mut keys = vec![("r", "toggle ready")];
-    if client.is_host() {
-        keys.push(("s", "start the race"));
-    }
-    keys.push(("Esc", "leave"));
-    rows.push(doc::keys(&keys, palette));
+    let footer = lobby_footer(client, room, palette);
+    let players: Vec<&PlayerView> = room.players.iter().collect();
+    let fitting = usize::from(area.height).saturating_sub(rows.len() + footer.len());
+    rows.extend(player_rows(
+        &players,
+        client.player,
+        fitting,
+        palette,
+        |_, player| lobby_player(player, client, room, palette),
+    ));
+    rows.extend(footer);
     editor::number_rows(&mut rows);
     editor::render(frame, area, &rows, 0, palette);
+}
+
+/// The rows of `players` that fit in `fitting` rows, made by `row` from each
+/// player and their place in the list. The player `me` always shows, and a
+/// last row counts the players left out.
+fn player_rows(
+    players: &[&PlayerView],
+    me: Option<PlayerId>,
+    fitting: usize,
+    palette: &Palette,
+    row: impl Fn(usize, &PlayerView) -> Row,
+) -> Vec<Row> {
+    let shown = if players.len() > fitting {
+        fitting.saturating_sub(1)
+    } else {
+        fitting
+    };
+    let visible = visible_players(players, me, shown);
+    let hidden = players.len() - visible.len();
+    let mut rows: Vec<Row> = visible
+        .into_iter()
+        .map(|(place, player)| row(place, player))
+        .collect();
+    if hidden > 0 {
+        let more = format!("{hidden} more player{}", plural(hidden));
+        rows.push(doc::comment(more, palette));
+    }
+    rows
 }
 
 fn lobby_player(
@@ -148,6 +173,21 @@ fn lobby_player(
         ),
         state,
     ])
+}
+
+/// What to do next in the lobby: wait or start, and the keys.
+fn lobby_footer(client: &RaceClient, room: &RoomView, palette: &Palette) -> [Row; 4] {
+    let mut keys = vec![("r", "toggle ready")];
+    if client.is_host() {
+        keys.push(("s", "start the race"));
+    }
+    keys.push(("Esc", "leave"));
+    [
+        doc::blank(),
+        lobby_hint(client, room, palette),
+        doc::blank(),
+        doc::keys(&keys, palette),
+    ]
 }
 
 fn lobby_hint(client: &RaceClient, room: &RoomView, palette: &Palette) -> Row {
@@ -206,33 +246,33 @@ fn standings(
         .style(palette.base());
     let inner = block.inner(area);
     let lines: Vec<Line> =
-        visible_standings(&room.standings(), client.player, usize::from(inner.height))
+        visible_players(&room.standings(), client.player, usize::from(inner.height))
             .into_iter()
             .map(|(place, player)| standing_line(place, player, client, room, inner.width, palette))
             .collect();
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-/// The places and players of the `standings` that fit in `rows` rows.
-/// The player `me` always shows: when their place falls below the last
-/// row, they take that row, with their real place.
-fn visible_standings<'a>(
-    standings: &[&'a PlayerView],
+/// The places and players of the list of `players` that fit in `rows`
+/// rows. The player `me` always shows: when their place falls below the
+/// last row, they take that row, with their real place.
+fn visible_players<'a>(
+    players: &[&'a PlayerView],
     me: Option<PlayerId>,
     rows: usize,
 ) -> Vec<(usize, &'a PlayerView)> {
-    let mut visible: Vec<(usize, &PlayerView)> = standings
+    let mut visible: Vec<(usize, &PlayerView)> = players
         .iter()
         .copied()
         .enumerate()
         .map(|(index, player)| (index + 1, player))
         .take(rows)
         .collect();
-    let mine = standings.iter().position(|player| Some(player.id) == me);
+    let mine = players.iter().position(|player| Some(player.id) == me);
     if let Some(index) = mine.filter(|index| *index >= rows)
         && let Some(last) = visible.last_mut()
     {
-        *last = (index + 1, standings[index]);
+        *last = (index + 1, players[index]);
     }
     visible
 }
@@ -291,22 +331,33 @@ fn results(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, 
             palette.fg(palette.muted).add_modifier(Modifier::BOLD),
         )]),
     ];
-    for (index, player) in room.standings().into_iter().enumerate() {
-        rows.push(result_row(index + 1, player, client, palette));
-    }
-    rows.push(doc::blank());
-    rows.push(own_result(client, room, palette));
-    rows.push(doc::blank());
-    let mut keys = Vec::new();
-    if client.is_host() {
-        keys.push(("r", "back to the lobby for another race"));
-    } else {
-        keys.push(("", "waiting for the host to start another race"));
-    }
-    keys.push(("Esc", "leave"));
-    rows.push(doc::keys(&keys, palette));
+    let footer = results_footer(client, room, palette);
+    let fitting = usize::from(area.height).saturating_sub(rows.len() + footer.len());
+    rows.extend(player_rows(
+        &room.standings(),
+        client.player,
+        fitting,
+        palette,
+        |place, player| result_row(place, player, client, palette),
+    ));
+    rows.extend(footer);
     editor::number_rows(&mut rows);
     editor::render(frame, area, &rows, 0, palette);
+}
+
+/// The client's own result and what comes next.
+fn results_footer(client: &RaceClient, room: &RoomView, palette: &Palette) -> [Row; 4] {
+    let next = if client.is_host() {
+        ("r", "back to the lobby for another race")
+    } else {
+        ("", "waiting for the host to start another race")
+    };
+    [
+        doc::blank(),
+        own_result(client, room, palette),
+        doc::blank(),
+        doc::keys(&[next, ("Esc", "leave")], palette),
+    ]
 }
 
 fn result_row(place: usize, player: &PlayerView, client: &RaceClient, palette: &Palette) -> Row {
@@ -389,7 +440,7 @@ mod tests {
     fn the_player_last_of_a_full_room_takes_the_last_row() {
         let players = players(8);
         let standings: Vec<&PlayerView> = players.iter().collect();
-        let visible = visible_standings(&standings, Some(PlayerId(8)), 7);
+        let visible = visible_players(&standings, Some(PlayerId(8)), 7);
         assert_eq!(
             shown(&visible),
             [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (8, 8)]
@@ -402,19 +453,37 @@ mod tests {
         let standings: Vec<&PlayerView> = players.iter().collect();
         let all = [(1, 1), (2, 2), (3, 3), (4, 4)];
         assert_eq!(
-            shown(&visible_standings(&standings, Some(PlayerId(4)), 7)),
+            shown(&visible_players(&standings, Some(PlayerId(4)), 7)),
             all
         );
         assert_eq!(
-            shown(&visible_standings(&standings, Some(PlayerId(2)), 3)),
+            shown(&visible_players(&standings, Some(PlayerId(2)), 3)),
             all[..3],
             "the player is already shown"
         );
         assert_eq!(
-            shown(&visible_standings(&standings, None, 2)),
+            shown(&visible_players(&standings, None, 2)),
             all[..2],
             "a spectator sees the top"
         );
-        assert!(visible_standings(&standings, Some(PlayerId(4)), 0).is_empty());
+        assert!(visible_players(&standings, Some(PlayerId(4)), 0).is_empty());
+    }
+
+    #[test]
+    fn a_list_too_long_ends_with_the_count_of_the_players_left_out() {
+        let players = players(8);
+        let list: Vec<&PlayerView> = players.iter().collect();
+        let palette = Palette::of(crate::config::Theme::Editor);
+        let texts = |fitting| -> Vec<String> {
+            player_rows(&list, Some(PlayerId(8)), fitting, &palette, |place, _| {
+                Row::new(vec![Span::raw(place.to_string())])
+            })
+            .iter()
+            .map(|row| row.spans.iter().map(|span| span.content.as_ref()).collect())
+            .collect()
+        };
+        assert_eq!(texts(8), ["1", "2", "3", "4", "5", "6", "7", "8"]);
+        assert_eq!(texts(5), ["1", "2", "3", "8", "# 4 more players"]);
+        assert_eq!(texts(2), ["8", "# 7 more players"]);
     }
 }
