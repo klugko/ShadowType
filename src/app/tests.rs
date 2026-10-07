@@ -328,17 +328,18 @@ fn abandoning_a_started_session_takes_two_escapes() {
 }
 
 #[test]
-fn leaving_a_race_in_progress_takes_two_escapes() {
-    for start in [room::counting_down, room::racing] {
+fn leaving_a_race_takes_two_escapes_until_the_room_is_back_in_the_lobby() {
+    for start in [room::counting_down, room::racing, room::showing_results] {
         let now = Instant::now();
         let mut app = start(now);
-        press_at(&mut app, KeyCode::Esc, now);
+        let first = now + AFTER_QUIET;
+        press_at(&mut app, KeyCode::Esc, first);
         assert!(app.race().is_some());
         assert_eq!(
             app.message(),
-            Some(&Message::info("press Esc again to leave the race"))
+            Some(&Message::info("press Esc again to leave FK72AD"))
         );
-        press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(1));
+        press_at(&mut app, KeyCode::Esc, first + Duration::from_secs(1));
         assert!(app.activity.is_none());
         assert_eq!(app.buffer, Buffer::Race);
         assert_eq!(app.message(), Some(&Message::info("left FK72AD")));
@@ -711,10 +712,9 @@ fn a_race_is_recorded_once_as_soon_as_the_server_times_the_finish() {
     room::deliver(&mut app, ServerMessage::Room(over), typed_at);
     assert_eq!(app.history.records().len(), 1, "never twice");
     press_at(&mut app, KeyCode::Esc, typed_at + AFTER_QUIET);
-    assert!(
-        app.activity.is_none(),
-        "a finished player leaves with one Esc"
-    );
+    assert!(app.race().is_some(), "the results are worth a second Esc");
+    press_at(&mut app, KeyCode::Esc, typed_at + AFTER_QUIET);
+    assert!(app.activity.is_none());
 }
 
 #[test]
@@ -1359,6 +1359,17 @@ mod room {
         deliver(
             &mut app,
             ServerMessage::Room(view(Phase::Racing, PlayerProgress::default())),
+            at,
+        );
+        app
+    }
+
+    /// The results of a race the player did not finish.
+    pub fn showing_results(at: Instant) -> App {
+        let mut app = racing(at);
+        deliver(
+            &mut app,
+            ServerMessage::Room(view(Phase::Finished, PlayerProgress::default())),
             at,
         );
         app

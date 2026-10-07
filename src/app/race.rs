@@ -224,6 +224,11 @@ impl RaceClient {
         matches!(self.phase(), Some(Phase::Countdown | Phase::Racing))
     }
 
+    /// Whether the room shows a race: its countdown, the race or its results.
+    pub fn shows_a_race(&self) -> bool {
+        self.is_live() || self.phase() == Some(Phase::Finished)
+    }
+
     /// Whether the race text takes what the player types.
     pub fn accepts_typing(&self) -> bool {
         self.phase() == Some(Phase::Racing)

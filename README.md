@@ -154,8 +154,8 @@ speed or accuracy, in solo sessions and races alike.
 4. Everyone presses `r` to get ready. The host presses `s`.
 5. The server announces the text and starts the countdown; everyone starts on the server's signal.
 6. Standings update live. When everyone has finished, left, or the race times out, results appear.
-7. The host presses `r` to go back to the lobby for another race. `Esc` leaves the room (twice during
-   a race, so a stray Esc never costs you a race).
+7. The host presses `r` to go back to the lobby for another race. `Esc` leaves the room (twice from
+   the countdown to the results, so a stray Esc never costs you a race or its results).
 
 The server is the authority: it chooses the text, starts the race, measures every finishing time,
 validates progress reports and computes speeds. A client cannot declare itself finished.
@@ -230,7 +230,7 @@ such as `wss://race.example.com`.
 |                        | Enter                   | new line (code is auto-indented)           |
 |                        | `Ctrl+R`, `Esc` `Esc`   | restart, abandon                           |
 | results                | `r` / `e` / `Esc`       | new text / settings / close                |
-| room                   | `r` or Space, `s`, `Esc`| ready, start (host), leave                 |
+| room                   | `r` or Space, `s`, `Esc`| ready, start (host), leave (twice in a race) |
 | history, help          | `j` `k`, `Ctrl+D` `Ctrl+U`, `g` `G` | scroll                         |
 
 ### Commands

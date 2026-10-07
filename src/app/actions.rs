@@ -170,17 +170,17 @@ impl App {
         }
     }
 
-    /// Abandons the solo session or leaves the room. While the player is
-    /// typing, it takes a second Esc: in an editor Esc is a reflex, and one
-    /// press would throw the text away.
+    /// Abandons the solo session or leaves the room. While there is
+    /// something to lose, it takes a second Esc: in an editor Esc is a
+    /// reflex, and one press would throw it away.
     pub(super) fn leave_session(&mut self, now: Instant) {
         let (asked, done) = match &self.activity {
             Some(Activity::Solo(_)) => (
-                "press Esc again to abandon the session",
+                "press Esc again to abandon the session".to_owned(),
                 "session abandoned".to_owned(),
             ),
             Some(Activity::Race(client)) => (
-                "press Esc again to leave the race",
+                format!("press Esc again to leave {}", client.room_label()),
                 format!("left {}", client.room_label()),
             ),
             None => return,
@@ -193,15 +193,25 @@ impl App {
         }
     }
 
-    /// Whether leaving is confirmed: at once when no text is in progress,
+    /// Whether leaving is confirmed: at once when there is nothing to lose,
     /// otherwise by a second Esc within [`LEAVE_CONFIRMATION`] of the first.
     fn confirm_leave(&mut self, now: Instant) -> bool {
-        let confirmed = !self.session_in_progress()
+        let confirmed = !self.leaving_loses_something()
             || self
                 .leave_armed
                 .is_some_and(|armed| now.duration_since(armed) <= LEAVE_CONFIRMATION);
         self.leave_armed = (!confirmed).then_some(now);
         confirmed
+    }
+
+    /// Whether leaving would lose a solo text in progress, or a race from
+    /// its countdown to its results, where the host may start another one.
+    fn leaving_loses_something(&self) -> bool {
+        match &self.activity {
+            Some(Activity::Solo(run)) => run.is_in_progress(),
+            Some(Activity::Race(client)) => client.shows_a_race(),
+            None => false,
+        }
     }
 
     /// Ends the running activity and goes back to the buffer it was started from.
