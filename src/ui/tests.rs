@@ -464,6 +464,35 @@ fn chart_end(screen: &str) -> Option<usize> {
 }
 
 #[test]
+fn history_draws_every_line_of_its_layout_and_no_other() {
+    use crate::app::history_log::{CHART_SESSIONS, lines};
+    for sessions in [0, 1, 2, CHART_SESSIONS + 1] {
+        let mut app = app();
+        for _ in 0..sessions {
+            app.history.add(record(70.0)).expect("in memory");
+        }
+        command(&mut app, "history");
+        let count = lines(sessions).len();
+        let height = u16::try_from(count + 4)
+            .expect("a small screen")
+            .max(MIN_HEIGHT);
+        let text = screen(&app, 120, height);
+        let numbered = |number: usize| {
+            text.lines().any(|line| {
+                line.split('│')
+                    .nth(1)
+                    .is_some_and(|editor| editor.trim_start().starts_with(&format!("{number}  ")))
+            })
+        };
+        assert!(
+            numbered(count),
+            "line {count} of {sessions} sessions:\n{text}"
+        );
+        assert!(!numbered(count + 1), "{sessions} sessions:\n{text}");
+    }
+}
+
+#[test]
 fn the_oldest_session_can_be_scrolled_into_view() {
     let mut app = app();
     app.history

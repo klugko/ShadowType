@@ -992,7 +992,7 @@ fn history_scrolls_to_its_oldest_session() {
     press(&mut app, KeyCode::Char('G'));
     assert_eq!(
         app.history_scroll,
-        history_log::line_count(3) - app.viewport.editor_rows()
+        history_log::lines(3).len() - app.viewport.editor_rows()
     );
 }
 

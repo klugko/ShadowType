@@ -448,7 +448,7 @@ impl App {
     /// editor pane, zero for buffers that do not scroll.
     fn last_scroll(&self, buffer: Buffer) -> usize {
         let lines = match buffer {
-            Buffer::History => history_log::line_count(self.history.records().len()),
+            Buffer::History => history_log::lines(self.history.records().len()).len(),
             Buffer::Help => help::LINES.len(),
             _ => 0,
         };
