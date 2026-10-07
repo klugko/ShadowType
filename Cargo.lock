@@ -339,6 +339,7 @@ dependencies = [
  "code-racer-engine",
  "code-racer-protocol",
  "futures-util",
+ "nu-ansi-term",
  "rand 0.10.3",
  "serde_json",
  "tokio",

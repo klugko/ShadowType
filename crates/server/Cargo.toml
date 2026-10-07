@@ -20,6 +20,10 @@ tokio-tungstenite.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# Turns on ANSI rendering in Windows consoles for coloured logs.
+nu-ansi-term.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 

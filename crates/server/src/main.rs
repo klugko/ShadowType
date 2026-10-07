@@ -1,6 +1,6 @@
 //! Command line entry point of the race server.
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::{ffi::OsStr, io::IsTerminal, num::NonZeroUsize, time::Duration};
 
 use anyhow::Context;
 use clap::Parser;
@@ -55,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        .with_ansi(coloured_logs())
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
@@ -67,6 +68,30 @@ async fn main() -> anyhow::Result<()> {
     serve(listener, args.config(), shutdown_signal()).await?;
     info!("race server stopped");
     Ok(())
+}
+
+/// Whether log lines carry ANSI colours: only on a terminal that renders
+/// them, so that files, pipes, `docker logs` and journald get plain text.
+fn coloured_logs() -> bool {
+    let no_color = std::env::var_os("NO_COLOR");
+    colours_wanted(std::io::stderr().is_terminal(), no_color.as_deref()) && terminal_renders_ansi()
+}
+
+/// Colours suit a terminal, unless `NO_COLOR` is set to a non-empty value,
+/// as <https://no-color.org> asks.
+fn colours_wanted(terminal: bool, no_color: Option<&OsStr>) -> bool {
+    terminal && no_color.is_none_or(OsStr::is_empty)
+}
+
+/// Windows consoles render ANSI sequences only once asked to.
+#[cfg(windows)]
+fn terminal_renders_ansi() -> bool {
+    nu_ansi_term::enable_ansi_support().is_ok()
+}
+
+#[cfg(not(windows))]
+fn terminal_renders_ansi() -> bool {
+    true
 }
 
 /// Completes on Ctrl+C, or on the SIGTERM sent by `docker stop` and service managers.
@@ -101,4 +126,17 @@ async fn terminate() {
 #[cfg(not(unix))]
 async fn terminate() {
     std::future::pending::<()>().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colours_are_for_terminals_that_do_not_opt_out() {
+        assert!(colours_wanted(true, None));
+        assert!(colours_wanted(true, Some(OsStr::new(""))));
+        assert!(!colours_wanted(true, Some(OsStr::new("1"))));
+        assert!(!colours_wanted(false, None));
+    }
 }
