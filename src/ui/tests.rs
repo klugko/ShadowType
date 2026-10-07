@@ -429,6 +429,34 @@ async fn race_shows_the_text_and_live_standings() {
 }
 
 #[tokio::test]
+async fn the_standings_always_show_the_player_even_last_of_a_full_room() {
+    let mut full = room(Phase::Racing);
+    full.players = (1..=8_u32)
+        .map(|n| player(n.into(), &format!("racer{n}"), 10 * n, None))
+        .collect();
+    let mut app = in_room_at(full, Instant::now());
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    let standings: Vec<&str> = text
+        .lines()
+        .skip_while(|line| !line.contains("PLAYERS"))
+        .skip(1)
+        .take_while(|line| !line.contains("INSERT"))
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    assert!(
+        standings.len() < 8,
+        "the panel cannot show everyone:\n{text}"
+    );
+    let last = standings.last().expect("standings");
+    assert!(
+        last.trim_start().starts_with("8 racer1"),
+        "own row with its real place:\n{text}"
+    );
+    assert!(standings[0].trim_start().starts_with("1 racer8"), "{text}");
+}
+
+#[tokio::test]
 async fn race_results_rank_players() {
     let app = in_room(Phase::Finished);
     let text = screen(&app, 120, 30);

@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 
-use code_racer_protocol::{PlayerView, RoomView};
+use code_racer_protocol::{PlayerId, PlayerView, RoomView};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -208,13 +208,36 @@ fn standings(
         .title(Span::styled(title, title_style))
         .style(palette.base());
     let inner = block.inner(area);
-    let lines: Vec<Line> = room
-        .standings()
-        .into_iter()
-        .enumerate()
-        .map(|(index, player)| standing_line(index + 1, player, client, room, inner.width, palette))
-        .collect();
+    let lines: Vec<Line> =
+        visible_standings(&room.standings(), client.player, usize::from(inner.height))
+            .into_iter()
+            .map(|(place, player)| standing_line(place, player, client, room, inner.width, palette))
+            .collect();
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+/// The places and players of the `standings` that fit in `rows` rows.
+/// The player `me` always shows: when their place falls below the last
+/// row, they take that row, with their real place.
+fn visible_standings<'a>(
+    standings: &[&'a PlayerView],
+    me: Option<PlayerId>,
+    rows: usize,
+) -> Vec<(usize, &'a PlayerView)> {
+    let mut visible: Vec<(usize, &PlayerView)> = standings
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, player)| (index + 1, player))
+        .take(rows)
+        .collect();
+    let mine = standings.iter().position(|player| Some(player.id) == me);
+    if let Some(index) = mine.filter(|index| *index >= rows)
+        && let Some(last) = visible.last_mut()
+    {
+        *last = (index + 1, standings[index]);
+    }
+    visible
 }
 
 fn standing_line(
@@ -338,4 +361,63 @@ fn name_span(player: &PlayerView, client: &RaceClient, palette: &Palette) -> Spa
 
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
+}
+
+#[cfg(test)]
+mod tests {
+    use code_racer_protocol::PlayerProgress;
+
+    use super::*;
+
+    fn players(count: u64) -> Vec<PlayerView> {
+        (1..=count)
+            .map(|id| PlayerView {
+                id: PlayerId(id),
+                name: format!("racer{id}").parse().expect("name"),
+                ready: true,
+                connected: true,
+                progress: PlayerProgress::default(),
+            })
+            .collect()
+    }
+
+    fn shown(visible: &[(usize, &PlayerView)]) -> Vec<(usize, u64)> {
+        visible
+            .iter()
+            .map(|(place, player)| (*place, player.id.0))
+            .collect()
+    }
+
+    #[test]
+    fn the_player_last_of_a_full_room_takes_the_last_row() {
+        let players = players(8);
+        let standings: Vec<&PlayerView> = players.iter().collect();
+        let visible = visible_standings(&standings, Some(PlayerId(8)), 7);
+        assert_eq!(
+            shown(&visible),
+            [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (8, 8)]
+        );
+    }
+
+    #[test]
+    fn standings_that_fit_are_shown_as_they_are() {
+        let players = players(4);
+        let standings: Vec<&PlayerView> = players.iter().collect();
+        let all = [(1, 1), (2, 2), (3, 3), (4, 4)];
+        assert_eq!(
+            shown(&visible_standings(&standings, Some(PlayerId(4)), 7)),
+            all
+        );
+        assert_eq!(
+            shown(&visible_standings(&standings, Some(PlayerId(2)), 3)),
+            all[..3],
+            "the player is already shown"
+        );
+        assert_eq!(
+            shown(&visible_standings(&standings, None, 2)),
+            all[..2],
+            "a spectator sees the top"
+        );
+        assert!(visible_standings(&standings, Some(PlayerId(4)), 0).is_empty());
+    }
 }
