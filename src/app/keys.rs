@@ -101,7 +101,7 @@ impl App {
 
     fn toggle_focus(&mut self) {
         match self.focus {
-            Focus::Explorer => self.focus = Focus::Editor,
+            Focus::Explorer => self.focus_editor(),
             Focus::Editor => self.focus_explorer(),
         }
     }
@@ -118,7 +118,7 @@ impl App {
             KeyCode::Char('g') | KeyCode::Home => 0,
             KeyCode::Char('G') | KeyCode::End => entries.len() - 1,
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
-                self.focus = Focus::Editor;
+                self.focus_editor();
                 return true;
             }
             _ => return false,

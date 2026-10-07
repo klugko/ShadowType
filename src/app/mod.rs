@@ -128,11 +128,13 @@ impl Viewport {
     }
 }
 
+/// The size assumed before the terminal reports its own: a common one, with
+/// room for the explorer.
 impl Default for Viewport {
     fn default() -> Self {
         Self {
-            width: 80,
-            height: 24,
+            width: 120,
+            height: 30,
         }
     }
 }
@@ -245,9 +247,10 @@ pub struct App {
     /// Whether the explorer is shown. The explorer has the focus only while
     /// it is shown: keys would otherwise switch buffers out of sight.
     pub sidebar: bool,
-    /// Whether the user showed or hid the explorer. Until then it follows
-    /// the width of the terminal.
-    sidebar_chosen: bool,
+    /// Whether the user showed or hid the explorer for good, with Ctrl+B or
+    /// `:set sidebar`. Until then it is shown when the terminal has room for
+    /// it, and otherwise only while it has the focus.
+    sidebar_choice: Option<bool>,
     pub viewport: Viewport,
     /// What to open once the name being asked for is set.
     pending: Option<Launch>,
@@ -289,7 +292,7 @@ impl App {
             messages: Messages::default(),
             activity: None,
             sidebar: true,
-            sidebar_chosen: false,
+            sidebar_choice: None,
             viewport: Viewport::default(),
             pending: None,
             quiet_until: None,
@@ -421,13 +424,10 @@ impl App {
     }
 
     /// Takes the new size of the terminal, keeping the scrolled buffers
-    /// within their content, and showing the explorer only when it has room
-    /// unless the user decided.
+    /// within their content, and the explorer as it rests at that size.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.viewport = Viewport { width, height };
-        if !self.sidebar_chosen {
-            self.show_sidebar(self.viewport.has_room_for_explorer());
-        }
+        self.show_sidebar(self.resting_sidebar());
         self.history_scroll = self.history_scroll.min(self.last_scroll(Buffer::History));
         self.help_scroll = self.help_scroll.min(self.last_scroll(Buffer::Help));
     }
@@ -446,7 +446,7 @@ impl App {
     /// Shows or hides the explorer as the user asks, whatever the width of
     /// the terminal from then on.
     fn set_sidebar(&mut self, visible: bool) {
-        self.sidebar_chosen = true;
+        self.sidebar_choice = Some(visible);
         self.show_sidebar(visible);
     }
 
@@ -457,14 +457,23 @@ impl App {
         }
     }
 
-    /// Focuses the explorer, showing it if it was hidden. Only showing it
-    /// counts as a choice; going back to a visible explorer keeps it hiding
-    /// itself on narrow terminals.
+    /// Whether the explorer is shown while the editor has the focus: as the
+    /// user chose, or when the terminal has room for it.
+    fn resting_sidebar(&self) -> bool {
+        self.sidebar_choice
+            .unwrap_or_else(|| self.viewport.has_room_for_explorer())
+    }
+
+    /// Focuses the explorer, showing it while it has the focus.
     fn focus_explorer(&mut self) {
-        if !self.sidebar {
-            self.set_sidebar(true);
-        }
+        self.sidebar = true;
         self.focus = Focus::Explorer;
+    }
+
+    /// Focuses the editor, the explorer going back to how it rests.
+    fn focus_editor(&mut self) {
+        self.focus = Focus::Editor;
+        self.sidebar = self.resting_sidebar();
     }
 
     /// Focuses the explorer if it is shown, the editor otherwise.
@@ -519,7 +528,7 @@ impl App {
             self.cancel_edit();
         }
         self.buffer = buffer;
-        self.focus = Focus::Editor;
+        self.focus_editor();
     }
 
     /// Drops the field being typed, and what was to follow the name asked

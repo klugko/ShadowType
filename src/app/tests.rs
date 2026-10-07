@@ -964,6 +964,34 @@ fn the_explorer_makes_room_on_narrow_terminals_until_the_user_decides() {
 }
 
 #[test]
+fn on_a_narrow_terminal_the_explorer_shows_only_while_it_has_the_focus() {
+    let mut app = app();
+    app.resize(80, 20);
+    press(&mut app, KeyCode::Char('?'));
+    for (reveal, back) in [
+        (KeyCode::Esc, KeyCode::Enter),
+        (KeyCode::Char('h'), KeyCode::Char('l')),
+        (KeyCode::Left, KeyCode::Right),
+        (KeyCode::Tab, KeyCode::Tab),
+        (KeyCode::Esc, KeyCode::Char('?')),
+    ] {
+        press(&mut app, reveal);
+        assert_eq!((app.sidebar, app.focus), (true, Focus::Explorer), "{reveal}");
+        press(&mut app, back);
+        assert_eq!((app.sidebar, app.focus), (false, Focus::Editor), "{back}");
+    }
+
+    press_with(&mut app, 'b', KeyModifiers::CONTROL);
+    press(&mut app, KeyCode::Enter);
+    assert!(app.sidebar, "pinned by the user");
+    command(&mut app, "set nosidebar");
+    press(&mut app, KeyCode::Esc);
+    assert!(app.sidebar, "shown while it has the focus");
+    press(&mut app, KeyCode::Enter);
+    assert!(!app.sidebar, "hidden again, as the user wants it");
+}
+
+#[test]
 fn returning_to_a_visible_explorer_keeps_it_automatic() {
     let mut app = app();
     app.resize(120, 30);
