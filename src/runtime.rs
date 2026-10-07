@@ -3,6 +3,7 @@
 
 use std::{
     future::Future,
+    io,
     pin::pin,
     time::{Duration, Instant},
 };
@@ -14,7 +15,12 @@ use futures_util::{
 };
 use tokio::time::MissedTickBehavior;
 
-use crate::{app::App, network::NetworkEvent, terminal::TerminalGuard, ui};
+use crate::{
+    app::{App, Viewport},
+    network::NetworkEvent,
+    terminal::TerminalGuard,
+    ui,
+};
 
 /// Refresh rate of timers and live statistics while a session runs.
 const TICK: Duration = Duration::from_millis(100);
@@ -36,14 +42,13 @@ pub async fn run(mut app: App) -> anyhow::Result<()> {
 async fn interact(app: &mut App) -> anyhow::Result<()> {
     let mut shutdown = pin!(shutdown_signal());
     let mut guard = TerminalGuard::enter()?;
-    let size = guard.terminal().size()?;
-    app.resize(size.width, size.height);
     let mut events = EventStream::new();
     let mut ticker = tokio::time::interval(TICK);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut dirty = true;
     while !app.should_quit() {
         if dirty {
+            fit_to_terminal(app, &mut guard)?;
             guard
                 .terminal()
                 .draw(|frame| ui::draw(frame, app, Instant::now()))?;
@@ -82,12 +87,25 @@ fn handle_terminal_event(app: &mut App, event: Event) -> bool {
             app.handle_paste(&text, Instant::now());
             true
         }
-        Event::Resize(width, height) => {
-            app.resize(width, height);
-            true
-        }
+        Event::Resize(..) => true,
         _ => false,
     }
+}
+
+/// Gives `app` the size of the terminal, read before each draw rather than
+/// taken from resize events: Windows reports in them the size of the
+/// screen buffer, one more than the window each way, and consoles that do
+/// not report resizes at all are caught up at the next redraw.
+fn fit_to_terminal(app: &mut App, guard: &mut TerminalGuard) -> io::Result<()> {
+    let size = guard.terminal().size()?;
+    let viewport = Viewport {
+        width: size.width,
+        height: size.height,
+    };
+    if app.viewport != viewport {
+        app.resize(viewport.width, viewport.height);
+    }
+    Ok(())
 }
 
 async fn next_network_event(app: &mut App) -> Option<NetworkEvent> {
@@ -158,4 +176,32 @@ fn signal_listeners() -> Vec<BoxFuture<'static, ()>> {
 #[cfg(not(any(unix, windows)))]
 fn signal_listeners() -> Vec<BoxFuture<'static, ()>> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{app::Overrides, cli::Launch, config::Config, history::History};
+
+    #[test]
+    fn a_resize_event_asks_for_a_redraw_without_trusting_its_size() {
+        let mut app = App::new(
+            Config::default(),
+            &Overrides::default(),
+            None,
+            History::in_memory(),
+            Vec::new(),
+            Launch::Home,
+        );
+        let before = app.viewport;
+        assert!(handle_terminal_event(&mut app, Event::Resize(121, 31)));
+        assert_eq!(app.viewport, before, "the size is read before drawing");
+        assert_ne!(
+            app.viewport,
+            Viewport {
+                width: 121,
+                height: 31
+            }
+        );
+    }
 }

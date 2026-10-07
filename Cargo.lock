@@ -286,6 +286,7 @@ dependencies = [
  "code-racer-protocol",
  "code-racer-server",
  "crossterm",
+ "crossterm_winapi",
  "directories",
  "fs4",
  "futures-util",

@@ -73,6 +73,9 @@ tracing-subscriber.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+crossterm_winapi = "0.9"
+
 [dev-dependencies]
 code-racer-server = { path = "crates/server" }
 

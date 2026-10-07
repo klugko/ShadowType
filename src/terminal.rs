@@ -40,6 +40,7 @@ impl TerminalGuard {
         match entered {
             Ok(terminal) => {
                 enable_optional_features();
+                window_input::enable();
                 Ok(Self { terminal })
             }
             Err(error) => {
@@ -76,11 +77,59 @@ fn restore() {
         return;
     }
     let _ = disable_raw_mode();
+    window_input::restore();
     let mut stdout = io::stdout();
     let _ = execute!(stdout, DisableBracketedPaste);
     let _ = execute!(stdout, LeaveAlternateScreen);
     let _ = execute!(stdout, SetCursorStyle::DefaultUserShape);
     let _ = execute!(stdout, Show);
+}
+
+/// Resizes of a Windows console reach the program only when it asks for
+/// window input, which crossterm does for mouse capture alone. Asking is
+/// best effort: without it, a resize is noticed at the next redraw.
+#[cfg(windows)]
+mod window_input {
+    use std::{io, sync::OnceLock};
+
+    use crossterm_winapi::{ConsoleMode, Handle};
+
+    /// `ENABLE_WINDOW_INPUT` of the console API.
+    const WINDOW_INPUT: u32 = 0x0008;
+
+    /// Whether the console had window input before [`enable`] asked for it.
+    static HAD_WINDOW_INPUT: OnceLock<bool> = OnceLock::new();
+
+    pub fn enable() {
+        if let Ok(had) = update(|mode| mode | WINDOW_INPUT) {
+            let _ = HAD_WINDOW_INPUT.set(had);
+        }
+    }
+
+    /// Gives the console back the window input setting it had, leaving the
+    /// rest of its mode to the code that changed it.
+    pub fn restore() {
+        if HAD_WINDOW_INPUT.get() == Some(&false) {
+            let _ = update(|mode| mode & !WINDOW_INPUT);
+        }
+    }
+
+    /// Changes the input mode of the console with `change`; returns whether
+    /// it had window input before.
+    fn update(change: impl FnOnce(u32) -> u32) -> io::Result<bool> {
+        let console = ConsoleMode::from(Handle::current_in_handle()?);
+        let mode = console.mode()?;
+        console.set_mode(change(mode))?;
+        Ok(mode & WINDOW_INPUT != 0)
+    }
+}
+
+/// Other terminals report their resizes by themselves.
+#[cfg(not(windows))]
+mod window_input {
+    pub fn enable() {}
+
+    pub fn restore() {}
 }
 
 /// A panic on the interface thread ends the program: the terminal is
