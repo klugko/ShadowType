@@ -39,7 +39,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
     let [body, status, command] = Layout::vertical([
         Constraint::Min(1),
         Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(chrome::cmdline_height(app, area.width)),
     ])
     .areas(area);
     let main = if app.sidebar {

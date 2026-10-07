@@ -11,14 +11,17 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
     app::{Activity, App, Buffer, EditorMode, Focus, MessageKind, TextField},
-    ui::{format, theme::Palette},
+    ui::{format, theme::Palette, wrap},
 };
 
 const MEANINGFUL_SPEED_AFTER: Duration = Duration::from_secs(1);
+/// Most rows a long message takes in the command line.
+const MAX_MESSAGE_ROWS: usize = 4;
 /// Columns below which the context of the status line is left out rather
 /// than cut to a stub, its padding included.
 const MIN_CONTEXT_WIDTH: usize = 10;
@@ -330,15 +333,37 @@ pub fn cmdline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> O
             y: area.y,
         });
     }
-    let line = match &app.message {
-        Some(message) => Line::from(Span::styled(
-            message.text.clone(),
-            message_style(message.kind, palette),
-        )),
-        None => hints(app, palette),
+    let lines = match app.message() {
+        Some(message) => message_rows(&message.text, area.width)
+            .into_iter()
+            .map(|row| Line::from(Span::styled(row, message_style(message.kind, palette))))
+            .collect(),
+        None => vec![hints(app, palette)],
     };
-    frame.render_widget(Paragraph::new(line), area);
+    frame.render_widget(Paragraph::new(lines), area);
     None
+}
+
+/// Rows the command line takes at `width` columns: those of the message on
+/// screen, so that a long one such as a warning with the path of a backup
+/// shows whole, and one otherwise.
+pub fn cmdline_height(app: &App, width: u16) -> u16 {
+    let rows = match (&app.prompt, app.message()) {
+        (None, Some(message)) => message_rows(&message.text, width).len(),
+        _ => 1,
+    };
+    u16::try_from(rows.max(1)).unwrap_or(1)
+}
+
+/// `text` wrapped at `width` columns, in at most [`MAX_MESSAGE_ROWS`] rows.
+fn message_rows(text: &str, width: u16) -> Vec<String> {
+    let graphemes: Vec<String> = text.graphemes(true).map(str::to_owned).collect();
+    wrap::wrap(&graphemes, width)
+        .into_iter()
+        .filter(|row| row.start < row.end)
+        .take(MAX_MESSAGE_ROWS)
+        .map(|row| graphemes[row.start..row.end].concat().trim_end().to_owned())
+        .collect()
 }
 
 fn message_style(kind: MessageKind, palette: &Palette) -> Style {

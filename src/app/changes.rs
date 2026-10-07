@@ -1,8 +1,8 @@
 //! Changes to the settings, whichever form, field or command made them, and
 //! saving them.
 //!
-//! A change is reported before it is saved, so that a failure to save is the
-//! message left on screen.
+//! A failure to save is an error: it replaces a report of the change made
+//! before it, and a report made after it waits behind it.
 
 use code_racer_engine::{CodeLanguage, Language};
 use code_racer_protocol::{RoomCode, Username};
@@ -71,15 +71,16 @@ impl App {
         });
     }
 
+    /// Sets the name other racers see, then opens what waited for it. A
+    /// failure to save it is an error, which the greeting does not replace.
     fn set_username(&mut self, value: &str) -> Result<(), String> {
         let name: Username = value.parse().map_err(|error| format!("{error}"))?;
-        self.config.username = name.to_string();
+        self.choose(|config| config.username = name.to_string());
         self.info(format!("hello {name}"));
         if let Some(launch) = self.pending.take() {
             self.editing = None;
             self.run_launch(launch);
         }
-        self.choose(|config| config.username = name.to_string());
         Ok(())
     }
 
@@ -112,8 +113,7 @@ impl App {
     }
 
     /// Applies a setting the user chose in the app, and saves it with the
-    /// other settings changed since the last save. Call it after any message
-    /// about the change: a failure replaces that message.
+    /// other settings changed since the last save.
     pub(super) fn choose(&mut self, choice: impl Fn(&mut Config)) {
         if let Err(error) = self.saved.choose(&mut self.config, choice) {
             self.error(error);

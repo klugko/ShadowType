@@ -21,6 +21,7 @@ impl App {
     /// Handles a key press. Ctrl+C always quits; any other key is ignored
     /// during the quiet period that follows the end of typing.
     pub fn handle_key(&mut self, key: KeyEvent, now: Instant) {
+        self.begin_event();
         let key = normalized(key);
         if is_control(key, 'c') {
             self.quit = true;
@@ -304,7 +305,7 @@ impl App {
                 self.prompt = None;
                 match command::parse(&line) {
                     Ok(command) => self.run_command(command),
-                    Err(error) => self.message = Some(Message::command_error(&error)),
+                    Err(error) => self.messages.push(Message::command_error(&error)),
                 }
             }
             Edit::Cancelled => self.prompt = None,

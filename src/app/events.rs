@@ -13,6 +13,7 @@ const QUIET_PERIOD: Duration = Duration::from_millis(600);
 
 impl App {
     pub fn handle_paste(&mut self, text: &str, now: Instant) {
+        self.begin_event();
         if self.is_quiet(now) {
             return;
         }
@@ -26,6 +27,7 @@ impl App {
     }
 
     pub fn handle_network(&mut self, event: NetworkEvent, now: Instant) {
+        self.begin_event();
         let was_typing = self.is_typing();
         let Some(Activity::Race(client)) = &mut self.activity else {
             return;
@@ -56,6 +58,7 @@ impl App {
     }
 
     pub fn tick(&mut self, now: Instant) {
+        self.begin_event();
         let was_typing = self.is_typing();
         match &mut self.activity {
             Some(Activity::Solo(run)) => {

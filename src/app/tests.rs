@@ -25,6 +25,7 @@ fn app_with(config: Config, launch: Launch) -> App {
         &Overrides::default(),
         None,
         History::in_memory(),
+        Vec::new(),
         launch,
     )
 }
@@ -126,7 +127,7 @@ fn first_launch_asks_for_a_username_then_continues() {
     assert_eq!(app.editor_mode(), EditorMode::Insert);
     press(&mut app, KeyCode::Enter);
     assert!(
-        app.message.as_ref().is_some_and(Message::is_error),
+        app.message().is_some_and(Message::is_error),
         "empty name refused"
     );
     assert!(app.editing.is_some());
@@ -157,8 +158,7 @@ fn a_race_launched_without_a_name_says_it_needs_one() {
     press(&mut app, KeyCode::Esc);
     assert!(app.activity.is_none());
     assert!(
-        app.message
-            .as_ref()
+        app.message()
             .is_some_and(|message| message.is_error() && message.text.contains("username"))
     );
     command(&mut app, "set username=Ada");
@@ -212,7 +212,7 @@ fn completing_a_session_records_it_and_shows_results() {
     press_at(&mut app, KeyCode::Esc, now + AFTER_QUIET);
     assert!(app.activity.is_none());
     assert_eq!(app.buffer, Buffer::Practice);
-    assert_eq!(app.message, Some(Message::info("session abandoned")));
+    assert_eq!(app.message(), Some(&Message::info("session abandoned")));
 }
 
 #[test]
@@ -301,7 +301,7 @@ fn keys_right_after_losing_the_connection_keep_the_reason_on_screen() {
     assert!(app.activity.is_none());
     assert_eq!(app.buffer, Buffer::Race);
     assert_eq!(app.config.race, settings);
-    assert_eq!(app.message, Some(Message::error("connection lost")));
+    assert_eq!(app.message(), Some(&Message::error("connection lost")));
 }
 
 #[test]
@@ -313,8 +313,8 @@ fn abandoning_a_started_session_takes_two_escapes() {
     press_at(&mut app, KeyCode::Esc, now);
     assert!(app.solo().is_some());
     assert_eq!(
-        app.message,
-        Some(Message::info("press Esc again to abandon the session"))
+        app.message(),
+        Some(&Message::info("press Esc again to abandon the session"))
     );
     press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(3));
     assert!(app.solo().is_some(), "too late: the first press expired");
@@ -324,7 +324,7 @@ fn abandoning_a_started_session_takes_two_escapes() {
     press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(5));
     assert!(app.activity.is_none());
     assert_eq!(app.buffer, Buffer::Practice);
-    assert_eq!(app.message, Some(Message::info("session abandoned")));
+    assert_eq!(app.message(), Some(&Message::info("session abandoned")));
 }
 
 #[test]
@@ -335,13 +335,13 @@ fn leaving_a_race_in_progress_takes_two_escapes() {
         press_at(&mut app, KeyCode::Esc, now);
         assert!(app.race().is_some());
         assert_eq!(
-            app.message,
-            Some(Message::info("press Esc again to leave the race"))
+            app.message(),
+            Some(&Message::info("press Esc again to leave the race"))
         );
         press_at(&mut app, KeyCode::Esc, now + Duration::from_secs(1));
         assert!(app.activity.is_none());
         assert_eq!(app.buffer, Buffer::Race);
-        assert_eq!(app.message, Some(Message::info("left FK72AD")));
+        assert_eq!(app.message(), Some(&Message::info("left FK72AD")));
     }
 }
 
@@ -362,12 +362,81 @@ fn typing_blocked_by_a_mistake_says_how_to_go_on() {
     press(&mut app, KeyCode::Char('a'));
     assert_eq!(session(&app).cursor(), code_racer_engine::ERROR_RUN_LIMIT);
     assert_eq!(
-        app.message,
-        Some(Message::info("fix the mistake first: Backspace or Ctrl+W"))
+        app.message(),
+        Some(&Message::info("fix the mistake first: Backspace or Ctrl+W"))
     );
     press(&mut app, KeyCode::Backspace);
     assert!(!app.is_typing_blocked());
-    assert_eq!(app.message, None);
+    assert_eq!(app.message(), None);
+}
+
+#[test]
+fn a_message_that_arrives_under_the_command_line_waits_until_it_is_seen() {
+    let now = Instant::now();
+    let mut app = room::joined(now);
+    press(&mut app, KeyCode::Char(':'));
+    type_text(&mut app, "hist");
+    app.handle_network(
+        crate::network::NetworkEvent::Closed {
+            reason: "room FK72AD closed after 30 minutes without activity".to_owned(),
+        },
+        now,
+    );
+    let closed = Message::error("room FK72AD closed after 30 minutes without activity");
+    press(&mut app, KeyCode::Esc);
+    assert!(app.prompt.is_none());
+    assert_eq!(app.message(), Some(&closed), "shown once the line closes");
+    press(&mut app, KeyCode::Char('j'));
+    assert_eq!(app.message(), None, "dismissed once seen");
+
+    let mut app = room::joined(now);
+    command(&mut app, "lang french");
+    press(&mut app, KeyCode::Char(':'));
+    app.handle_network(
+        crate::network::NetworkEvent::Closed {
+            reason: "connection lost".to_owned(),
+        },
+        now,
+    );
+    type_text(&mut app, "lang rust");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.message(), Some(&Message::error("connection lost")));
+    press(&mut app, KeyCode::Char('j'));
+    assert_eq!(
+        app.message(),
+        Some(&Message::info("code language set to rust"))
+    );
+}
+
+#[test]
+fn every_warning_of_the_start_up_is_shown_in_turn() {
+    let warnings = vec![
+        "config.toml was invalid (line 2); defaults loaded, backup at /home/ada/config.toml.bak"
+            .to_owned(),
+        "history.json was invalid (line 1); history started afresh".to_owned(),
+    ];
+    let mut app = App::new(
+        Config::default(),
+        &Overrides::default(),
+        None,
+        History::in_memory(),
+        warnings.clone(),
+        Launch::Home,
+    );
+    let mut shown = Vec::new();
+    for key in "Ada".chars() {
+        shown.extend(app.message().map(|message| message.text.clone()));
+        press(&mut app, KeyCode::Char(key));
+    }
+    assert_eq!(
+        shown,
+        [
+            format!("E: {}", warnings[0]),
+            format!("E: {}", warnings[1]),
+            "welcome! choose the name other racers will see, then Enter (Esc skips)".to_owned(),
+        ]
+    );
+    assert_eq!(app.message(), None);
 }
 
 #[test]
@@ -381,8 +450,8 @@ fn a_mistake_left_at_the_end_of_the_text_says_how_to_finish() {
     assert!(app.is_typing_blocked(), "the badge shows at once");
     press(&mut app, KeyCode::Enter);
     assert_eq!(
-        app.message,
-        Some(Message::info("fix the mistake first: Backspace or Ctrl+W"))
+        app.message(),
+        Some(&Message::info("fix the mistake first: Backspace or Ctrl+W"))
     );
     press(&mut app, KeyCode::Backspace);
     type_text(&mut app, "o");
@@ -411,8 +480,7 @@ fn commands_change_settings_and_report_errors() {
     assert_eq!(app.config.practice.language, Language::French);
     command(&mut app, "frobnicate");
     assert!(
-        app.message
-            .as_ref()
+        app.message()
             .is_some_and(|message| message.is_error() && message.text.starts_with("E492"))
     );
     command(&mut app, "q");
@@ -449,7 +517,7 @@ fn pasting_is_refused_while_typing() {
     press(&mut app, KeyCode::Char('s'));
     app.handle_paste("the whole text", Instant::now());
     assert_eq!(session(&app).cursor(), 0);
-    assert!(app.message.as_ref().is_some_and(Message::is_error));
+    assert!(app.message().is_some_and(Message::is_error));
 }
 
 #[test]
@@ -458,7 +526,7 @@ fn errors_stay_on_screen_while_typing() {
     press(&mut app, KeyCode::Char('s'));
     app.handle_paste("the whole text", Instant::now());
     type_text(&mut app, "ab");
-    assert!(app.message.as_ref().is_some_and(Message::is_error));
+    assert!(app.message().is_some_and(Message::is_error));
     assert_eq!(session(&app).cursor(), 2);
 }
 
@@ -470,8 +538,8 @@ fn lang_with_a_programming_language_only_sets_the_code_language() {
     assert_eq!(app.config.practice.code_language, CodeLanguage::Python);
     assert_eq!(app.config.race.code_language, CodeLanguage::Python);
     assert_eq!(
-        app.message,
-        Some(Message::info("code language set to python"))
+        app.message(),
+        Some(&Message::info("code language set to python"))
     );
 }
 
@@ -486,7 +554,7 @@ fn server_errors_are_shown_and_a_closed_room_is_left() {
         now,
     );
     assert!(app.race().is_some(), "a rejected message keeps the race");
-    assert_eq!(app.message, Some(Message::error("progress rejected")));
+    assert_eq!(app.message(), Some(&Message::error("progress rejected")));
     room::deliver(
         &mut app,
         ServerMessage::error(ErrorCode::RoomNotFound, "room FK72AD closed"),
@@ -494,7 +562,13 @@ fn server_errors_are_shown_and_a_closed_room_is_left() {
     );
     assert!(app.activity.is_none());
     assert_eq!(app.buffer, Buffer::Race);
-    assert_eq!(app.message, Some(Message::error("room FK72AD closed")));
+    assert_eq!(
+        app.message(),
+        Some(&Message::error("progress rejected")),
+        "an error stays until a key dismisses it"
+    );
+    press_at(&mut app, KeyCode::Char('j'), now + AFTER_QUIET);
+    assert_eq!(app.message(), Some(&Message::error("room FK72AD closed")));
 }
 
 #[test]
@@ -643,7 +717,7 @@ fn starting_something_else_in_a_room_is_refused() {
     for key in ['s', 'c'] {
         press(&mut app, KeyCode::Char(key));
         assert!(app.race().is_some(), "{key}");
-        assert_eq!(app.message, refused, "{key}");
+        assert_eq!(app.message(), refused.as_ref(), "{key}");
     }
     let edit = format!("e {}", file.display());
     for line in [
@@ -657,7 +731,7 @@ fn starting_something_else_in_a_room_is_refused() {
     ] {
         command(&mut app, line);
         assert!(app.race().is_some(), "{line}");
-        assert_eq!(app.message, refused, "{line}");
+        assert_eq!(app.message(), refused.as_ref(), "{line}");
     }
     assert_eq!(
         app.config.practice, practice,
@@ -721,17 +795,17 @@ fn a_failed_save_is_the_message_left_on_screen() {
         &Overrides::default(),
         Some(not_a_directory.join("config.toml")),
         History::in_memory(),
+        Vec::new(),
         Launch::Home,
     );
     let failed_save = |app: &App| {
-        app.message
-            .as_ref()
+        app.message()
             .is_some_and(|message| message.is_error() && message.text.contains("cannot save"))
     };
     command(&mut app, "lang french");
-    assert!(failed_save(&app), "{:?}", app.message);
+    assert!(failed_save(&app), "{:?}", app.message());
     command(&mut app, "set username=Ada");
-    assert!(failed_save(&app), "{:?}", app.message);
+    assert!(failed_save(&app), "{:?}", app.message());
 }
 
 #[test]
@@ -803,7 +877,7 @@ fn invalid_room_codes_are_rejected_before_connecting() {
     assert!(matches!(&app.editing, Some(edit) if edit.field == TextField::RoomCode));
     type_text(&mut app, "AB0");
     press(&mut app, KeyCode::Enter);
-    assert!(app.message.as_ref().is_some_and(Message::is_error));
+    assert!(app.message().is_some_and(Message::is_error));
     assert!(app.activity.is_none());
     press(&mut app, KeyCode::Esc);
     assert!(app.editing.is_none());
@@ -925,6 +999,7 @@ mod saving {
             overrides,
             Some(path.to_owned()),
             History::in_memory(),
+            Vec::new(),
             launch,
         )
     }
@@ -1086,7 +1161,7 @@ mod saving {
         press(&mut app, KeyCode::Char('j'));
         press(&mut app, KeyCode::Char('l'));
         assert!(!path.exists(), "nothing to save");
-        assert_eq!(app.message, None);
+        assert_eq!(app.message(), None);
     }
 
     #[test]
@@ -1256,7 +1331,7 @@ mod multiplayer {
         let waited = timeout(WAIT, async {
             while !done(app) {
                 let Some(connection) = app.connection_mut() else {
-                    panic!("connection closed: {:?}", app.message);
+                    panic!("connection closed: {:?}", app.message());
                 };
                 let event = connection.next_event().await.expect("event");
                 app.handle_network(event, Instant::now());
@@ -1264,7 +1339,7 @@ mod multiplayer {
             }
         })
         .await;
-        assert!(waited.is_ok(), "timed out, message: {:?}", app.message);
+        assert!(waited.is_ok(), "timed out, message: {:?}", app.message());
     }
 
     fn phase(app: &App) -> Option<Phase> {
@@ -1304,7 +1379,7 @@ mod multiplayer {
 
         press(&mut alice, KeyCode::Char('s'));
         assert!(
-            alice.message.as_ref().is_some_and(Message::is_error),
+            alice.message().is_some_and(Message::is_error),
             "nobody is ready yet"
         );
         press(&mut alice, KeyCode::Char('r'));
@@ -1366,8 +1441,8 @@ mod multiplayer {
         let later = Instant::now() + AFTER_QUIET;
         press_at(&mut bob, KeyCode::Char('r'), later);
         assert_eq!(
-            bob.message,
-            Some(Message::info("waiting for the host to start another race")),
+            bob.message(),
+            Some(&Message::info("waiting for the host to start another race")),
             "only the host restarts"
         );
         press_at(&mut alice, KeyCode::Char('r'), later);
@@ -1398,8 +1473,7 @@ mod multiplayer {
         .await;
         assert!(waited.is_ok());
         assert!(
-            app.message
-                .as_ref()
+            app.message()
                 .is_some_and(|message| message.is_error() && message.text.contains("ABCDEF"))
         );
         assert_eq!(app.buffer, Buffer::Race);
@@ -1427,7 +1501,7 @@ mod multiplayer {
         })
         .await;
         assert!(waited.is_ok());
-        assert!(app.message.as_ref().is_some_and(Message::is_error));
+        assert!(app.message().is_some_and(Message::is_error));
     }
 
     #[tokio::test]
@@ -1446,6 +1520,6 @@ mod multiplayer {
         .await;
         assert!(waited.is_ok());
         assert!(app.activity.is_none());
-        assert!(app.message.as_ref().is_some_and(Message::is_error));
+        assert!(app.message().is_some_and(Message::is_error));
     }
 }

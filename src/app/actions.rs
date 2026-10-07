@@ -21,10 +21,6 @@ use crate::{
 const LEAVE_CONFIRMATION: Duration = Duration::from_secs(2);
 
 impl App {
-    pub fn warn(&mut self, warning: String) {
-        self.error(warning);
-    }
-
     /// Opens what the command line asked for, after asking for the name
     /// other racers will see on first launch.
     pub(super) fn launch(&mut self, launch: Launch) {

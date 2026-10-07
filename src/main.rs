@@ -58,10 +58,12 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         |paths| History::load(&paths.history_file),
     );
     let launch = cli.launch(&config)?;
-    let mut app = App::new(config, &overrides, config_path, history, launch);
-    for warning in [config_warning, history_warning].into_iter().flatten() {
-        app.warn(warning);
-    }
+    let warnings: Vec<String> = [config_warning, history_warning]
+        .into_iter()
+        .flatten()
+        .inspect(|warning| tracing::warn!("{warning}"))
+        .collect();
+    let app = App::new(config, &overrides, config_path, history, warnings, launch);
     runtime::run(app).await
 }
 

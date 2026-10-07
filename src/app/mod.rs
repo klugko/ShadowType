@@ -13,6 +13,7 @@ pub mod help;
 pub mod history_log;
 pub mod input;
 mod keys;
+mod messages;
 pub mod practice;
 pub mod race;
 mod saved_config;
@@ -34,9 +35,10 @@ use crate::{
     history::History,
     network::Connection,
 };
-use command::CommandError;
 use form::Cursor;
 use input::TextInput;
+use messages::Messages;
+pub use messages::{Message, MessageKind};
 use practice::SoloRun;
 use race::RaceClient;
 use saved_config::SavedConfig;
@@ -144,49 +146,6 @@ pub enum EditorMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MessageKind {
-    Info,
-    Error,
-}
-
-/// A line shown in the command line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Message {
-    pub kind: MessageKind,
-    /// Exactly what is shown, errors with their Vim-like prefix.
-    pub text: String,
-}
-
-impl Message {
-    pub fn info(text: impl Into<String>) -> Self {
-        Self {
-            kind: MessageKind::Info,
-            text: text.into(),
-        }
-    }
-
-    /// An error, prefixed with `E:` like the Vim errors that have no number.
-    pub fn error(text: impl Display) -> Self {
-        Self {
-            kind: MessageKind::Error,
-            text: format!("E: {text}"),
-        }
-    }
-
-    /// The error of a `:` command, which carries its Vim error number.
-    pub fn command_error(error: &CommandError) -> Self {
-        Self {
-            kind: MessageKind::Error,
-            text: error.to_string(),
-        }
-    }
-
-    pub fn is_error(&self) -> bool {
-        self.kind == MessageKind::Error
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextField {
     Username,
     Server,
@@ -281,7 +240,7 @@ pub struct App {
     pub help_scroll: usize,
     pub editing: Option<FieldEdit>,
     pub prompt: Option<Prompt>,
-    pub message: Option<Message>,
+    messages: Messages,
     pub activity: Option<Activity>,
     /// Whether the explorer is shown. The explorer has the focus only while
     /// it is shown: keys would otherwise switch buffers out of sight.
@@ -301,12 +260,14 @@ pub struct App {
 
 impl App {
     /// An application started with the `saved` settings, saved back to
-    /// `config_path` when there is one, and `overrides` for this run.
+    /// `config_path` when there is one, and `overrides` for this run. The
+    /// `warnings` of loading the files are shown first, then `launch` opens.
     pub fn new(
         saved: Config,
         overrides: &Overrides,
         config_path: Option<PathBuf>,
         history: History,
+        warnings: Vec<String>,
         launch: Launch,
     ) -> Self {
         let mut config = saved;
@@ -325,7 +286,7 @@ impl App {
             help_scroll: 0,
             editing: None,
             prompt: None,
-            message: None,
+            messages: Messages::default(),
             activity: None,
             sidebar: true,
             sidebar_chosen: false,
@@ -335,12 +296,22 @@ impl App {
             leave_armed: None,
             quit: false,
         };
+        for warning in warnings {
+            app.messages.next_event(false);
+            app.error(warning);
+        }
+        app.messages.next_event(false);
         app.launch(launch);
         app
     }
 
     pub fn should_quit(&self) -> bool {
         self.quit
+    }
+
+    /// The message shown in the command line.
+    pub fn message(&self) -> Option<&Message> {
+        self.messages.first()
     }
 
     /// Where the settings are saved, if they are.
@@ -513,20 +484,31 @@ impl App {
                 .is_some_and(|view| view.session.is_blocked())
     }
 
+    /// Starts handling an event. The screen was drawn since the previous
+    /// one, showing the first message unless the command line hid it.
+    fn begin_event(&mut self) {
+        self.messages.next_event(self.prompt.is_none());
+    }
+
     fn info(&mut self, text: impl Into<String>) {
-        self.message = Some(Message::info(text));
+        self.messages.push(Message::info(text));
     }
 
     fn error(&mut self, text: impl Display) {
-        self.message = Some(Message::error(text));
+        self.messages.push(Message::error(text));
     }
 
-    /// A key press dismisses the message, except an error while typing: it
-    /// would vanish at the next character, before it could be read.
+    /// A key press dismisses the message on screen. The command line hides
+    /// the messages, so none is dismissed while it is open. An error while
+    /// typing stays unless another message waits: it would vanish at the
+    /// next character, before it could be read.
     fn dismiss_message(&mut self) {
-        let keep = self.is_typing() && self.message.as_ref().is_some_and(Message::is_error);
-        if !keep {
-            self.message = None;
+        let hidden = self.prompt.is_some();
+        let typing_error = self.is_typing()
+            && self.messages.waiting_behind() == 0
+            && self.message().is_some_and(Message::is_error);
+        if !hidden && !typing_error {
+            self.messages.dismiss();
         }
     }
 

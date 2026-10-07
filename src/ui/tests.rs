@@ -29,6 +29,7 @@ fn app() -> App {
         &Overrides::default(),
         None,
         History::in_memory(),
+        Vec::new(),
         Launch::Home,
     )
 }
@@ -469,13 +470,39 @@ fn command_line_shows_the_command_and_errors() {
     press(&mut app, KeyCode::Esc);
     command(&mut app, "nope");
     assert!(screen(&app, 100, 24).contains("E492: Not an editor command: nope"));
-    app.warn("E:\\notes.txt is empty".to_owned());
+    let app = App::new(
+        Config::default(),
+        &Overrides::default(),
+        None,
+        History::in_memory(),
+        vec!["E:\\notes.txt is empty".to_owned()],
+        Launch::Home,
+    );
     let text = screen(&app, 100, 24);
     assert!(
         text.lines()
             .any(|line| line.starts_with("E: E:\\notes.txt is empty")),
         "an error is never taken for a numbered one:\n{text}"
     );
+}
+
+#[test]
+fn a_long_warning_keeps_its_backup_path_on_the_smallest_screen() {
+    let backup = "/home/ada/.config/code-racer/config.toml.bak";
+    let warning = format!(
+        "config.toml was invalid (line 2: invalid string, expected `\"`); defaults loaded, backup at {backup}"
+    );
+    let app = App::new(
+        Config::default(),
+        &Overrides::default(),
+        None,
+        History::in_memory(),
+        vec![warning],
+        Launch::Home,
+    );
+    let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    assert!(text.contains(backup), "{text}");
+    assert!(text.contains("INSERT"), "the status line stays:\n{text}");
 }
 
 /// Relative luminance of a true colour, as WCAG defines it.
