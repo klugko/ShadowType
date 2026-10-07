@@ -11,6 +11,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     indentation::indentation_run,
+    normalize::keyboard_form,
     stats::{Sample, Stats, Tally, sample_ends, words_per_minute},
 };
 
@@ -151,19 +152,21 @@ impl TypingSession {
 
     /// Types one character. Returns whether the input was accepted.
     ///
-    /// Combining characters merge into the previous character. Input is refused
-    /// once the session is over, past the end of the text, or once
-    /// [`ERROR_RUN_LIMIT`] characters have been typed from the first
-    /// uncorrected mistake onward.
+    /// The character is first folded like [`normalize`](crate::normalize())
+    /// folds texts, so a typed no-break space, `’` or `…` stands for the
+    /// space, `'` or `...` of the text, and characters that display as
+    /// nothing are refused. Combining characters merge into the previous
+    /// character. Input is refused once the session is over, past the end of
+    /// the text, or once [`ERROR_RUN_LIMIT`] characters have been typed from
+    /// the first uncorrected mistake onward.
     pub fn type_char(&mut self, ch: char, now: Instant) -> bool {
         self.update(now);
-        if self.is_finished() || (ch.is_control() && ch != '\n') {
+        if ch.is_control() && ch != '\n' {
             return false;
         }
-        let accepted = self.merge_into_last(ch, now) || self.push_char(ch, now);
-        if accepted {
-            self.record_checkpoint(now);
-            self.complete_if_done(now);
+        let mut accepted = false;
+        for key in keyboard_form(ch).chars() {
+            accepted |= self.enter(key, now);
         }
         accepted
     }
@@ -298,6 +301,19 @@ impl TypingSession {
 
     fn first_mistake(&self) -> Option<usize> {
         self.entries.iter().position(|entry| !entry.correct)
+    }
+
+    /// Enters one character already in the form of the text.
+    fn enter(&mut self, ch: char, now: Instant) -> bool {
+        if self.is_finished() {
+            return false;
+        }
+        let accepted = self.merge_into_last(ch, now) || self.push_char(ch, now);
+        if accepted {
+            self.record_checkpoint(now);
+            self.complete_if_done(now);
+        }
+        accepted
     }
 
     fn push_char(&mut self, ch: char, now: Instant) -> bool {
@@ -975,6 +991,42 @@ mod tests {
             words_per_minute(15, Duration::from_millis(3_200))
         );
         assert_eq!(samples[2].wpm, session.stats(end).wpm);
+    }
+
+    fn completes_without_errors(text: &str, typed: &str) {
+        let now = Instant::now();
+        let mut session = TypingSession::new(text, SessionOptions::default());
+        type_text(&mut session, typed, now);
+        assert_eq!(
+            session.status(),
+            Status::Completed,
+            "{typed:?} for {text:?}"
+        );
+        assert_eq!(session.stats(now).errors, 0, "{typed:?} for {text:?}");
+    }
+
+    #[test]
+    fn typed_spaces_of_any_kind_match_the_plain_space_of_the_text() {
+        completes_without_errors("Vraiment ?", "Vraiment\u{a0}?");
+        completes_without_errors("Vraiment ?", "Vraiment\u{202f}?");
+    }
+
+    #[test]
+    fn typed_typographic_characters_match_their_plain_form_in_the_text() {
+        completes_without_errors("l'\u{e9}t\u{e9}", "l\u{2019}\u{e9}t\u{e9}");
+        completes_without_errors("\"a\" - b", "\u{ab}a\u{bb} \u{2013} b");
+        completes_without_errors("a...", "a\u{2026}");
+        completes_without_errors("a -> b", "a \u{2192} b");
+    }
+
+    #[test]
+    fn typed_invisible_characters_are_refused() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("ab", SessionOptions::default());
+        session.type_char('a', now);
+        assert!(!session.type_char('\u{200b}', now));
+        assert_eq!(session.cursor(), 1);
+        assert_eq!(session.stats(now).errors, 0);
     }
 
     #[test]

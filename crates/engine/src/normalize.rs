@@ -45,7 +45,7 @@ pub fn normalize(text: &str) -> String {
 
 /// What a keyboard types for one character, in the form texts take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KeyboardForm {
+pub(crate) enum KeyboardForm {
     /// The character itself or its plain equivalent, such as `'` for `’`.
     Char(char),
     /// An ASCII spelling of a symbol, such as `->` for `→`.
@@ -55,7 +55,7 @@ enum KeyboardForm {
 }
 
 impl KeyboardForm {
-    fn chars(self) -> impl Iterator<Item = char> {
+    pub(crate) fn chars(self) -> impl Iterator<Item = char> {
         let (single, spelled) = match self {
             Self::Char(ch) => (Some(ch), ""),
             Self::Spelled(spelling) => (None, spelling),
@@ -65,8 +65,11 @@ impl KeyboardForm {
     }
 }
 
-/// Folds a character into what a keyboard types. Tabs and line feeds stay.
-fn keyboard_form(ch: char) -> KeyboardForm {
+/// The one table that folds a character into what a keyboard types. Texts
+/// go through it when they are normalised, and typed characters before
+/// they are compared with the text, so that a typed `’` or no-break space
+/// matches the `'` or space of the text. Tabs and line feeds stay.
+pub(crate) fn keyboard_form(ch: char) -> KeyboardForm {
     match ch {
         '\t' | '\n' => KeyboardForm::Char(ch),
         ch if ch.is_control() || is_invisible(ch) => KeyboardForm::Nothing,
