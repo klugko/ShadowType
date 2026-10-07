@@ -300,13 +300,14 @@ impl App {
 
     /// Switches the solo settings to `mode`, adjusted by `change`, saves
     /// them and starts a session with them.
-    fn practise(&mut self, mode: Mode, change: impl FnOnce(&mut Practice)) {
+    fn practise(&mut self, mode: Mode, change: impl Fn(&mut Practice)) {
         if self.refuse_while_in_room() {
             return;
         }
-        self.config.practice.mode = mode;
-        change(&mut self.config.practice);
-        self.save_config();
+        self.choose(|config| {
+            config.practice.mode = mode;
+            change(&mut config.practice);
+        });
         self.start_practice();
     }
 }

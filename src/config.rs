@@ -334,16 +334,24 @@ pub fn load_config(path: &Path) -> Loaded<Option<Config>> {
     })
 }
 
-/// Writes `config` to `path`, updating the values of the existing file in
-/// place so that its comments, layout and unknown keys survive.
+/// Applies `change` to the settings saved at `path`, as the file holds them
+/// now, and writes them back when they changed. The values are updated in
+/// place, so that the comments, layout and unknown keys of the file survive.
 ///
 /// A file that cannot be read, or that does not hold valid settings, is
 /// refused rather than overwritten: it is what failed to load, and the
-/// settings in memory are only defaults.
-pub fn save_config(path: &Path, config: &Config) -> io::Result<()> {
+/// settings in memory are only defaults. Other instances of code-racer wait
+/// while the file is read and replaced, so that none undoes another's save.
+pub fn update_config(path: &Path, change: impl FnOnce(&mut Config)) -> io::Result<()> {
+    let _lock = persist::lock(path)?;
     let existing = persist::read_existing(path)?.unwrap_or_default();
-    parse_config(&existing).map_err(|problem| persist::invalid_contents(&problem))?;
-    let contents = updated_document(&existing, config)?;
+    let saved = parse_config(&existing).map_err(|problem| persist::invalid_contents(&problem))?;
+    let mut updated = saved.clone();
+    change(&mut updated);
+    if updated == saved {
+        return Ok(());
+    }
+    let contents = updated_document(&existing, &updated)?;
     persist::write_atomically(path, contents.as_bytes())
 }
 
@@ -452,6 +460,11 @@ word_count = 50
 server = "ws://127.0.0.1:8080"
 "#;
 
+    /// Saves every setting of `config` over those of the file.
+    fn save(path: &Path, config: &Config) -> io::Result<()> {
+        update_config(path, |saved| saved.clone_from(config))
+    }
+
     fn write_config(dir: &TempDir, contents: &str) -> PathBuf {
         let path = dir.join("config.toml");
         fs::write(&path, contents).expect("write config");
@@ -490,11 +503,14 @@ server = "ws://127.0.0.1:8080"
     fn documented_example_survives_a_save() {
         let dir = TempDir::new();
         let path = write_config(&dir, DOCUMENTED_EXAMPLE);
-        let loaded = load(&path).value;
+        let changed = Config {
+            theme: Theme::Mono,
+            ..load(&path).value
+        };
 
-        save_config(&path, &loaded).expect("save");
+        save(&path, &changed).expect("save");
 
-        assert_eq!(load(&path), Loaded::clean(loaded));
+        assert_eq!(load(&path), Loaded::clean(changed));
     }
 
     #[test]
@@ -518,7 +534,7 @@ server = "ws://127.0.0.1:8080"
             ..load(&path).value
         };
 
-        save_config(&path, &config).expect("save");
+        save(&path, &config).expect("save");
 
         let saved = fs::read_to_string(&path).expect("read");
         for line in [
@@ -608,7 +624,7 @@ server = "ws://127.0.0.1:8080"
             },
         };
 
-        save_config(&path, &config).expect("save");
+        save(&path, &config).expect("save");
 
         assert_eq!(load(&path), Loaded::clean(config));
     }
@@ -617,7 +633,11 @@ server = "ws://127.0.0.1:8080"
     fn saved_file_keeps_the_documented_key_names() {
         let dir = TempDir::new();
         let path = dir.join("config.toml");
-        save_config(&path, &Config::default()).expect("save");
+        let config = Config {
+            username: "Jean".to_owned(),
+            ..Config::default()
+        };
+        save(&path, &config).expect("save");
         let saved = fs::read_to_string(&path).expect("read");
 
         for line in [
@@ -669,7 +689,7 @@ server = "ws://127.0.0.1:8080"
         occupy_every_backup(&path);
 
         let loaded = load(&path);
-        let saved = save_config(&path, &loaded.value);
+        let saved = save(&path, &loaded.value);
 
         assert_eq!(loaded.value, Config::default());
         assert!(loaded.warning.is_some());
@@ -696,7 +716,7 @@ server = "ws://127.0.0.1:8080"
         }
 
         let loaded = load(&path);
-        let saved = save_config(&path, &loaded.value);
+        let saved = save(&path, &loaded.value);
 
         assert_eq!(loaded.value, Config::default());
         let warning = loaded.warning.expect("warning");

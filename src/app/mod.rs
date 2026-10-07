@@ -309,10 +309,10 @@ impl App {
         history: History,
         launch: Launch,
     ) -> Self {
-        let mut config = saved.clone();
+        let mut config = saved;
         overrides.apply_to(&mut config);
         let mut app = Self {
-            saved: SavedConfig::new(config_path, saved, &config),
+            saved: SavedConfig::new(config_path, &config),
             config,
             history,
             focus: Focus::Explorer,

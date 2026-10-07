@@ -1044,6 +1044,72 @@ mod saving {
         command(&mut app, "set theme=dark");
         assert_eq!(reload(&path).theme, Theme::Dark);
     }
+
+    #[test]
+    fn a_flag_chosen_again_in_the_app_is_saved() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let overrides = Overrides {
+            theme: Some(Theme::Mono),
+            server: None,
+        };
+        let launch = Launch::Solo {
+            practice: Practice {
+                mode: Mode::Code,
+                ..Practice::default()
+            },
+            file: None,
+        };
+        let mut app = app_saving_to(&path, configured("jean"), &overrides, launch);
+        press(&mut app, KeyCode::Esc);
+        command(&mut app, "set theme=mono");
+        assert_eq!(reload(&path).theme, Theme::Mono);
+        press(&mut app, KeyCode::Esc);
+        command(&mut app, "code");
+        assert_eq!(reload(&path).practice.mode, Mode::Code);
+    }
+
+    #[test]
+    fn lines_without_a_value_save_nothing() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let mut app = app_saving_to(
+            &path,
+            configured("jean"),
+            &Overrides::default(),
+            Launch::Home,
+        );
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Char('G'));
+        press(&mut app, KeyCode::Char('l'));
+        command(&mut app, "race");
+        press(&mut app, KeyCode::Char('j'));
+        press(&mut app, KeyCode::Char('l'));
+        assert!(!path.exists(), "nothing to save");
+        assert_eq!(app.message, None);
+    }
+
+    #[test]
+    fn settings_edited_by_hand_while_running_are_kept() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let mut app = app_saving_to(
+            &path,
+            configured("jean"),
+            &Overrides::default(),
+            Launch::Home,
+        );
+        std::fs::write(
+            &path,
+            "username = \"jean\"\ntheme = \"dark\"\n[multiplayer]\nserver = \"ws://10.0.0.5:8080\"\n",
+        )
+        .expect("edit by hand");
+        command(&mut app, "set punctuation");
+        let saved = reload(&path);
+        assert_eq!(saved.theme, Theme::Dark);
+        assert_eq!(saved.multiplayer.server, "ws://10.0.0.5:8080");
+        assert!(saved.practice.punctuation);
+    }
 }
 
 /// Rooms fed with server messages instead of a real server.

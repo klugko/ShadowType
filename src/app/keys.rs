@@ -215,14 +215,13 @@ impl App {
 
     /// Moves the selected value as `intent` says, Enter moving it forward,
     /// and saves it.
-    fn change_value(&mut self, intent: ValueIntent, change: impl FnOnce(&mut Config, Step)) {
+    fn change_value(&mut self, intent: ValueIntent, change: impl Fn(&mut Config, Step)) {
         let step = match intent {
             ValueIntent::Change(step) => step,
             ValueIntent::Activate => Step::Next,
             ValueIntent::Edit => return,
         };
-        change(&mut self.config, step);
-        self.save_config();
+        self.choose(|config| change(config, step));
     }
 
     fn session_key(&mut self, key: KeyEvent, now: Instant) -> bool {

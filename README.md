@@ -116,7 +116,7 @@ On first launch code-racer asks for the name other racers will see (Esc skips it
 is saved in `config.toml` and can be changed in the `config.toml` buffer or with `:set username=Jean`.
 
 Flags apply to this run only: `--theme`, `--server` and the `solo` options are never written to
-`config.toml`, unless you change the same setting inside the app.
+`config.toml`, unless you set the same setting inside the app, even to the value the flag gave it.
 
 ## Solo mode
 
@@ -277,7 +277,8 @@ If `config.toml` cannot be read, code-racer starts with the defaults and leaves 
 for the whole run.
 
 Settings changed inside the app update `config.toml` in place, so your comments and unknown keys
-survive. History is kept in `history.json` (`~/.local/share/code-racer/` on Linux) and appended to
+survive. Only the settings you changed are written, onto what the file holds at that moment, so an
+edit made by hand or by another running instance is kept. History is kept in `history.json` (`~/.local/share/code-racer/` on Linux) and appended to
 under a lock, so two running instances never lose each other's results. Logs go to `code-racer.log`
 (`~/.local/state/code-racer/`), never to the terminal. Files are written atomically; a file that cannot
 be parsed is moved aside to a `.bak` file with a warning, and one that cannot be read is left alone.

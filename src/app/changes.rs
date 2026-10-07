@@ -8,7 +8,11 @@ use code_racer_engine::{CodeLanguage, Language};
 use code_racer_protocol::{RoomCode, Username};
 
 use super::{App, TextField, command::Setting};
-use crate::{cli::Launch, config::Practice, network};
+use crate::{
+    cli::Launch,
+    config::{Config, Practice},
+    network,
+};
 
 impl App {
     pub(super) fn commit_field(&mut self, field: TextField, value: &str) {
@@ -33,10 +37,7 @@ impl App {
             Setting::Punctuation(enabled) => self.change_text(|text| text.punctuation = enabled),
             Setting::Numbers(enabled) => self.change_text(|text| text.numbers = enabled),
             Setting::Sidebar(visible) => self.set_sidebar(visible),
-            Setting::Theme(theme) => {
-                self.config.theme = theme;
-                self.save_config();
-            }
+            Setting::Theme(theme) => self.choose(|config| config.theme = theme),
             Setting::Server(server) => {
                 if let Err(error) = self.set_server(&server) {
                     self.error(error);
@@ -64,9 +65,10 @@ impl App {
 
     /// Changes how texts are written, solo and in races alike, and saves it.
     fn change_text(&mut self, change: impl Fn(&mut Practice)) {
-        change(&mut self.config.practice);
-        change(&mut self.config.race);
-        self.save_config();
+        self.choose(|config| {
+            change(&mut config.practice);
+            change(&mut config.race);
+        });
     }
 
     fn set_username(&mut self, value: &str) -> Result<(), String> {
@@ -77,7 +79,7 @@ impl App {
             self.editing = None;
             self.run_launch(launch);
         }
-        self.save_config();
+        self.choose(|config| config.username = name.to_string());
         Ok(())
     }
 
@@ -95,8 +97,7 @@ impl App {
 
     fn set_server(&mut self, value: &str) -> Result<(), String> {
         let url = network::server_url(value).map_err(|error| error.to_string())?;
-        self.config.multiplayer.server = url;
-        self.save_config();
+        self.choose(|config| config.multiplayer.server.clone_from(&url));
         Ok(())
     }
 
@@ -110,10 +111,11 @@ impl App {
         Ok(())
     }
 
-    /// Saves the settings the user changed. Call it after any message about
-    /// the change: a failure replaces that message.
-    pub(super) fn save_config(&mut self) {
-        if let Err(error) = self.saved.save(&self.config) {
+    /// Applies a setting the user chose in the app, and saves it with the
+    /// other settings changed since the last save. Call it after any message
+    /// about the change: a failure replaces that message.
+    pub(super) fn choose(&mut self, choice: impl Fn(&mut Config)) {
+        if let Err(error) = self.saved.choose(&mut self.config, choice) {
             self.error(error);
         }
     }
