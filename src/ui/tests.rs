@@ -261,11 +261,67 @@ fn every_buffer_renders_in_every_theme_and_size() {
 fn typing_screen_shows_insert_mode_and_live_statistics() {
     let mut app = app();
     command(&mut app, "words 10");
-    press(&mut app, KeyCode::Char('x'));
+    mistake(&mut app);
     let text = screen(&app, 100, 24);
-    for expected in ["INSERT", "wpm", "error", "notes.md", "words 10"] {
+    for expected in ["INSERT", "notes.md", "words 10", "-- INSERT --"] {
         assert!(text.contains(expected), "missing {expected}:\n{text}");
     }
+    let status = status_line(&text);
+    for expected in [" - wpm ", " 0% ", " 1 error ", " 00:00 "] {
+        assert!(status.contains(expected), "missing {expected}: {status}");
+    }
+}
+
+#[test]
+fn typed_text_shows_right_wrong_cursor_and_pending_characters_apart() {
+    let mut app = app();
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    command(&mut app, "words 10");
+    type_prefix(&mut app, 1);
+    mistake(&mut app);
+    let terminal = drawn(&app, MIN_WIDTH, MIN_HEIGHT, Instant::now());
+    let palette = Palette::of(Theme::Editor);
+    let first_row = 1;
+    let text = 5;
+    let right = style_at(&terminal, (text, first_row));
+    let wrong = style_at(&terminal, (text + 1, first_row));
+    let cursor = style_at(&terminal, (text + 2, first_row));
+    let pending = style_at(&terminal, (text + 3, first_row));
+    assert_eq!(right.fg, Some(palette.strong), "typed right");
+    assert_eq!(wrong.fg, Some(palette.error), "typed wrong");
+    assert!(wrong.add_modifier.contains(Modifier::UNDERLINED));
+    assert_eq!(
+        (cursor.fg, cursor.bg),
+        (Some(palette.on_accent), Some(palette.accent)),
+        "the cursor"
+    );
+    assert_eq!(pending.fg, Some(palette.muted), "still to type");
+    assert_eq!(pending.bg, Some(palette.highlight), "on the cursor line");
+}
+
+#[test]
+fn the_typing_view_scrolls_to_keep_context_above_the_cursor() {
+    let directory = crate::persist::scratch::TempDir::new();
+    let path = directory.join("lines.txt");
+    let lines: Vec<String> = (1..=40).map(|line| format!("line {line:02}")).collect();
+    std::fs::write(&path, lines.join("\n")).expect("write");
+    let mut app = app();
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    command(&mut app, &format!("e {}", path.display()));
+    type_prefix(&mut app, 25 * "line 01\n".len());
+
+    let terminal = drawn(&app, MIN_WIDTH, MIN_HEIGHT, Instant::now());
+    let text = text_of(&terminal);
+    let rows: Vec<&str> = text.lines().collect();
+    assert!(rows[1].starts_with(" 24  line 24"), "{text}");
+    assert!(
+        rows[3].starts_with(" 26  line 26"),
+        "two lines of context:\n{text}"
+    );
+    let palette = Palette::of(Theme::Editor);
+    assert_eq!(style_at(&terminal, (5, 3)).bg, Some(palette.accent));
+    assert_eq!(style_at(&terminal, (1, 3)).fg, Some(palette.strong));
+    assert_eq!(style_at(&terminal, (1, 2)).fg, Some(palette.faint));
 }
 
 /// Types a character other than the one the session expects next.
@@ -327,31 +383,36 @@ fn blocked_typing_is_shown_in_the_status_line_in_the_error_colour() {
 #[test]
 fn solo_results_show_the_metrics() {
     let mut app = app();
+    app.history
+        .add(Record {
+            mode: "quote".to_owned(),
+            ..record(10.0)
+        })
+        .expect("in memory");
     command(&mut app, "quote");
-    let now = Instant::now();
-    while let Some(view) = app.session_view() {
-        let session = view.session;
-        if session.is_finished() {
-            break;
-        }
-        let next = session.target()[session.cursor()].clone();
-        for ch in next.chars() {
-            app.handle_key(
-                KeyEvent::from(KeyCode::Char(ch)),
-                now + Duration::from_secs(20),
-            );
-        }
-    }
-    let text = screen(&app, 100, 30);
+    let length = app.session_view().expect("a quote").session.target().len();
+    let end = type_whole_text(&mut app, Duration::from_secs(20));
+
+    let text = screen_at(&app, 100, 30, end + Duration::from_secs(30));
+    let wpm = code_racer_engine::words_per_minute(length, Duration::from_secs(20));
     for expected in [
-        "session complete",
-        "wpm",
-        "accuracy",
-        "consistency",
-        "personal best",
+        "session complete".to_owned(),
+        format!("wpm         = {wpm:.1}"),
+        "accuracy    = 100.0%".to_owned(),
+        "errors      = 0".to_owned(),
+        "time        = 0:20.0".to_owned(),
+        "new personal best, previous 10.0 wpm".to_owned(),
+        "## wpm over time".to_owned(),
     ] {
-        assert!(text.contains(expected), "missing {expected}:\n{text}");
+        assert!(text.contains(&expected), "missing {expected}:\n{text}");
     }
+    assert_eq!(chart_end(&text), Some(97), "the chart spans the text");
+    let status = status_line(&text);
+    assert!(status.contains(&format!(" {wpm:.0} wpm ")), "{status}");
+    assert!(
+        status.contains(" 00:20 ") && status.ends_with(" 100% "),
+        "{status}"
+    );
 }
 
 #[test]
@@ -408,6 +469,13 @@ fn command_line_shows_the_command_and_errors() {
     press(&mut app, KeyCode::Esc);
     command(&mut app, "nope");
     assert!(screen(&app, 100, 24).contains("E492: Not an editor command: nope"));
+    app.warn("E:\\notes.txt is empty".to_owned());
+    let text = screen(&app, 100, 24);
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("E: E:\\notes.txt is empty")),
+        "an error is never taken for a numbered one:\n{text}"
+    );
 }
 
 /// Relative luminance of a true colour, as WCAG defines it.
@@ -602,20 +670,40 @@ async fn the_status_line_stops_when_the_race_ends_before_the_player_finishes() {
     assert_eq!(status_line(&later), status_line(&at_the_end));
 }
 
+/// The keys that type the next character of the session, until it ends.
+fn next_keys(app: &App) -> Option<Vec<KeyCode>> {
+    let session = app.session_view()?.session;
+    let next = session.target().get(session.cursor())?;
+    if session.is_finished() {
+        return None;
+    }
+    Some(match next.as_str() {
+        "\n" => vec![KeyCode::Enter],
+        text => text.chars().map(KeyCode::Char).collect(),
+    })
+}
+
 /// Types the next `count` characters of the session correctly.
 fn type_prefix(app: &mut App, count: usize) {
     for _ in 0..count {
-        let Some(view) = app.session_view() else {
-            return;
-        };
-        let next = view.session.target()[view.session.cursor()].clone();
-        let code = if next == "\n" {
-            KeyCode::Enter
-        } else {
-            KeyCode::Char(next.chars().next().unwrap_or(' '))
-        };
-        press(app, code);
+        for key in next_keys(app).unwrap_or_default() {
+            press(app, key);
+        }
     }
+}
+
+/// Types the whole text correctly, its first character now and the others
+/// `duration` later. Returns when the text ended.
+fn type_whole_text(app: &mut App, duration: Duration) -> Instant {
+    let start = Instant::now();
+    let mut at = start;
+    while let Some(keys) = next_keys(app) {
+        for key in keys {
+            app.handle_key(KeyEvent::from(key), at);
+        }
+        at = start + duration;
+    }
+    at
 }
 
 /// Sizes the preview draws every screen at: the smallest supported and a
@@ -660,9 +748,23 @@ async fn preview_screens() {
     type_prefix(&mut app, 60);
     press(&mut app, KeyCode::Char('x'));
     screens.extend(shots("words", &mut app));
+    for _ in 0..code_racer_engine::ERROR_RUN_LIMIT {
+        press(&mut app, KeyCode::Char('x'));
+    }
+    screens.extend(shots("blocked", &mut app));
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Esc);
+    command(&mut app, "quote");
+    type_whole_text(&mut app, Duration::from_secs(20));
+    screens.extend(shots("results", &mut app));
     for phase in [Phase::Lobby, Phase::Racing, Phase::Finished] {
         screens.extend(shots(&format!("{phase:?}"), &mut in_room(phase)));
     }
+    let mut full = room(Phase::Racing);
+    full.players = (1..=8_u32)
+        .map(|n| player(n.into(), &format!("racer{n}"), 10 * n, None))
+        .collect();
+    screens.extend(shots("full room", &mut in_room_at(full, Instant::now())));
     for (name, text) in screens {
         println!("──── {name}\n{text}");
     }

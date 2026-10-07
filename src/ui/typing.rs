@@ -223,5 +223,13 @@ mod tests {
             text_of(&layout(&view(&session, None), 20, &palette, false).rows[0]),
             "ab"
         );
+        let active = layout(&view(&session, None), 20, &palette, true);
+        let row = &active.rows[0];
+        assert_eq!(text_of(row), "ab ");
+        let end = row.spans.last().expect("the cursor");
+        assert_eq!(
+            (end.content.as_ref(), end.style),
+            (" ", cursor_style(&palette))
+        );
     }
 }
