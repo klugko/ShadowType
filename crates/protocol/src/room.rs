@@ -56,7 +56,9 @@ pub struct PlayerView {
     pub id: PlayerId,
     pub name: Username,
     pub ready: bool,
-    /// False once the player lost their connection during a race.
+    /// False once the player left or lost their connection after a race was
+    /// announced. They stay listed, results included, until the room
+    /// returns to the lobby.
     pub connected: bool,
     pub progress: PlayerProgress,
 }

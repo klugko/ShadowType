@@ -158,8 +158,9 @@ impl Room {
     }
 
     /// Adds a player to the lobby. Joining a room one is already in changes
-    /// nothing, while a player who left during a race stays listed offline
-    /// and may only come back once the room is in the lobby again.
+    /// nothing, while a player who left after a race was announced stays
+    /// listed offline and may only come back once the room is in the lobby
+    /// again.
     pub fn join(&mut self, id: PlayerId, name: Username, now: Instant) -> Result<(), ServerError> {
         let already_in = self
             .members
@@ -180,17 +181,20 @@ impl Room {
         Ok(())
     }
 
-    /// Removes a player, except during a race where they stay listed as
-    /// disconnected so that the standings remain complete.
+    /// Removes a player from the lobby. Once a race is announced, they stay
+    /// listed as disconnected until the room returns to the lobby, so that
+    /// the standings and the results stay complete.
     pub fn leave(&mut self, id: PlayerId, now: Instant) {
         let Some(index) = self.position(id) else {
             return;
         };
         match self.stage {
-            Stage::Lobby | Stage::Finished(_) => {
+            Stage::Lobby => {
                 self.members.remove(index);
             }
-            Stage::Countdown(_) | Stage::Racing(_) => self.members[index].connected = false,
+            Stage::Countdown(_) | Stage::Racing(_) | Stage::Finished(_) => {
+                self.members[index].connected = false;
+            }
         }
         if self.host == id {
             self.promote_next_host();
@@ -1030,22 +1034,32 @@ mod tests {
     }
 
     #[test]
-    fn a_host_leaving_the_results_hands_over_to_a_connected_member_not_an_offline_one() {
+    fn a_host_leaving_the_results_stays_listed_offline_and_hands_over_to_a_connected_member() {
         let clock = Clock(Instant::now());
         let mut room = racing(&clock, &[BOB, CAROL]);
         room.leave(BOB, clock.racing(1_000));
-        for id in [ALICE, CAROL] {
-            room.report_progress(id, clean(TEXT_LENGTH), clock.racing(10_000))
-                .expect("finish");
-        }
-        assert!(room.advance(clock.racing(10_000), TIMEOUT));
+        room.report_progress(ALICE, clean(TEXT_LENGTH), clock.racing(10_000))
+            .expect("alice finishes first");
+        room.report_progress(CAROL, clean(TEXT_LENGTH), clock.racing(12_000))
+            .expect("carol finishes");
+        assert!(room.advance(clock.racing(12_000), TIMEOUT));
 
-        room.leave(ALICE, clock.racing(11_000));
+        room.leave(ALICE, clock.racing(13_000));
         let view = room.view();
         assert_eq!(view.phase, Phase::Finished);
         assert_eq!(view.host, CAROL);
-        assert_eq!(view.player(ALICE), None);
+        assert_eq!(
+            view.player(ALICE).map(|player| player.connected),
+            Some(false)
+        );
+        assert_eq!(view.place_of(ALICE), Some(1));
+        assert_eq!(view.place_of(CAROL), Some(2));
         assert_eq!(view.player(BOB).map(|player| player.connected), Some(false));
+
+        room.return_to_lobby(CAROL, clock.racing(14_000))
+            .expect("back to the lobby");
+        let ids: Vec<PlayerId> = room.view().players.iter().map(|player| player.id).collect();
+        assert_eq!(ids, [CAROL]);
     }
 
     #[test]
