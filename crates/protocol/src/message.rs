@@ -2,6 +2,8 @@
 //!
 //! A connection starts with [`ClientMessage::Hello`], answered by
 //! [`ServerMessage::Welcome`] or an [`ErrorCode::IncompatibleVersion`] error.
+//! Only peers of the same [`PROTOCOL_VERSION`] talk to each other, so a
+//! message never needs to accept the shape of an older version.
 
 use code_racer_engine::{Tally, TextSource};
 use serde::{Deserialize, Serialize};
@@ -11,7 +13,10 @@ use crate::{
     room::RoomView,
 };
 
-/// Incremented whenever a change breaks compatibility with older peers.
+/// Incremented whenever a change breaks compatibility with older peers. The
+/// server refuses a `Hello` announcing any other version. Version 3 left
+/// auto-filled indentation out of keystrokes and made
+/// [`Progress::indentation`] required.
 pub const PROTOCOL_VERSION: u16 = 3;
 
 /// Largest WebSocket message either side accepts. Every valid message fits:
@@ -52,9 +57,8 @@ pub struct Progress {
     pub typed: u32,
     /// Characters currently matching the text, auto-filled indentation included.
     pub correct: u32,
-    /// Characters of `correct` that auto-indentation filled in. Older clients
-    /// leave it out and count the indentation as keystrokes instead.
-    #[serde(default)]
+    /// Characters of `correct` that auto-indentation filled in. Required
+    /// since protocol version 3, which stopped counting them as keystrokes.
     pub indentation: u32,
     /// Keys pressed, corrected mistakes included.
     pub keystrokes: u32,
@@ -302,22 +306,12 @@ mod tests {
             r#"{"type":"unknown"}"#,
             r#"{"type":"join_room","data":{"code":"0000OO"}}"#,
             r#"{"type":"hello","data":{"version":3,"username":""}}"#,
-            r#"{"type":"progress","data":{"typed":-1,"correct":0,"keystrokes":0,"errors":0}}"#,
+            r#"{"type":"progress","data":{"typed":-1,"correct":0,"indentation":0,"keystrokes":0,"errors":0}}"#,
+            r#"{"type":"progress","data":{"typed":9,"correct":8,"keystrokes":9,"errors":1}}"#,
             "not json",
         ] {
             assert!(ClientMessage::from_json(json).is_err(), "{json}");
         }
-    }
-
-    #[test]
-    fn progress_of_older_clients_has_no_indentation() {
-        let json =
-            r#"{"type":"progress","data":{"typed":9,"correct":8,"keystrokes":9,"errors":1}}"#;
-        let Ok(ClientMessage::Progress(progress)) = ClientMessage::from_json(json) else {
-            panic!("older progress reports must still parse");
-        };
-        assert_eq!(progress.indentation, 0);
-        assert_eq!(progress.keystrokes, 9);
     }
 
     #[test]
