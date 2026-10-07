@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use code_racer_engine::Stats;
+use code_racer_engine::{CodeLanguage, Stats};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Position, Rect},
@@ -44,18 +44,19 @@ pub fn sidebar(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     frame.render_widget(Paragraph::new(records), bottom);
 }
 
+/// The entries of the explorer, the ones that key navigation walks, the
+/// running session in a folder of its own.
 fn explorer_lines(app: &App, width: u16, palette: &Palette) -> Vec<Line<'static>> {
     let mut lines = vec![
         section_title("EXPLORER", palette),
         folder("code-racer", palette),
     ];
-    for buffer in Buffer::FILES {
+    for buffer in app.entries() {
+        if buffer == Buffer::Session {
+            lines.push(Line::raw(""));
+            lines.push(folder("session", palette));
+        }
         lines.push(explorer_entry(app, buffer, width, palette));
-    }
-    if app.activity.is_some() {
-        lines.push(Line::raw(""));
-        lines.push(folder("session", palette));
-        lines.push(explorer_entry(app, Buffer::Session, width, palette));
     }
     lines
 }
@@ -68,17 +69,16 @@ fn explorer_entry(app: &App, buffer: Buffer, width: u16, palette: &Palette) -> L
     } else {
         " "
     };
-    let label = format!("   {marker} {name}");
-    let padded = format!("{label:<width$}", width = usize::from(width));
+    let label = format::column(&format!("   {marker} {name}"), usize::from(width));
     let style = match (selected, app.focus) {
         (true, Focus::Explorer) => Style::new()
             .bg(palette.highlight)
             .fg(palette.strong)
             .add_modifier(Modifier::BOLD),
         (true, Focus::Editor) => Style::new().fg(palette.accent).add_modifier(Modifier::BOLD),
-        (false, _) => Style::new().fg(file_color(&name, palette)),
+        (false, _) => Style::new().fg(file_kind(&name, palette).1),
     };
-    Line::from(Span::styled(padded, style))
+    Line::from(Span::styled(label, style))
 }
 
 fn folder(name: &str, palette: &Palette) -> Line<'static> {
@@ -88,12 +88,18 @@ fn folder(name: &str, palette: &Palette) -> Line<'static> {
     ))
 }
 
-fn file_color(name: &str, palette: &Palette) -> Color {
-    match name.rsplit('.').next() {
-        Some("toml") => palette.kind,
-        Some("md") => palette.accent,
-        Some("log") => palette.string,
-        _ => palette.text,
+/// The file type of a buffer named `name`, as the status line shows it,
+/// and the colour of the name in the explorer, both from its extension.
+fn file_kind(name: &str, palette: &Palette) -> (&'static str, Color) {
+    let extension = name.rsplit_once('.').map(|(_, extension)| extension);
+    match extension {
+        Some("toml") => ("toml", palette.kind),
+        Some("md") => ("markdown", palette.accent),
+        Some("log") => ("log", palette.string),
+        _ => match extension.and_then(CodeLanguage::from_extension) {
+            Some(language) => (language.name(), palette.text),
+            None => ("text", palette.text),
+        },
     }
 }
 
@@ -276,7 +282,10 @@ fn right_segments(app: &App, palette: &Palette, now: Instant) -> Vec<Span<'stati
                 ),
             ]
         }
-        _ => vec![Span::styled(format!(" {} ", file_type(app)), accent)],
+        _ => {
+            let (file_type, _) = file_kind(&app.buffer_name(app.buffer), palette);
+            vec![Span::styled(format!(" {file_type} "), accent)]
+        }
     }
 }
 
@@ -301,15 +310,6 @@ fn error_color(stats: &Stats, palette: &Palette) -> Color {
         palette.text
     } else {
         palette.error
-    }
-}
-
-fn file_type(app: &App) -> &'static str {
-    match app.buffer {
-        Buffer::Practice | Buffer::Race | Buffer::Settings => "toml",
-        Buffer::History => "log",
-        Buffer::Help => "markdown",
-        Buffer::Session => "text",
     }
 }
 
@@ -414,5 +414,42 @@ fn key_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("Esc", "explorer"),
         ],
         Buffer::Session => vec![("Esc", "close"), (":", "command"), ("?", "help")],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Theme;
+
+    #[test]
+    fn the_file_type_follows_the_extension_of_the_name_shown() {
+        let palette = Palette::of(Theme::Editor);
+        let names = [
+            "race.toml",
+            "help.md",
+            "FK72AD.md",
+            "history.log",
+            "main.rs",
+            "component.tsx",
+            "query.sql",
+            "scratch.txt",
+            "Makefile",
+        ];
+        let types = names.map(|name| file_kind(name, &palette).0);
+        assert_eq!(
+            types,
+            [
+                "toml",
+                "markdown",
+                "markdown",
+                "log",
+                "rust",
+                "typescript",
+                "sql",
+                "text",
+                "text"
+            ]
+        );
     }
 }

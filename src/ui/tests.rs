@@ -518,9 +518,12 @@ async fn lobby_lists_players_and_invite_command() {
         "host",
         "ready",
         "## players",
+        "▾ session",
     ] {
         assert!(text.contains(expected), "missing {expected}:\n{text}");
     }
+    let status = status_line(&text);
+    assert!(status.trim_end().ends_with(" markdown"), "{status}");
 }
 
 #[tokio::test]
