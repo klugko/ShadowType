@@ -478,7 +478,7 @@ fn millis(duration: Duration) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use code_racer_engine::{CodeLanguage, Language, SessionOptions, TypingSession};
+    use code_racer_engine::{CodeLanguage, Language, Mark, SessionOptions, TypingSession};
     use code_racer_protocol::{MAX_MESSAGE_BYTES, MAX_ROOM_PLAYERS, ServerMessage};
 
     use super::*;
@@ -907,15 +907,21 @@ mod tests {
         let mut now = clock.racing(0);
         let mut keys = 0;
         while let Some(expected) = session.target().get(session.cursor()).cloned() {
+            let before = session.cursor();
             if keys == 3 {
                 session.type_char('#', now);
                 session.backspace(now);
             }
             keys += 1;
             now = clock.racing(keys * 100);
-            expected.chars().for_each(|ch| {
-                session.type_char(ch, now);
-            });
+            for ch in expected.chars() {
+                assert!(session.type_char(ch, now), "{ch:?} refused at {before}");
+            }
+            assert_eq!(
+                session.mark(before),
+                Mark::Correct,
+                "{expected:?} at {before}"
+            );
             room.report_progress(ALICE, Progress::from(session.tally()), now)
                 .expect("an honest report");
         }

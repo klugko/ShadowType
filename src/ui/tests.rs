@@ -12,7 +12,10 @@ use ratatui::{
 
 use super::*;
 use crate::{
-    app::{App, Overrides},
+    app::{
+        App, Overrides,
+        test_support::{type_next, type_remaining_at},
+    },
     cli::Launch,
     config::{Config, Theme},
     history::{History, Record},
@@ -750,25 +753,10 @@ async fn the_status_line_stops_when_the_race_ends_before_the_player_finishes() {
     assert_eq!(status_line(&later), status_line(&at_the_end));
 }
 
-/// The keys that type the next character of the session, until it ends.
-fn next_keys(app: &App) -> Option<Vec<KeyCode>> {
-    let session = app.session_view()?.session;
-    let next = session.target().get(session.cursor())?;
-    if session.is_finished() {
-        return None;
-    }
-    Some(match next.as_str() {
-        "\n" => vec![KeyCode::Enter],
-        text => text.chars().map(KeyCode::Char).collect(),
-    })
-}
-
 /// Types the next `count` characters of the session correctly.
 fn type_prefix(app: &mut App, count: usize) {
     for _ in 0..count {
-        for key in next_keys(app).unwrap_or_default() {
-            press(app, key);
-        }
+        type_next(app, Instant::now());
     }
 }
 
@@ -776,14 +764,10 @@ fn type_prefix(app: &mut App, count: usize) {
 /// `duration` later. Returns when the text ended.
 fn type_whole_text(app: &mut App, duration: Duration) -> Instant {
     let start = Instant::now();
-    let mut at = start;
-    while let Some(keys) = next_keys(app) {
-        for key in keys {
-            app.handle_key(KeyEvent::from(key), at);
-        }
-        at = start + duration;
-    }
-    at
+    type_next(app, start);
+    let end = start + duration;
+    type_remaining_at(app, end);
+    end
 }
 
 /// Sizes the preview draws every screen at: the smallest supported and a

@@ -18,6 +18,8 @@ pub mod practice;
 pub mod race;
 mod saved_config;
 pub mod settings;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod text_event;
 pub mod text_settings;
 

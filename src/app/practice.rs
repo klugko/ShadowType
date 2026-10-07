@@ -373,6 +373,8 @@ impl SoloRun {
 
 #[cfg(test)]
 mod tests {
+    use code_racer_engine::Mark;
+
     use super::*;
     use crate::persist::scratch::TempDir;
 
@@ -465,10 +467,17 @@ mod tests {
         let now = Instant::now();
         run.session.start(now);
         while !run.is_finished() {
-            let next = run.session.target()[run.session.cursor()].clone();
+            let before = run.session.cursor();
+            let next = run.session.target()[before].clone();
             for ch in next.chars() {
-                run.text_event(TextEvent::Typed(ch), now + Duration::from_secs(60));
+                let typed = run.text_event(TextEvent::Typed(ch), now + Duration::from_secs(60));
+                assert!(typed, "{ch:?} refused at {before}");
             }
+            assert_eq!(
+                run.session.mark(before),
+                Mark::Correct,
+                "{next:?} at {before}"
+            );
         }
         let record = run
             .conclude(&history, now + Duration::from_secs(60))

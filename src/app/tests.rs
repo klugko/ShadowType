@@ -4,7 +4,10 @@ use code_racer_engine::{CodeLanguage, Language, Status};
 use code_racer_protocol::Phase;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::*;
+use super::{
+    test_support::{session, type_remaining_at},
+    *,
+};
 use crate::{
     cli::Launch,
     config::{Config, Mode, Practice, Theme},
@@ -73,21 +76,6 @@ fn command(app: &mut App, line: &str) {
 /// Types whatever the session expects next until it is complete.
 fn type_remaining(app: &mut App) {
     type_remaining_at(app, Instant::now());
-}
-
-fn type_remaining_at(app: &mut App, at: Instant) {
-    while let Some(view) = app.session_view() {
-        let session = view.session;
-        if session.is_finished() || session.cursor() >= session.target().len() {
-            break;
-        }
-        let next = session.target()[session.cursor()].clone();
-        type_text_at(app, &next, at);
-    }
-}
-
-fn session(app: &App) -> &code_racer_engine::TypingSession {
-    app.session_view().expect("a session").session
 }
 
 #[test]

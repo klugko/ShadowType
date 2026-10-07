@@ -48,7 +48,7 @@ mod tests {
     use crate::{
         corpus,
         language::CodeLanguage,
-        session::{SessionOptions, TypingSession},
+        session::{Mark, SessionOptions, TypingSession},
     };
 
     #[test]
@@ -78,9 +78,11 @@ mod tests {
                 let indentation = Indentation::of(snippet);
                 let mut session = TypingSession::new(snippet, options);
                 while let Some(expected) = session.target().get(session.cursor()).cloned() {
-                    expected.chars().for_each(|ch| {
-                        session.type_char(ch, now);
-                    });
+                    let before = session.cursor();
+                    for ch in expected.chars() {
+                        assert!(session.type_char(ch, now), "{ch:?} refused in {snippet}");
+                    }
+                    assert_eq!(session.mark(before), Mark::Correct, "{snippet}");
                     let tally = session.tally();
                     assert_eq!(
                         tally.indentation,
