@@ -1218,6 +1218,27 @@ mod saving {
     }
 
     #[test]
+    fn the_server_line_of_race_toml_is_edited_in_place() {
+        let dir = TempDir::new();
+        let path = dir.join("config.toml");
+        let mut app = app_saving_to(
+            &path,
+            configured("jean"),
+            &Overrides::default(),
+            Launch::Home,
+        );
+        command(&mut app, "race");
+        press(&mut app, KeyCode::Char('G'));
+        press(&mut app, KeyCode::Enter);
+        assert!(matches!(&app.editing, Some(edit) if edit.field == TextField::Server));
+        press_with(&mut app, 'u', KeyModifiers::CONTROL);
+        type_text(&mut app, "10.0.0.9:8080");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.config.multiplayer.server, "ws://10.0.0.9:8080");
+        assert_eq!(reload(&path).multiplayer.server, "ws://10.0.0.9:8080");
+    }
+
+    #[test]
     fn lines_without_a_value_save_nothing() {
         let dir = TempDir::new();
         let path = dir.join("config.toml");

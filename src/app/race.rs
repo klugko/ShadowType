@@ -13,11 +13,12 @@ use crate::{
         SessionView, TextField,
         form::{Row, Step, Value},
         practice::{Plan, code_file_name},
+        settings,
         text_event::TextEvent,
         text_settings::{self, TextSetting},
     },
     cli::Launch,
-    config::{Mode, Practice},
+    config::{Config, Mode, Practice},
     history::Record,
     network::{Connection, NetworkEvent},
 };
@@ -37,6 +38,8 @@ pub enum Field {
     Join,
     Text(TextSetting),
     Create,
+    /// The address of the race server, the one of `config.toml`.
+    Server,
 }
 
 impl Field {
@@ -44,11 +47,14 @@ impl Field {
     pub const fn text_field(self) -> Option<TextField> {
         match self {
             Self::Room => Some(TextField::RoomCode),
+            Self::Server => Some(TextField::Server),
             Self::Join | Self::Text(_) | Self::Create => None,
         }
     }
 }
 
+/// Lines of the race form. The room line comes first, where the form
+/// opens, as joining a room is what most players come for.
 pub fn fields(settings: &Practice) -> Vec<Field> {
     [Field::Room, Field::Join]
         .into_iter()
@@ -57,7 +63,7 @@ pub fn fields(settings: &Practice) -> Vec<Field> {
                 .into_iter()
                 .map(Field::Text),
         )
-        .chain([Field::Create])
+        .chain([Field::Create, Field::Server])
         .collect()
 }
 
@@ -66,17 +72,19 @@ pub fn section(field: Field) -> Option<&'static str> {
     match field {
         Field::Room => Some("join"),
         Field::Text(TextSetting::Mode) => Some("create"),
+        Field::Server => Some("multiplayer"),
         _ => None,
     }
 }
 
-pub fn row(settings: &Practice, room_code: &str, field: Field) -> Row {
+pub fn row(config: &Config, room_code: &str, field: Field) -> Row {
     match field {
         Field::Room => Row::new("room", Value::Text(room_code.to_owned()))
             .hint("code shared by the host, Enter to type it"),
         Field::Join => Row::action("join room"),
-        Field::Text(setting) => text_settings::row(settings, setting, &RACE_MODES),
+        Field::Text(setting) => text_settings::row(&config.race, setting, &RACE_MODES),
         Field::Create => Row::action("create room"),
+        Field::Server => settings::row(config, settings::Field::Server),
     }
 }
 
@@ -510,7 +518,7 @@ mod tests {
         }
         assert!(!seen.contains(&Mode::Time));
         assert_eq!(settings.mode, Mode::Words);
-        assert_eq!(fields(&settings).len(), 8);
+        assert_eq!(fields(&settings).len(), 9);
     }
 
     #[test]

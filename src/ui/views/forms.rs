@@ -90,13 +90,6 @@ pub fn race(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Opti
             "race your team: everyone types the same text at the same time",
             palette,
         )),
-        Item::Plain(doc::blank()),
-        Item::Plain(Row::new(doc::assignment(
-            "server",
-            6,
-            doc::string(&app.config.multiplayer.server, palette),
-            palette,
-        ))),
     ];
     for (index, field) in fields.iter().enumerate() {
         if let Some(section) = race::section(*field) {
@@ -106,7 +99,7 @@ pub fn race(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Opti
                 palette.fg(palette.keyword),
             )])));
         }
-        let row = race::row(&app.config.race, &app.room_code, *field);
+        let row = race::row(&app.config, &app.room_code, *field);
         items.push(Item::field(app, row, field.text_field(), index == selected));
     }
     draw(frame, area, items, palette)
