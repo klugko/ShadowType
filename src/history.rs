@@ -23,9 +23,6 @@ pub const MAX_RECORDS: usize = 2000;
 /// Sessions averaged into [`Summary::recent_wpm`].
 pub const RECENT_SESSIONS: usize = 10;
 
-/// [`Record::mode`] of code sessions, whatever their programming language.
-const CODE_MODE: &str = "code";
-
 /// One finished solo session or race.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Record {
@@ -47,6 +44,11 @@ pub struct Record {
 }
 
 impl Record {
+    /// [`Record::mode`] of code sessions, whatever their programming language.
+    pub const CODE_MODE: &'static str = "code";
+    /// [`Record::mode`] of races, whatever their text.
+    pub const RACE_MODE: &'static str = "race";
+
     /// The record of a session that just ended, dated now.
     pub fn from_stats(mode: String, language: String, stats: &Stats) -> Self {
         Self {
@@ -303,7 +305,7 @@ impl From<StoredRecord> for Record {
 /// which never matches the `code` key that sessions are recorded under.
 fn current_mode(mode: String) -> String {
     if mode.starts_with("code ") {
-        CODE_MODE.to_owned()
+        Record::CODE_MODE.to_owned()
     } else {
         mode
     }
@@ -313,8 +315,8 @@ fn legacy_mode(mode: &str) -> String {
     match mode.split_once('/') {
         Some((kind @ ("words" | "time"), amount)) => format!("{kind} {amount}"),
         Some(("quote", _)) => "quote".to_owned(),
-        Some(("code", _)) => CODE_MODE.to_owned(),
-        _ if mode == "multiplayer" => "race".to_owned(),
+        Some(("code", _)) => Record::CODE_MODE.to_owned(),
+        _ if mode == "multiplayer" => Record::RACE_MODE.to_owned(),
         _ => mode.replace('/', " "),
     }
 }

@@ -217,12 +217,13 @@ impl Plan {
         }
     }
 
+    /// What was practised, as [`Record::mode`] keeps it.
     pub fn mode_label(&self) -> String {
         match self {
             Self::Text(TextSource::Words { count, .. }) => format!("words {count}"),
             Self::Timed { seconds, .. } => format!("time {seconds}"),
             Self::Text(TextSource::Quote { .. }) => "quote".to_owned(),
-            Self::Text(TextSource::Code { .. }) => "code".to_owned(),
+            Self::Text(TextSource::Code { .. }) => Record::CODE_MODE.to_owned(),
             Self::File(_) => "file".to_owned(),
         }
     }

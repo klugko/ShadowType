@@ -242,37 +242,52 @@ impl Config {
 
     /// Takes from `after` every setting that differs from `before`, and
     /// keeps the others.
+    ///
+    /// `after` is taken apart field by field, so that a setting added later
+    /// cannot be forgotten here without a compilation error.
     pub fn adopt_changes(&mut self, before: &Self, after: &Self) {
-        adopt(&mut self.username, &before.username, &after.username);
-        adopt(&mut self.theme, &before.theme, &after.theme);
-        self.practice
-            .adopt_changes(&before.practice, &after.practice);
-        self.race.adopt_changes(&before.race, &after.race);
+        let Self {
+            username,
+            theme,
+            practice,
+            race,
+            multiplayer: Multiplayer { server },
+        } = after;
+        adopt(&mut self.username, &before.username, username);
+        adopt(&mut self.theme, &before.theme, theme);
+        self.practice.adopt_changes(&before.practice, practice);
+        self.race.adopt_changes(&before.race, race);
         adopt(
             &mut self.multiplayer.server,
             &before.multiplayer.server,
-            &after.multiplayer.server,
+            server,
         );
     }
 }
 
 impl Practice {
+    /// See [`Config::adopt_changes`].
     fn adopt_changes(&mut self, before: &Self, after: &Self) {
-        adopt(&mut self.mode, &before.mode, &after.mode);
-        adopt(&mut self.language, &before.language, &after.language);
+        let Self {
+            mode,
+            language,
+            code_language,
+            word_count,
+            duration,
+            punctuation,
+            numbers,
+        } = after;
+        adopt(&mut self.mode, &before.mode, mode);
+        adopt(&mut self.language, &before.language, language);
         adopt(
             &mut self.code_language,
             &before.code_language,
-            &after.code_language,
+            code_language,
         );
-        adopt(&mut self.word_count, &before.word_count, &after.word_count);
-        adopt(&mut self.duration, &before.duration, &after.duration);
-        adopt(
-            &mut self.punctuation,
-            &before.punctuation,
-            &after.punctuation,
-        );
-        adopt(&mut self.numbers, &before.numbers, &after.numbers);
+        adopt(&mut self.word_count, &before.word_count, word_count);
+        adopt(&mut self.duration, &before.duration, duration);
+        adopt(&mut self.punctuation, &before.punctuation, punctuation);
+        adopt(&mut self.numbers, &before.numbers, numbers);
     }
 }
 

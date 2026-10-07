@@ -627,6 +627,10 @@ fn starting_something_else_in_a_room_is_refused() {
         app.config.practice, practice,
         "refused commands change nothing"
     );
+    assert_eq!(
+        app.room_code, "FK72AD",
+        "the room line keeps the room joined"
+    );
 }
 
 #[test]
@@ -650,11 +654,21 @@ fn holding_the_ready_key_sends_one_request() {
         Ok(ClientMessage::SetReady { .. })
     ));
     let answer = room::view(Phase::Lobby, PlayerProgress::default());
-    room::deliver(&mut app, ServerMessage::Room(answer), now);
+    room::deliver(&mut app, ServerMessage::Room(answer.clone()), now);
     app.handle_key(held, now);
     app.handle_key(held, now);
     assert!(sent.try_recv().is_err(), "auto-repeat is ignored");
-    app.handle_key(ready, now);
+    let mut at = now;
+    for _ in 0..20 {
+        at += Duration::from_millis(30);
+        app.handle_key(ready, at);
+        room::deliver(&mut app, ServerMessage::Room(answer.clone()), at);
+    }
+    assert!(
+        sent.try_recv().is_err(),
+        "repeats reported as presses are ignored too"
+    );
+    app.handle_key(ready, at + Duration::from_millis(200));
     assert!(matches!(
         sent.try_recv(),
         Ok(ClientMessage::SetReady { .. })

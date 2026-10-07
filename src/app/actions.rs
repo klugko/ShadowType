@@ -59,7 +59,9 @@ impl App {
                 }
             }
             Launch::Multiplayer => self.open(Buffer::Race),
-            Launch::Create(text) => self.connect(Intent::Create(text)),
+            Launch::Create(text) => {
+                self.connect(Intent::Create(text));
+            }
             Launch::Join(code) => self.join_room(code),
             Launch::History => self.open(Buffer::History),
         }
@@ -100,7 +102,9 @@ impl App {
 
     pub(super) fn join_typed_room(&mut self) {
         match self.room_code.parse::<RoomCode>() {
-            Ok(code) => self.connect(Intent::Join(code)),
+            Ok(code) => {
+                self.connect(Intent::Join(code));
+            }
             Err(error) => {
                 self.error(error);
                 self.begin_edit(TextField::RoomCode);
@@ -108,25 +112,31 @@ impl App {
         }
     }
 
+    /// Joins room `code`, which the room line of `race.toml` then shows once
+    /// the connection is under way.
     fn join_room(&mut self, code: RoomCode) {
-        self.room_code = code.to_string();
-        self.connect(Intent::Join(code));
+        let line = code.to_string();
+        if self.connect(Intent::Join(code)) {
+            self.room_code = line;
+        }
     }
 
-    fn connect(&mut self, intent: Intent) {
+    /// Connects to the race server for `intent`. Returns whether the
+    /// connection is under way, rather than refused or waiting for a name.
+    fn connect(&mut self, intent: Intent) -> bool {
         if self.refuse_while_in_room() {
-            return;
+            return false;
         }
         let Some(username) = self.config.username() else {
             self.ask_username(intent.into());
             self.error("choose a username before racing, then Enter");
-            return;
+            return false;
         };
         let server = match network::server_url(&self.config.multiplayer.server) {
             Ok(server) => server,
             Err(error) => {
                 self.error(error);
-                return;
+                return false;
             }
         };
         self.end_activity();
@@ -134,6 +144,7 @@ impl App {
         let client = RaceClient::connect(server, username, intent);
         self.activity = Some(Activity::Race(Box::new(client)));
         self.open(Buffer::Session);
+        true
     }
 
     /// Whether the player is in a room, which starting anything else would
@@ -150,12 +161,13 @@ impl App {
         true
     }
 
-    /// Asks the room for `request`, telling why when it cannot be made.
-    pub(super) fn request_room(&mut self, request: RoomRequest) {
+    /// Asks the room for `request`, pressed at `now`, telling why when it
+    /// cannot be made.
+    pub(super) fn request_room(&mut self, request: RoomRequest, now: Instant) {
         let Some(Activity::Race(client)) = &mut self.activity else {
             return;
         };
-        match (request, client.request(request)) {
+        match (request, client.request(request, now)) {
             (_, Ok(())) => {}
             (RoomRequest::Again, Err(reason)) => self.info(reason),
             (_, Err(reason)) => self.error(reason),

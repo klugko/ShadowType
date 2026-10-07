@@ -21,10 +21,12 @@ use crate::{
 };
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+/// Shortest time between two presses of the same room request. A held key
+/// repeats faster, and terminals without keyboard enhancement report its
+/// repeats as new presses, which would trip the server's message limit.
+const REQUEST_REPEAT: Duration = Duration::from_millis(150);
 /// Modes a race can use: time mode is solo only.
 const RACE_MODES: [Mode; 3] = [Mode::Words, Mode::Quote, Mode::Code];
-/// [`Record::mode`] of races.
-const RACE_RECORD_MODE: &str = "race";
 
 /// A line of `race.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +146,8 @@ pub struct RaceClient {
     /// be decided: a held key would otherwise flood the server, and
     /// toggling twice would ask for the same state twice.
     awaiting_answer: bool,
+    /// The last room request pressed, and when.
+    last_press: Option<(RoomRequest, Instant)>,
 }
 
 impl RaceClient {
@@ -162,6 +166,7 @@ impl RaceClient {
             intent: Some(intent),
             reported: None,
             awaiting_answer: false,
+            last_press: None,
         }
     }
 
@@ -280,9 +285,13 @@ impl RaceClient {
         }
     }
 
-    /// Sends `request`, unless the previous one is still unanswered. Returns
-    /// why it cannot be made, if it cannot.
-    pub fn request(&mut self, request: RoomRequest) -> Result<(), String> {
+    /// Sends `request` pressed at `now`, unless the previous one is still
+    /// unanswered or the key is only repeating. Returns why it cannot be
+    /// made, if it cannot.
+    pub fn request(&mut self, request: RoomRequest, now: Instant) -> Result<(), String> {
+        if self.repeats_last_press(request, now) {
+            return Ok(());
+        }
         let message = match request {
             RoomRequest::ToggleReady => ClientMessage::SetReady {
                 ready: !self.me().is_some_and(|me| me.ready),
@@ -300,6 +309,17 @@ impl RaceClient {
             self.awaiting_answer = self.connection.send(message);
         }
         Ok(())
+    }
+
+    /// Records a press of `request` and tells whether it repeats the previous
+    /// press within [`REQUEST_REPEAT`]. Every press restarts the delay, so a
+    /// key held down acts once.
+    fn repeats_last_press(&mut self, request: RoomRequest, now: Instant) -> bool {
+        let repeats = self.last_press.is_some_and(|(last, at)| {
+            last == request && now.saturating_duration_since(at) < REQUEST_REPEAT
+        });
+        self.last_press = Some((request, now));
+        repeats
     }
 
     fn check_start(&self) -> Result<(), String> {
@@ -414,7 +434,7 @@ impl RaceClient {
             duration,
             wpm: progress.wpm,
             accuracy: progress.accuracy,
-            ..Record::from_stats(RACE_RECORD_MODE.to_owned(), language, &stats)
+            ..Record::from_stats(Record::RACE_MODE.to_owned(), language, &stats)
         })
     }
 }
@@ -446,6 +466,8 @@ fn progress(cursor: usize, stats: &Stats) -> Progress {
 
 #[cfg(test)]
 mod tests {
+    use tokio::sync::mpsc;
+
     use super::*;
 
     #[test]
@@ -518,8 +540,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn one_room_request_at_a_time() {
+    /// A client in the lobby over a connection that hands what it sends to
+    /// the test, the join request already taken.
+    fn in_lobby() -> (RaceClient, mpsc::Receiver<ClientMessage>, Instant) {
         let (connection, mut sent) = Connection::loopback();
         let code: RoomCode = "FK72AD".parse().expect("code");
         let mut client = RaceClient::over(connection, "ws://test".to_owned(), Intent::Join(code));
@@ -533,29 +556,74 @@ mod tests {
             sent.try_recv(),
             Ok(ClientMessage::JoinRoom { .. })
         ));
+        (client, sent, now)
+    }
 
-        for _ in 0..3 {
-            client.request(RoomRequest::ToggleReady).expect("allowed");
+    #[test]
+    fn one_room_request_at_a_time() {
+        let (mut client, mut sent, now) = in_lobby();
+        for press in 0..3 {
+            let at = now + REQUEST_REPEAT * press;
+            client
+                .request(RoomRequest::ToggleReady, at)
+                .expect("allowed");
         }
         assert_eq!(sent.try_recv(), Ok(ClientMessage::SetReady { ready: true }));
         assert!(sent.try_recv().is_err(), "held until the server answers");
 
-        client.handle(NetworkEvent::Message(ServerMessage::Room(lobby(true))), now);
-        client.request(RoomRequest::ToggleReady).expect("allowed");
+        let later = now + REQUEST_REPEAT * 4;
+        client.handle(
+            NetworkEvent::Message(ServerMessage::Room(lobby(true))),
+            later,
+        );
+        client
+            .request(RoomRequest::ToggleReady, later)
+            .expect("allowed");
         assert_eq!(
             sent.try_recv(),
             Ok(ClientMessage::SetReady { ready: false })
         );
 
         let refusal = ServerMessage::error(ErrorCode::InvalidMessage, "no");
-        client.handle(NetworkEvent::Message(refusal), now);
+        client.handle(NetworkEvent::Message(refusal), later);
         client
-            .request(RoomRequest::Start)
+            .request(RoomRequest::Start, later)
             .expect("everyone is ready");
         assert_eq!(
             sent.try_recv(),
             Ok(ClientMessage::StartRace),
             "an error answers too"
+        );
+    }
+
+    #[test]
+    fn a_request_pressed_again_and_again_is_a_held_key() {
+        let (mut client, mut sent, now) = in_lobby();
+        let mut at = now;
+        for _ in 0..30 {
+            client
+                .request(RoomRequest::ToggleReady, at)
+                .expect("allowed");
+            client.handle(NetworkEvent::Message(ServerMessage::Room(lobby(true))), at);
+            at += Duration::from_millis(30);
+        }
+        assert_eq!(sent.try_recv(), Ok(ClientMessage::SetReady { ready: true }));
+        assert!(sent.try_recv().is_err(), "one request for the whole hold");
+
+        client.request(RoomRequest::Start, at).expect("allowed");
+        assert_eq!(
+            sent.try_recv(),
+            Ok(ClientMessage::StartRace),
+            "another request is a new press"
+        );
+        client.handle(NetworkEvent::Message(ServerMessage::Room(lobby(true))), at);
+        client
+            .request(RoomRequest::ToggleReady, at + REQUEST_REPEAT)
+            .expect("allowed");
+        assert_eq!(
+            sent.try_recv(),
+            Ok(ClientMessage::SetReady { ready: false }),
+            "the same request after the delay is a new press"
         );
     }
 

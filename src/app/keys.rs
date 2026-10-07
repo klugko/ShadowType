@@ -237,8 +237,8 @@ impl App {
         true
     }
 
-    /// Room keys. A held key repeats the request only once: the server
-    /// limits how many messages a player sends.
+    /// Room keys. A held key makes its request only once: the server limits
+    /// how many messages a player sends.
     fn room_key(&mut self, key: KeyEvent, phase: Option<Phase>, now: Instant) -> bool {
         let request = match (phase, key.code) {
             (_, KeyCode::Esc) => {
@@ -255,7 +255,7 @@ impl App {
             _ => return false,
         };
         if key.kind != KeyEventKind::Repeat {
-            self.request_room(request);
+            self.request_room(request, now);
         }
         true
     }
