@@ -6,6 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Terminal,
     backend::TestBackend,
+    layout::Position,
     style::{Color, Style},
 };
 
@@ -465,6 +466,35 @@ fn the_dark_theme_draws_on_black_with_visible_selections() {
         Some(Color::Black),
         "no grey that hides ghost text"
     );
+}
+
+/// Where the terminal cursor is left once `app` is drawn.
+fn cursor_of(app: &App, width: u16, height: u16) -> (Position, Terminal<TestBackend>) {
+    let mut terminal = drawn(app, width, height, Instant::now());
+    let position = terminal.get_cursor_position().expect("cursor");
+    (position, terminal)
+}
+
+#[test]
+fn the_terminal_cursor_follows_the_value_being_typed() {
+    let mut app = app();
+    command(&mut app, "config");
+    press(&mut app, KeyCode::Enter);
+    press(&mut app, KeyCode::Left);
+    press(&mut app, KeyCode::Left);
+    let (cursor, terminal) = cursor_of(&app, 120, 30);
+    let (x, y) = find(&terminal, "username = \"jean\"").expect("the line");
+    assert_eq!(cursor, Position::new(x + 14, y), "after \"je\"");
+
+    press(&mut app, KeyCode::Esc);
+    command(&mut app, "race");
+    press(&mut app, KeyCode::Enter);
+    for ch in "FK7".chars() {
+        press(&mut app, KeyCode::Char(ch));
+    }
+    let (cursor, terminal) = cursor_of(&app, MIN_WIDTH, MIN_HEIGHT);
+    let (x, y) = find(&terminal, "room        = \"FK7\"").expect("the line");
+    assert_eq!(cursor, Position::new(x + 18, y), "after \"FK7\"");
 }
 
 #[tokio::test]

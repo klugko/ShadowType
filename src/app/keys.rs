@@ -178,10 +178,10 @@ impl App {
     fn race_intent(&mut self, intent: ValueIntent) {
         let fields = race::fields(&self.config.race);
         let field = fields[self.race_cursor.index(fields.len())];
+        if self.edit_text_line(intent, field.text_field()) {
+            return;
+        }
         match (intent, field) {
-            (ValueIntent::Activate | ValueIntent::Edit, race::Field::Room) => {
-                self.begin_edit(TextField::RoomCode);
-            }
             (ValueIntent::Activate, race::Field::Join) => self.join_typed_room(),
             (ValueIntent::Activate, race::Field::Create) => self.create_room(),
             _ => self.change_value(intent, |config, step| {
@@ -192,15 +192,24 @@ impl App {
 
     fn settings_intent(&mut self, intent: ValueIntent) {
         let field = settings::FIELDS[self.settings_cursor.index(settings::FIELDS.len())];
-        match (intent, field) {
-            (ValueIntent::Activate | ValueIntent::Edit, settings::Field::Username) => {
-                self.begin_edit(TextField::Username);
+        if self.edit_text_line(intent, field.text_field()) {
+            return;
+        }
+        if field == settings::Field::Theme {
+            self.change_value(intent, settings::cycle_theme);
+        }
+    }
+
+    /// Begins typing the value of a line that takes `text`, when `intent`
+    /// edits or activates it. Returns whether it did.
+    fn edit_text_line(&mut self, intent: ValueIntent, text: Option<TextField>) -> bool {
+        let editing = matches!(intent, ValueIntent::Activate | ValueIntent::Edit);
+        match text.filter(|_| editing) {
+            Some(field) => {
+                self.begin_edit(field);
+                true
             }
-            (ValueIntent::Activate | ValueIntent::Edit, settings::Field::Server) => {
-                self.begin_edit(TextField::Server);
-            }
-            (_, settings::Field::Theme) => self.change_value(intent, settings::cycle_theme),
-            (ValueIntent::Change(_), _) => {}
+            None => false,
         }
     }
 

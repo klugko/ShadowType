@@ -10,7 +10,7 @@ use code_racer_protocol::{
 
 use crate::{
     app::{
-        SessionView,
+        SessionView, TextField,
         form::{Row, Step, Value},
         practice::{Plan, code_file_name},
         text_settings::{self, TextSetting},
@@ -36,6 +36,16 @@ pub enum Field {
     Join,
     Text(TextSetting),
     Create,
+}
+
+impl Field {
+    /// The text typed to set this line, for the lines that take text.
+    pub const fn text_field(self) -> Option<TextField> {
+        match self {
+            Self::Room => Some(TextField::RoomCode),
+            Self::Join | Self::Text(_) | Self::Create => None,
+        }
+    }
 }
 
 pub fn fields(settings: &Practice) -> Vec<Field> {

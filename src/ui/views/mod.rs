@@ -86,7 +86,8 @@ mod doc {
         Row::blank()
     }
 
-    /// `key = "value"` aligned on `width`, with a trailing comment.
+    /// `key = value`, the key padded to `width` columns. The value is the
+    /// last span.
     pub fn assignment(
         key: &str,
         width: usize,
@@ -100,8 +101,11 @@ mod doc {
         ]
     }
 
+    /// What opens and closes a [`string`].
+    pub const QUOTE: &str = "\"";
+
     pub fn string(value: &str, palette: &Palette) -> Span<'static> {
-        Span::styled(format!("\"{value}\""), palette.fg(palette.string))
+        Span::styled(format!("{QUOTE}{value}{QUOTE}"), palette.fg(palette.string))
     }
 
     /// Keys and their effect, such as `r  toggle ready`.

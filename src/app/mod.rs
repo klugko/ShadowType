@@ -366,6 +366,14 @@ impl App {
         }
     }
 
+    /// What is being typed in `field`, while it is.
+    pub fn input_of(&self, field: TextField) -> Option<&TextInput> {
+        self.editing
+            .as_ref()
+            .filter(|edit| edit.field == field)
+            .map(|edit| &edit.input)
+    }
+
     pub fn editor_mode(&self) -> EditorMode {
         if self.prompt.is_some() {
             EditorMode::Command
