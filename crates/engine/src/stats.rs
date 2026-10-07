@@ -73,9 +73,8 @@ pub struct Stats {
     /// Characters of `correct_chars` that auto-indentation filled in.
     pub indentation: usize,
     pub elapsed: Duration,
-    /// Completion between 0 and 1: the share of the time limit used, or of
-    /// the text typed correctly up to the first mistake. It reaches 1 only
-    /// once the session is over.
+    /// Completion between 0 and 1: the share of the time limit used, or the
+    /// [`completion`] of the text. It reaches 1 only once the session is over.
     pub progress: f64,
 }
 
@@ -118,6 +117,19 @@ pub fn words_per_minute(chars: usize, elapsed: Duration) -> f64 {
         0.0
     } else {
         chars as f64 / CHARS_PER_WORD / minutes
+    }
+}
+
+/// How far a player is through a text of `length` characters, between 0
+/// and 1: the share of it currently typed correctly, auto-filled
+/// indentation included. Solo sessions and race standings both use it.
+/// It reaches 1 only once the whole text is correct, as correct characters
+/// never outnumber the characters of the text.
+pub fn completion(correct: usize, length: usize) -> f64 {
+    if length == 0 {
+        0.0
+    } else {
+        (correct as f64 / length as f64).clamp(0.0, 1.0)
     }
 }
 
@@ -220,6 +232,14 @@ mod tests {
         assert_eq!(stats.keystrokes, 9);
         assert_eq!(stats.indentation, 4);
         assert_eq!(stats.progress, 0.5);
+    }
+
+    #[test]
+    fn completion_is_the_share_of_the_text_currently_correct() {
+        assert_eq!(completion(3, 4), 0.75);
+        assert_eq!(completion(4, 4), 1.0);
+        assert_eq!(completion(0, 0), 0.0);
+        assert_eq!(completion(5, 4), 1.0);
     }
 
     #[test]

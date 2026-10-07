@@ -2,10 +2,13 @@
 
 use std::ops::RangeInclusive;
 
-use code_racer_engine::TextSource;
+use code_racer_engine::{TextSource, completion};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{PlayerId, RoomCode, Username};
+use crate::{
+    ids::{PlayerId, RoomCode, Username},
+    message::count,
+};
 
 /// Word counts accepted for a race.
 pub const RACE_WORD_COUNTS: RangeInclusive<u16> = 5..=200;
@@ -75,13 +78,10 @@ impl PlayerProgress {
         self.finish_ms.is_some()
     }
 
-    /// Share of the text typed correctly, between 0 and 1.
+    /// Share of the text typed correctly, between 0 and 1, by the
+    /// [`completion`] rule the player's own session shows.
     pub fn fraction(&self, text_length: u32) -> f64 {
-        if text_length == 0 {
-            0.0
-        } else {
-            (f64::from(self.correct) / f64::from(text_length)).clamp(0.0, 1.0)
-        }
+        completion(count(self.correct), count(text_length))
     }
 }
 
@@ -126,9 +126,12 @@ impl RoomView {
 
 #[cfg(test)]
 mod tests {
-    use code_racer_engine::{CodeLanguage, Language, WordOptions};
+    use std::time::Instant;
+
+    use code_racer_engine::{CodeLanguage, Language, SessionOptions, TypingSession, WordOptions};
 
     use super::*;
+    use crate::Progress;
 
     fn player(id: u64, name: &str, correct: u32, finish_ms: Option<u64>) -> PlayerView {
         PlayerView {
@@ -187,6 +190,22 @@ mod tests {
         assert_eq!(progress.fraction(100), 0.5);
         assert_eq!(progress.fraction(0), 0.0);
         assert_eq!(progress.fraction(10), 1.0);
+    }
+
+    #[test]
+    fn standings_and_the_racing_session_agree_on_how_far_a_player_is() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("hello world", SessionOptions::default());
+        for ch in "hellp world".chars() {
+            session.type_char(ch, now);
+        }
+        let reported = Progress::from(session.tally());
+        let progress = PlayerProgress {
+            typed: reported.typed,
+            correct: reported.correct,
+            ..PlayerProgress::default()
+        };
+        assert_eq!(progress.fraction(11), session.stats(now).progress);
     }
 
     #[test]

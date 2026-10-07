@@ -65,7 +65,6 @@ pub struct Progress {
 impl Progress {
     /// The counters in the engine's terms, to score them with its rules.
     pub fn tally(&self) -> Tally {
-        let count = |value: u32| usize::try_from(value).unwrap_or(usize::MAX);
         Tally {
             typed: count(self.typed),
             correct: count(self.correct),
@@ -74,6 +73,11 @@ impl Progress {
             errors: count(self.errors),
         }
     }
+}
+
+/// A counter of the wire format as an engine counter.
+pub(crate) fn count(value: u32) -> usize {
+    usize::try_from(value).unwrap_or(usize::MAX)
 }
 
 impl From<Tally> for Progress {

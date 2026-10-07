@@ -12,7 +12,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::{
     indentation::indentation_run,
     normalize::keyboard_form,
-    stats::{Sample, Stats, Tally, sample_ends, words_per_minute},
+    stats::{Sample, Stats, Tally, completion, sample_ends, words_per_minute},
 };
 
 /// Longest run of characters, counted from the first uncorrected mistake and
@@ -284,20 +284,15 @@ impl TypingSession {
             .collect()
     }
 
-    /// Share of the time limit used, or of the text typed correctly up to the
-    /// first mistake, so that it reaches 1 only once the session is over.
+    /// Share of the time limit used, or [`completion`] of the text, so that
+    /// it reaches 1 only once the session is over.
     fn progress(&self, elapsed: Duration) -> f64 {
-        let ratio = match self.options.time_limit {
-            Some(limit) if !limit.is_zero() => elapsed.as_secs_f64() / limit.as_secs_f64(),
-            _ if self.target.is_empty() => 0.0,
-            _ => self.correct_prefix() as f64 / self.target.len() as f64,
-        };
-        ratio.clamp(0.0, 1.0)
-    }
-
-    /// Characters typed correctly before the first uncorrected mistake.
-    fn correct_prefix(&self) -> usize {
-        self.first_mistake().unwrap_or(self.cursor())
+        match self.options.time_limit {
+            Some(limit) if !limit.is_zero() => {
+                (elapsed.as_secs_f64() / limit.as_secs_f64()).clamp(0.0, 1.0)
+            }
+            _ => completion(self.tally().correct, self.target.len()),
+        }
     }
 
     fn first_mistake(&self) -> Option<usize> {
@@ -598,12 +593,16 @@ mod tests {
     }
 
     #[test]
-    fn progress_stays_below_one_until_the_text_is_correct() {
+    fn progress_is_the_share_of_the_text_typed_correctly() {
         let now = Instant::now();
         let mut session = TypingSession::new("abcd", SessionOptions::default());
         type_text(&mut session, "abxd", now);
         assert_eq!(session.status(), Status::Running);
-        assert_eq!(session.stats(now).progress, 0.5, "up to the first mistake");
+        assert_eq!(
+            session.stats(now).progress,
+            0.75,
+            "the mistake does not count"
+        );
         session.backspace(now);
         session.backspace(now);
         type_text(&mut session, "cd", now);

@@ -17,6 +17,6 @@ pub use normalize::normalize;
 pub use session::{
     ERROR_RUN_LIMIT, Mark, SessionOptions, Status, TypingSession, grapheme_count, graphemes,
 };
-pub use stats::{Sample, Stats, Tally, consistency, percentage, words_per_minute};
+pub use stats::{Sample, Stats, Tally, completion, consistency, percentage, words_per_minute};
 pub use text::{GeneratedText, TextSource, WORD_COUNTS};
 pub use words::{WordOptions, WordStream};
