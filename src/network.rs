@@ -132,8 +132,8 @@ pub fn is_local_only(url: &str) -> bool {
             .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
 }
 
-/// `url` with `host` in place of its host, IPv6 addresses bracketed, the
-/// scheme, user, port and path kept. `None` without a scheme.
+/// `url` with `host`, an IPv6 address given in brackets, in place of its
+/// host, keeping the scheme, user, port and path. `None` without a scheme.
 pub fn with_host(url: &str, host: &str) -> Option<String> {
     let (scheme, address) = url.split_once("://")?;
     let (authority, path) = split_authority(address);

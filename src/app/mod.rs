@@ -48,7 +48,7 @@ use saved_config::SavedConfig;
 use text_event::TextEvent;
 
 /// Settings given on the command line. They apply to this run only and are
-/// never saved, unless the user changes the same setting in the app.
+/// never saved, unless the user sets the same setting in the app.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Overrides {
     pub theme: Option<Theme>,
