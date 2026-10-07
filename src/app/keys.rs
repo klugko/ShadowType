@@ -19,9 +19,14 @@ use code_racer_protocol::Phase;
 const PAGE: usize = 10;
 
 impl App {
-    /// Handles a key press. Ctrl+C always quits; any other key is ignored
-    /// during the quiet period that follows the end of typing.
+    /// Handles a key press or repeat. Releases are ignored: Windows reports
+    /// one after every press, which would act twice. Ctrl+C always quits;
+    /// any other key is ignored during the quiet period that follows the
+    /// end of typing.
     pub fn handle_key(&mut self, key: KeyEvent, now: Instant) {
+        if key.kind == KeyEventKind::Release {
+            return;
+        }
         self.begin_event();
         let key = normalized(key);
         if is_control(key, 'c') {

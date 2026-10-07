@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossterm::event::{Event, EventStream, KeyEventKind};
+use crossterm::event::{Event, EventStream};
 use futures_util::{
     FutureExt, StreamExt,
     future::{BoxFuture, select_all},
@@ -60,7 +60,7 @@ pub async fn run(mut app: App) -> anyhow::Result<()> {
 
 fn handle_terminal_event(app: &mut App, event: Event) -> bool {
     match event {
-        Event::Key(key) if key.kind != KeyEventKind::Release => {
+        Event::Key(key) => {
             app.handle_key(key, Instant::now());
             true
         }

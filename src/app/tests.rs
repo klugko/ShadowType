@@ -458,6 +458,47 @@ fn a_mistake_left_at_the_end_of_the_text_says_how_to_finish() {
     assert_eq!(session(&app).status(), Status::Completed);
 }
 
+fn released(code: KeyCode) -> KeyEvent {
+    KeyEvent {
+        kind: crossterm::event::KeyEventKind::Release,
+        ..KeyEvent::from(code)
+    }
+}
+
+#[test]
+fn key_releases_are_ignored() {
+    let mut app = app();
+    app.handle_key(released(KeyCode::Char(':')), Instant::now());
+    assert!(app.prompt.is_none(), "a release opens nothing");
+    press(&mut app, KeyCode::Char('s'));
+    let next = session(&app).target()[0].clone();
+    for ch in next.chars() {
+        press(&mut app, KeyCode::Char(ch));
+        app.handle_key(released(KeyCode::Char(ch)), Instant::now());
+    }
+    assert_eq!(session(&app).cursor(), 1, "typed once");
+}
+
+#[test]
+fn releasing_the_ready_key_sends_nothing() {
+    use code_racer_protocol::{ClientMessage, PlayerProgress, ServerMessage};
+    let now = Instant::now();
+    let (mut app, mut sent) = room::joined_over_loopback(now);
+    assert!(matches!(
+        sent.try_recv(),
+        Ok(ClientMessage::JoinRoom { .. })
+    ));
+    press_at(&mut app, KeyCode::Char('r'), now);
+    assert!(matches!(
+        sent.try_recv(),
+        Ok(ClientMessage::SetReady { .. })
+    ));
+    let answer = room::view(Phase::Lobby, PlayerProgress::default());
+    room::deliver(&mut app, ServerMessage::Room(answer), now);
+    app.handle_key(released(KeyCode::Char('r')), now + Duration::from_millis(200));
+    assert!(sent.try_recv().is_err(), "the release is not a press");
+}
+
 #[test]
 fn control_c_always_quits() {
     let mut app = app();
