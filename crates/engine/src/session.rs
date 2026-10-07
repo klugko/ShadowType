@@ -237,10 +237,13 @@ impl TypingSession {
         }
     }
 
-    /// Whether input is refused until the first mistake is corrected.
+    /// Whether input is refused until the first mistake is corrected: after
+    /// [`ERROR_RUN_LIMIT`] characters typed from it, or at the end of the
+    /// text, which is not complete while a mistake is left.
     pub fn is_blocked(&self) -> bool {
-        self.first_mistake()
-            .is_some_and(|first| self.typed_from(first) >= ERROR_RUN_LIMIT)
+        self.first_mistake().is_some_and(|first| {
+            self.typed_from(first) >= ERROR_RUN_LIMIT || self.cursor() == self.target.len()
+        })
     }
 
     pub fn elapsed(&self, now: Instant) -> Duration {
@@ -624,6 +627,20 @@ mod tests {
         assert_eq!(session.stats(now).keystrokes, ERROR_RUN_LIMIT);
         session.backspace(now);
         assert!(!session.is_blocked());
+    }
+
+    #[test]
+    fn input_is_blocked_at_the_end_of_a_text_with_a_mistake_left() {
+        let now = Instant::now();
+        let mut session = TypingSession::new("say hello", SessionOptions::default());
+        type_text(&mut session, "say hellp", now);
+        assert!(session.is_blocked(), "nothing left to type but a mistake");
+        assert!(!session.type_char('o', now));
+        assert!(!session.is_finished());
+        session.backspace(now);
+        assert!(!session.is_blocked());
+        assert!(session.type_char('o', now));
+        assert_eq!(session.status(), Status::Completed);
     }
 
     #[test]

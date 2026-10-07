@@ -371,6 +371,25 @@ fn typing_blocked_by_a_mistake_says_how_to_go_on() {
 }
 
 #[test]
+fn a_mistake_left_at_the_end_of_the_text_says_how_to_finish() {
+    let directory = TempDir::new();
+    let path = directory.join("short.txt");
+    std::fs::write(&path, "say hello").expect("write");
+    let mut app = app();
+    command(&mut app, &format!("e {}", path.display()));
+    type_text(&mut app, "say hellp");
+    assert!(app.is_typing_blocked(), "the badge shows at once");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.message,
+        Some(Message::info("fix the mistake first: Backspace or Ctrl+W"))
+    );
+    press(&mut app, KeyCode::Backspace);
+    type_text(&mut app, "o");
+    assert_eq!(session(&app).status(), Status::Completed);
+}
+
+#[test]
 fn control_c_always_quits() {
     let mut app = app();
     press(&mut app, KeyCode::Char('s'));
