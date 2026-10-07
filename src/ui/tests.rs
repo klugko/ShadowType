@@ -188,6 +188,43 @@ fn small_terminals_get_a_message_instead_of_a_broken_layout() {
 }
 
 #[test]
+fn the_smallest_size_gives_the_explorer_columns_to_whole_buffer_lines() {
+    let mut app = app();
+    for wpm in [72.0, 81.0] {
+        app.history.add(record(wpm)).expect("in memory");
+    }
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    let home = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    assert!(!home.contains("EXPLORER"), "{home}");
+    assert!(
+        home.contains("# capitals, commas, quotes, full stops"),
+        "{home}"
+    );
+    for (page, line) in [
+        ("history", "acc  err"),
+        ("help", "edit a text value, Enter saves, Esc cancels"),
+        ("config", "# e.g. ws://192.168.1.42:8080"),
+    ] {
+        command(&mut app, page);
+        let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+        assert!(text.contains(line), "{page}:\n{text}");
+    }
+}
+
+#[tokio::test]
+async fn the_lobby_shows_the_whole_server_address_at_the_smallest_size() {
+    let mut app = in_room(Phase::Lobby);
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    for expected in [
+        "# invite: code-racer join FK72AD --server ws://127.0.0.1:9",
+        "server  = \"ws://127.0.0.1:9\"",
+    ] {
+        assert!(text.contains(expected), "missing {expected}:\n{text}");
+    }
+}
+
+#[test]
 fn every_buffer_renders_in_every_theme_and_size() {
     let mut app = app();
     app.history.add(record(72.0)).expect("in memory");
@@ -438,6 +475,24 @@ fn type_prefix(app: &mut App, count: usize) {
     }
 }
 
+/// Sizes the preview draws every screen at: the smallest supported and a
+/// large one.
+const PREVIEW_SIZES: [(u16, u16); 2] = [(MIN_WIDTH, MIN_HEIGHT), (200, 60)];
+
+/// `app` drawn at every preview size, resized first as by the terminal.
+fn shots(name: &str, app: &mut App) -> Vec<(String, String)> {
+    PREVIEW_SIZES
+        .iter()
+        .map(|&(width, height)| {
+            app.resize(width, height);
+            (
+                format!("{name} {width}x{height}"),
+                screen(app, width, height),
+            )
+        })
+        .collect()
+}
+
 /// Prints every screen; run with `cargo test preview_screens -- --ignored --nocapture`
 /// to review the interface without a terminal.
 #[tokio::test]
@@ -447,23 +502,23 @@ async fn preview_screens() {
     for wpm in [58.0, 61.0, 66.0, 64.0, 70.0, 73.0, 71.0, 78.0] {
         app.history.add(record(wpm)).expect("in memory");
     }
-    let mut screens = vec![("home", screen(&app, 100, 26))];
+    let mut screens = shots("home", &mut app);
     for page in ["race", "config", "history", "help"] {
         command(&mut app, page);
-        screens.push((page, screen(&app, 100, 26)));
+        screens.extend(shots(page, &mut app));
     }
     command(&mut app, "code rust");
     type_prefix(&mut app, 140);
-    screens.push(("code", screen(&app, 100, 26)));
+    screens.extend(shots("code", &mut app));
     press(&mut app, KeyCode::Esc);
-    screens.push(("leaving", screen(&app, 100, 26)));
+    screens.extend(shots("leaving", &mut app));
     press(&mut app, KeyCode::Esc);
     command(&mut app, "words 50");
     type_prefix(&mut app, 60);
     press(&mut app, KeyCode::Char('x'));
-    screens.push(("words", screen(&app, 100, 26)));
+    screens.extend(shots("words", &mut app));
     for phase in [Phase::Lobby, Phase::Racing, Phase::Finished] {
-        screens.push(("room", screen(&in_room(phase), 100, 26)));
+        screens.extend(shots(&format!("{phase:?}"), &mut in_room(phase)));
     }
     for (name, text) in screens {
         println!("──── {name}\n{text}");

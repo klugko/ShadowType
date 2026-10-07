@@ -853,6 +853,35 @@ fn the_explorer_has_the_focus_only_while_it_is_shown() {
     assert_eq!((app.sidebar, app.focus), (true, Focus::Explorer));
 }
 
+#[test]
+fn the_explorer_makes_room_on_narrow_terminals_until_the_user_decides() {
+    let mut app = app();
+    assert_eq!(app.focus, Focus::Explorer);
+    app.resize(80, 20);
+    assert_eq!((app.sidebar, app.focus), (false, Focus::Editor));
+    app.resize(120, 30);
+    assert!(app.sidebar, "shown again once there is room");
+
+    press_with(&mut app, 'b', KeyModifiers::CONTROL);
+    app.resize(200, 60);
+    assert!(!app.sidebar, "hidden by the user, whatever the width");
+    press_with(&mut app, 'b', KeyModifiers::CONTROL);
+    app.resize(80, 20);
+    assert!(app.sidebar, "shown by the user, whatever the width");
+}
+
+#[test]
+fn home_on_a_narrow_terminal_focuses_the_practice_form() {
+    let mut app = app_with(Config::default(), Launch::Home);
+    app.resize(80, 20);
+    type_text(&mut app, "Ada");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(
+        (app.buffer, app.focus, app.sidebar),
+        (Buffer::Practice, Focus::Editor, false)
+    );
+}
+
 /// Settings saved to a real `config.toml`, read back as the next run would.
 mod saving {
     use std::path::Path;

@@ -48,7 +48,7 @@ impl App {
         match launch {
             Launch::Home => {
                 self.buffer = Buffer::Practice;
-                self.focus_explorer();
+                self.focus_explorer_if_shown();
             }
             Launch::Solo { practice, file } => {
                 self.saved

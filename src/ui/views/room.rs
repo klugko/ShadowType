@@ -25,6 +25,7 @@ use crate::{
 };
 
 const NAME_WIDTH: usize = 16;
+const LOBBY_KEY_WIDTH: usize = 7;
 
 pub fn render(
     frame: &mut Frame,
@@ -68,7 +69,17 @@ fn connecting(frame: &mut Frame, area: Rect, client: &RaceClient, palette: &Pale
     editor::render(frame, area, &rows, 0, palette);
 }
 
+/// The lobby. The server address has a line of its own, so that it shows
+/// in full when the invite command is too long for the window.
 fn lobby(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, palette: &Palette) {
+    let setting = |key: &str, value: &str| {
+        Row::new(doc::assignment(
+            key,
+            LOBBY_KEY_WIDTH,
+            doc::string(value, palette),
+            palette,
+        ))
+    };
     let mut rows = vec![
         doc::title(format!("room {}", room.code), palette),
         doc::comment(
@@ -79,21 +90,12 @@ fn lobby(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, pa
             palette,
         ),
         doc::blank(),
-        Row::new(doc::assignment(
-            "text",
-            7,
-            doc::string(&client.text_label(), palette),
-            palette,
-        )),
-        Row::new(doc::assignment(
+        setting("server", &client.server),
+        setting("text", &client.text_label()),
+        setting(
             "players",
-            7,
-            doc::string(
-                &format!("{} / {}", room.players.len(), room.max_players),
-                palette,
-            ),
-            palette,
-        )),
+            &format!("{} / {}", room.players.len(), room.max_players),
+        ),
         doc::blank(),
         doc::heading("players", palette),
     ];
