@@ -504,6 +504,29 @@ fn releasing_the_ready_key_sends_nothing() {
 }
 
 #[test]
+fn quitting_in_a_room_leaves_it() {
+    use code_racer_protocol::ClientMessage;
+    for quit in [KeyCode::Char('q'), KeyCode::Char('c')] {
+        let now = Instant::now();
+        let (mut app, mut sent) = room::joined_over_loopback(now);
+        assert!(matches!(
+            sent.try_recv(),
+            Ok(ClientMessage::JoinRoom { .. })
+        ));
+        if quit == KeyCode::Char('c') {
+            press_with(&mut app, 'c', KeyModifiers::CONTROL);
+        } else {
+            press(&mut app, quit);
+        }
+        assert!(app.should_quit());
+        let connection = app.finish();
+        assert!(connection.is_some(), "the goodbye still has to be sent");
+        assert_eq!(sent.try_recv(), Ok(ClientMessage::LeaveRoom));
+    }
+    assert!(self::app().finish().is_none(), "no room, nothing to send");
+}
+
+#[test]
 fn control_c_always_quits() {
     let mut app = app();
     press(&mut app, KeyCode::Char('s'));

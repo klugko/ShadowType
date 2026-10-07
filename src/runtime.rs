@@ -18,8 +18,22 @@ use crate::{app::App, network::NetworkEvent, terminal::TerminalGuard, ui};
 
 /// Refresh rate of timers and live statistics while a session runs.
 const TICK: Duration = Duration::from_millis(100);
+/// Longest wait, once the terminal is restored, for the room the player
+/// was in to hear that they left.
+const GOODBYE_TIME: Duration = Duration::from_secs(1);
 
+/// Runs the interface until the user quits or the program is asked to
+/// stop, then leaves the room the player is in.
 pub async fn run(mut app: App) -> anyhow::Result<()> {
+    let result = interact(&mut app).await;
+    if let Some(connection) = app.finish() {
+        connection.close(GOODBYE_TIME).await;
+    }
+    result
+}
+
+/// Drives `app` in the terminal, which is restored when this returns.
+async fn interact(app: &mut App) -> anyhow::Result<()> {
     let mut shutdown = pin!(shutdown_signal());
     let mut guard = TerminalGuard::enter()?;
     let size = guard.terminal().size()?;
@@ -32,17 +46,17 @@ pub async fn run(mut app: App) -> anyhow::Result<()> {
         if dirty {
             guard
                 .terminal()
-                .draw(|frame| ui::draw(frame, &app, Instant::now()))?;
+                .draw(|frame| ui::draw(frame, app, Instant::now()))?;
         }
         let ticking = app.needs_ticks();
         tokio::select! {
             () = &mut shutdown => break,
             event = events.next() => match event {
-                Some(Ok(event)) => dirty = handle_terminal_event(&mut app, event),
+                Some(Ok(event)) => dirty = handle_terminal_event(app, event),
                 Some(Err(error)) => return Err(error.into()),
                 None => break,
             },
-            event = next_network_event(&mut app) => {
+            event = next_network_event(app) => {
                 let event = event.unwrap_or_else(|| NetworkEvent::Closed {
                     reason: "connection lost".to_owned(),
                 });

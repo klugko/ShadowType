@@ -446,8 +446,11 @@ impl RaceClient {
         Ok(())
     }
 
-    pub fn leave(&self) {
+    /// Leaves the room and hands back the connection, which still has the
+    /// goodbye to send.
+    pub fn leave(self) -> Connection {
         self.connection.send(ClientMessage::LeaveRoom);
+        self.connection
     }
 
     fn countdown_left(&self, now: Instant) -> Duration {

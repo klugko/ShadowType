@@ -11,7 +11,7 @@ mod runtime;
 mod terminal;
 mod ui;
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{future::Future, path::PathBuf, process::ExitCode};
 
 use anyhow::Context;
 use clap::Parser;
@@ -23,16 +23,25 @@ use crate::{
     history::History,
 };
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(cli).await {
+    match run_to_completion(run(cli)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("code-racer: {error:#}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// Runs `work` on a runtime of its own, then stops it without waiting for
+/// the blocking jobs still running: resolving a server's host name is one,
+/// which only the system can time out, and quitting must not hang on it.
+fn run_to_completion(work: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Runtime::new().context("cannot start the async runtime")?;
+    let result = runtime.block_on(work);
+    runtime.shutdown_background();
+    result
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
@@ -93,4 +102,22 @@ fn overrides(cli: &Cli) -> anyhow::Result<Overrides> {
         theme: cli.theme,
         server,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    #[test]
+    fn exiting_does_not_wait_for_a_host_name_lookup() {
+        let started = Instant::now();
+        let result = run_to_completion(async {
+            tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_secs(30)));
+            Ok(())
+        });
+        assert!(result.is_ok());
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
 }

@@ -14,7 +14,7 @@ use super::{
 use crate::{
     cli::Launch,
     config::{Mode, Practice},
-    network,
+    network::{self, Connection},
 };
 
 /// Longest time between the two presses of Esc that leave a session.
@@ -226,11 +226,21 @@ impl App {
         }
     }
 
-    fn end_activity(&mut self) {
-        if let Some(Activity::Race(client)) = &self.activity {
-            client.leave();
+    /// Ends the running activity, leaving the room the player is in. Returns
+    /// the connection to that room, which sends the goodbye, then closes,
+    /// once dropped.
+    fn end_activity(&mut self) -> Option<Connection> {
+        match self.activity.take() {
+            Some(Activity::Race(client)) => Some(client.leave()),
+            _ => None,
         }
-        self.activity = None;
+    }
+
+    /// Ends the run, leaving the room the player is in. Returns the
+    /// connection to that room, which the program should give time to send
+    /// the goodbye before it exits.
+    pub fn finish(mut self) -> Option<Connection> {
+        self.end_activity()
     }
 
     pub(super) fn type_char(&mut self, ch: char, now: Instant) {

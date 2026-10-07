@@ -18,6 +18,7 @@ use tokio::{
     net::TcpStream,
     runtime::Handle,
     sync::mpsc,
+    task::JoinHandle,
     time::{self, Instant, MissedTickBehavior, timeout},
 };
 use tokio_tungstenite::{
@@ -201,11 +202,14 @@ pub enum NetworkEvent {
 ///
 /// Dropping it never blocks: the background task still sends the messages
 /// already queued, such as a last [`ClientMessage::LeaveRoom`], then closes
-/// the WebSocket and stops.
+/// the WebSocket and stops, as long as the runtime runs. A program about to
+/// exit waits for that with [`Connection::close`].
 #[derive(Debug)]
 pub struct Connection {
     outgoing: mpsc::Sender<ClientMessage>,
     events: mpsc::Receiver<NetworkEvent>,
+    /// The background task, `None` when the connection was born closed.
+    task: Option<JoinHandle<()>>,
 }
 
 impl Connection {
@@ -219,22 +223,39 @@ impl Connection {
     fn open_with(url: String, username: Username, timeouts: Timeouts) -> Self {
         let (outgoing, outgoing_receiver) = mpsc::channel(OUTGOING_CAPACITY);
         let (event_sender, events) = mpsc::channel(EVENT_CAPACITY);
-        match Handle::try_current() {
-            Ok(runtime) => {
-                runtime.spawn(run(
-                    url,
-                    username,
-                    outgoing_receiver,
-                    event_sender,
-                    timeouts,
-                ));
-            }
+        let task = match Handle::try_current() {
+            Ok(runtime) => Some(runtime.spawn(run(
+                url,
+                username,
+                outgoing_receiver,
+                event_sender,
+                timeouts,
+            ))),
             Err(error) => {
                 let reason = error.to_string();
                 let _ = event_sender.try_send(NetworkEvent::Closed { reason });
+                None
             }
+        };
+        Self {
+            outgoing,
+            events,
+            task,
         }
-        Self { outgoing, events }
+    }
+
+    /// Closes the connection, waiting at most `limit` for the messages
+    /// already queued to be sent and the WebSocket to be closed.
+    pub async fn close(self, limit: Duration) {
+        let Self {
+            outgoing,
+            events,
+            task,
+        } = self;
+        drop((outgoing, events));
+        if let Some(task) = task {
+            let _ = timeout(limit, task).await;
+        }
     }
 
     /// Queues a message for the server. Returns `false` when the connection
@@ -256,7 +277,12 @@ impl Connection {
     pub(crate) fn loopback() -> (Self, mpsc::Receiver<ClientMessage>) {
         let (outgoing, sent) = mpsc::channel(OUTGOING_CAPACITY);
         let (_, events) = mpsc::channel(EVENT_CAPACITY);
-        (Self { outgoing, events }, sent)
+        let connection = Self {
+            outgoing,
+            events,
+            task: None,
+        };
+        (connection, sent)
     }
 }
 
@@ -963,6 +989,35 @@ mod tests {
                 .expect("the server saw the client leave");
             assert_eq!(queued, ClientMessage::LeaveRoom);
             assert!(matches!(after, Some(Ok(Message::Close(_)))), "{after:?}");
+        }
+
+        #[tokio::test]
+        async fn closing_sends_what_was_queued_and_waits_no_longer_than_asked() {
+            let (report, received) = oneshot::channel();
+            let (_keep_alive, kept) = oneshot::channel::<()>();
+            let url = scripted_server(|mut socket| async move {
+                accept_hello(&mut socket, 6).await;
+                let _ = report.send(receive(&mut socket).await);
+                let _ = kept.await;
+            })
+            .await;
+            let mut connection = Connection::open(url, username());
+            assert_eq!(
+                next(&mut connection).await,
+                Some(NetworkEvent::Connected(PlayerId(6)))
+            );
+            assert!(connection.send(ClientMessage::LeaveRoom));
+
+            let started = std::time::Instant::now();
+            connection.close(SHORT_TIMEOUT).await;
+
+            assert!(
+                started.elapsed() < EVENT_TIMEOUT / 2,
+                "{:?}",
+                started.elapsed()
+            );
+            let queued = timeout(EVENT_TIMEOUT, received).await.expect("in time");
+            assert_eq!(queued.ok(), Some(ClientMessage::LeaveRoom));
         }
 
         #[tokio::test]
