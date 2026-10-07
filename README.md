@@ -59,17 +59,25 @@ During a race the standings sit in a panel under the text, like an IDE's termina
 
 ## Installation
 
-You need a stable Rust toolchain (1.88 or later).
+You need a stable Rust toolchain (1.88 or later) and a C compiler with its linker.
 
 **Fedora**
 
 ```bash
-sudo dnf install rust cargo
+sudo dnf install rust cargo gcc
 ```
 
-**Ubuntu, Debian and other Linux distributions, macOS**
+**Ubuntu, Debian**
 
 ```bash
+sudo apt install build-essential
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+**macOS**
+
+```bash
+xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
@@ -118,17 +126,22 @@ setting, `h`/`l` change it, Enter on `▶ start session` starts. Settings are sa
 The clock starts with the first keystroke. A session ends when the whole text is typed correctly, or
 when the timer runs out in time mode. Mistakes stay in your statistics even once corrected. In code,
 Enter goes to the next line and the indentation is filled in for you. `Ctrl+R` restarts with a new
-text, and `Esc` twice abandons the session (one `Esc` is harmless, as in an editor). Keys typed
-right after the end of a text are ignored for a moment, so that a word typed on the run is not
-taken as commands.
+text. Once you have started typing, `Esc` twice abandons the session, so a stray `Esc` costs
+nothing; before the first keystroke a single `Esc` closes it. Keys typed right after the end of a
+text are ignored for a moment, so that a word typed on the run is not taken as commands. When a
+mistake is left uncorrected for 10 characters, input stops and the status line says so until it is
+fixed.
 
 | Metric      | Definition                                              |
 | ----------- | ------------------------------------------------------- |
 | WPM         | correctly typed characters / 5 / elapsed minutes        |
-| raw WPM     | every typed character / 5 / elapsed minutes             |
+| raw WPM     | every keystroke / 5 / elapsed minutes                   |
 | accuracy    | correct keystrokes / all keystrokes × 100               |
 | errors      | wrong keystrokes, corrected or not                      |
 | consistency | how steady your per-second speed was, from 0 to 100 %  |
+
+The indentation that code mode fills in for you counts towards your progress but never towards
+speed or accuracy, in solo sessions and races alike.
 
 ## Multiplayer
 
@@ -152,6 +165,7 @@ validates progress reports and computes speeds. A client cannot declare itself f
 code-racer-server                                  # 127.0.0.1:8080
 code-racer-server --host 0.0.0.0 --port 8080       # reachable from the LAN
 code-racer-server --max-players 8 --room-ttl 1800 --race-timeout 300 --countdown 3
+code-racer-server --max-connections-per-address 0  # behind a proxy that hides client addresses
 RUST_LOG=debug code-racer-server                   # more logs, on stderr
 ```
 
@@ -163,6 +177,7 @@ RUST_LOG=debug code-racer-server                   # more logs, on stderr
 | `--room-ttl`     | `1800`      | seconds of inactivity before a room is closed   |
 | `--race-timeout` | `300`       | seconds after which a race ends anyway          |
 | `--countdown`    | `3`         | seconds between the start and the first keystroke |
+| `--max-connections-per-address` | `16` | connections one IP may hold, `0` for no limit |
 
 Rooms live in memory. Lobby players who disconnect are removed; racers who disconnect are shown
 offline and the race goes on. When the host leaves, the next player becomes host.
@@ -261,9 +276,11 @@ server = "ws://127.0.0.1:8080"
 If `config.toml` cannot be read, code-racer starts with the defaults and leaves the file untouched
 for the whole run.
 
-History is kept in `history.json` (`~/.local/share/code-racer/` on Linux) and logs go to
-`code-racer.log` (`~/.local/state/code-racer/`), never to the terminal. Files are written atomically;
-a file that cannot be read is moved aside to a `.bak` file and a warning is shown.
+Settings changed inside the app update `config.toml` in place, so your comments and unknown keys
+survive. History is kept in `history.json` (`~/.local/share/code-racer/` on Linux) and appended to
+under a lock, so two running instances never lose each other's results. Logs go to `code-racer.log`
+(`~/.local/state/code-racer/`), never to the terminal. Files are written atomically; a file that cannot
+be parsed is moved aside to a `.bak` file with a warning, and one that cannot be read is left alone.
 
 ## Development
 
@@ -272,7 +289,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --release --workspace
-python3 tests/e2e/solo.py          # Linux and macOS, after the release build
+python3 tests/e2e/solo.py          # Linux, after the release build
 python3 tests/e2e/multiplayer.py
 cargo test preview_screens -- --ignored --nocapture   # print every screen
 ```
@@ -286,27 +303,34 @@ src/                client
   runtime.rs        event loop: keyboard, network and clock events, redraw on change
   terminal.rs       raw mode, alternate screen, restoration on exit and panic
   app/              state machine, independent of rendering
-    mod.rs          App: buffers, focus, modes, network and clock events
-    keys.rs         key handling by context      actions.rs  what users can do
-    practice.rs     solo settings and sessions   race.rs     race settings and room client
-    command.rs      `:` commands                 form.rs, input.rs, settings.rs, help.rs
+    mod.rs          App: buffers, focus, modes, viewport, what the screen needs
+    keys.rs         key handling by context      actions.rs        what users can do
+    events.rs       network, clock, paste, quiet period after typing
+    practice.rs     solo plans and sessions      race.rs           room client and race rules
+    text_settings.rs  lines shared by practice.toml and race.toml
+    changes.rs      settings changes and saving  saved_config.rs   saved vs run-only settings
+    command.rs      `:` commands                 form.rs, input.rs, settings.rs, help.rs, history_log.rs
   ui/               rendering only
     chrome.rs       explorer, tab line, status line, command line
-    editor.rs       buffer with line numbers     typing.rs   ghost text and typed text
+    editor.rs       buffer with line numbers     typing.rs         ghost text and typed text
     views/          practice/race/config forms, session, room, history, help
-    wrap.rs, syntax.rs, chart.rs, theme.rs
+    format.rs, wrap.rs, syntax.rs, chart.rs, theme.rs
   config.rs, history.rs, persist.rs, cli.rs, network.rs, logging.rs
 crates/engine       texts and typing, no terminal, no network
   corpus/           word lists, quotes, code snippets (embedded at compile time)
+  language.rs       natural and programming languages, one table of names each
+  normalize.rs      turns any text into characters a keyboard can type
   words.rs          sentence-aware word generator (punctuation, numbers)
   text.rs           TextSource: words, quote or code, seeded
   session.rs        TypingSession: graphemes, mistakes, auto-indent, timing
-  stats.rs          WPM, accuracy, consistency, per-second samples
+  indentation.rs    which characters auto-indent fills in
+  stats.rs          Tally, WPM, accuracy, consistency, per-second samples
 crates/protocol     WebSocket messages, validated RoomCode and Username, room views and ranking
 crates/server       race server
   room.rs           pure room state machine (lobby, countdown, race, results)
   hub.rs            single task owning every room, no locks
   connection.rs     one task per socket: handshake, limits, rate limiting
+  peers.rs          connections held by each address
 tests/e2e/          real binaries in pseudo-terminals
 ```
 
@@ -316,12 +340,14 @@ Design choices:
   a 100 ms clock tick arrives, and redraws only after a change.
 - The typing engine and the text generator are plain Rust with injected time, so they are fully
   tested without a terminal.
-- The protocol is versioned (`Hello` / `Welcome` handshake), tagged JSON, and identifiers are validated
-  when they are decoded. Messages are limited to 16 KiB.
+- The protocol is versioned (`Hello` / `Welcome` handshake, currently version 3), tagged JSON, and
+  identifiers are validated when they are decoded. Messages are limited to 16 KiB, and a test proves
+  that the largest possible room view still fits.
 - The server keeps every room in one hub task fed by channels, so no lock is ever held across an
   `.await`. Room logic is a pure state machine tested with simulated time.
 - Anti-cheat basics: progress cannot exceed the text, counters cannot go backwards, speed above about
-  360 WPM is refused, and finishing times are measured by the server.
+  360 WPM is refused, finishing times are measured by the server, and speed and accuracy are computed
+  by the server with the same engine code as the client.
 
 ## Testing
 
@@ -336,11 +362,12 @@ Design choices:
   command line parsing, network client, rendering of every screen in every theme and size, and two
   complete clients racing through a real server.
 - **end to end**: the release binaries in pseudo-terminals: first launch, typing, results, history,
-  resize, Ctrl+C restoring the terminal, and a two-player race against a real server.
+  resize, Ctrl+C, SIGTERM and SIGHUP restoring the terminal, and a two-player race against a real
+  server.
 
 CI runs formatting, Clippy, tests and release builds on Linux and Windows, the test suite with
-Fedora's own Rust packages, the end-to-end tests on Linux, then builds, smoke-tests and publishes the
-server image.
+Fedora's own Rust packages, a check with the minimum supported Rust version, the end-to-end tests on
+Linux, then builds, smoke-tests and publishes the server image.
 
 ## Roadmap
 
