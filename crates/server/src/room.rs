@@ -474,7 +474,7 @@ fn millis(duration: Duration) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use code_racer_engine::{CodeLanguage, Language, SessionOptions, Tally, TypingSession};
+    use code_racer_engine::{CodeLanguage, Language, SessionOptions, TypingSession};
     use code_racer_protocol::{MAX_MESSAGE_BYTES, MAX_ROOM_PLAYERS, ServerMessage};
 
     use super::*;
@@ -912,8 +912,7 @@ mod tests {
             expected.chars().for_each(|ch| {
                 session.type_char(ch, now);
             });
-            let tally = session.tally();
-            room.report_progress(ALICE, reported(tally), now)
+            room.report_progress(ALICE, Progress::from(session.tally()), now)
                 .expect("an honest report");
         }
         let stats = session.stats(now);
@@ -923,17 +922,6 @@ mod tests {
         assert_eq!(progress.accuracy, stats.accuracy);
         assert!(stats.indentation > 0, "the snippet is indented");
         assert!(stats.accuracy < 100.0);
-    }
-
-    fn reported(tally: Tally) -> Progress {
-        let count = |value: usize| u32::try_from(value).expect("small counter");
-        Progress {
-            typed: count(tally.typed),
-            correct: count(tally.correct),
-            indentation: count(tally.indentation),
-            keystrokes: count(tally.keystrokes),
-            errors: count(tally.errors),
-        }
     }
 
     #[test]

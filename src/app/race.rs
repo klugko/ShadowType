@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use code_racer_engine::{CodeLanguage, SessionOptions, Stats, TextSource, TypingSession};
+use code_racer_engine::{CodeLanguage, SessionOptions, TextSource, TypingSession};
 use code_racer_protocol::{
     ClientMessage, ErrorCode, Phase, PlayerId, PlayerView, Progress, RoomCode, RoomView,
     ServerMessage, Username,
@@ -304,7 +304,7 @@ impl RaceClient {
         if self.phase() != Some(Phase::Racing) {
             return;
         }
-        let progress = progress(race.session.cursor(), &race.session.stats(now));
+        let progress = Progress::from(race.session.tally());
         let due = progress_due(self.reported, progress, race.session.is_finished(), now);
         if due && self.connection.send(ClientMessage::Progress(progress)) {
             self.reported = Some((now, progress));
@@ -449,7 +449,7 @@ impl RaceClient {
         let language = Plan::Text(self.room.as_ref()?.text).language_label();
         let stats = self.session_view()?.stats(now);
         let race = self.race.as_mut()?;
-        if race.recorded || stats.typed_chars == 0 {
+        if race.recorded || stats.keystrokes == 0 {
             return None;
         }
         race.recorded = true;
@@ -477,17 +477,6 @@ fn progress_due(
     last.is_none_or(|(at, sent)| {
         sent != progress && (complete || now.duration_since(at) >= PROGRESS_INTERVAL)
     })
-}
-
-fn progress(cursor: usize, stats: &Stats) -> Progress {
-    let clamp = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
-    Progress {
-        typed: clamp(cursor),
-        correct: clamp(stats.correct_chars),
-        indentation: clamp(stats.indentation),
-        keystrokes: clamp(stats.typed_chars),
-        errors: clamp(stats.errors),
-    }
 }
 
 #[cfg(test)]
@@ -650,27 +639,6 @@ mod tests {
             sent.try_recv(),
             Ok(ClientMessage::SetReady { ready: false }),
             "the same request after the delay is a new press"
-        );
-    }
-
-    #[test]
-    fn progress_converts_session_counters() {
-        let stats = Stats {
-            correct_chars: 9,
-            typed_chars: 7,
-            indentation: 4,
-            errors: 3,
-            ..Stats::default()
-        };
-        assert_eq!(
-            progress(10, &stats),
-            Progress {
-                typed: 10,
-                correct: 9,
-                indentation: 4,
-                keystrokes: 7,
-                errors: 3
-            }
         );
     }
 }

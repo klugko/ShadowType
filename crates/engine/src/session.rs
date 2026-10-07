@@ -564,7 +564,7 @@ mod tests {
         let stats = session.stats(at(start, 12_000));
         assert_eq!(session.status(), Status::Completed);
         assert_eq!(stats.correct_chars, 11);
-        assert_eq!(stats.typed_chars, 12);
+        assert_eq!(stats.keystrokes, 12);
         assert_eq!(stats.errors, 1);
         assert!((stats.wpm - 11.0).abs() < 1e-9);
         assert!((stats.raw_wpm - 12.0).abs() < 1e-9);
@@ -622,7 +622,7 @@ mod tests {
         }
         assert!(session.is_blocked());
         assert!(!session.type_char('a', now));
-        assert_eq!(session.stats(now).typed_chars, ERROR_RUN_LIMIT);
+        assert_eq!(session.stats(now).keystrokes, ERROR_RUN_LIMIT);
         session.backspace(now);
         assert!(!session.is_blocked());
     }
@@ -785,7 +785,7 @@ mod tests {
         assert_eq!(session.status(), Status::Completed);
         assert_eq!(stats.correct_chars, 9);
         assert_eq!(stats.indentation, 4);
-        assert_eq!(stats.typed_chars, 5, "indentation is not typed");
+        assert_eq!(stats.keystrokes, 5, "indentation is not typed");
         assert_eq!(stats.accuracy, 100.0);
     }
 

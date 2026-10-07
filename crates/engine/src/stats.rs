@@ -66,9 +66,10 @@ pub struct Stats {
     pub correct_chars: usize,
     /// Characters of the text currently typed incorrectly.
     pub incorrect_chars: usize,
-    /// Keystrokes so far, including corrected mistakes. Auto-filled
-    /// indentation is not typed, so it does not count.
-    pub typed_chars: usize,
+    /// Keys pressed so far, corrected mistakes included; see
+    /// [`Tally::keystrokes`]. Auto-filled indentation is not typed, so it
+    /// does not count.
+    pub keystrokes: usize,
     /// Characters of `correct_chars` that auto-indentation filled in.
     pub indentation: usize,
     pub elapsed: Duration,
@@ -88,7 +89,7 @@ impl Stats {
             errors: tally.errors,
             correct_chars: tally.correct,
             incorrect_chars: tally.typed.saturating_sub(tally.correct),
-            typed_chars: tally.keystrokes,
+            keystrokes: tally.keystrokes,
             indentation: tally.indentation,
             elapsed,
             progress,
@@ -216,7 +217,7 @@ mod tests {
         assert_eq!(stats.errors, 1);
         assert_eq!(stats.correct_chars, 10);
         assert_eq!(stats.incorrect_chars, 2);
-        assert_eq!(stats.typed_chars, 9);
+        assert_eq!(stats.keystrokes, 9);
         assert_eq!(stats.indentation, 4);
         assert_eq!(stats.progress, 0.5);
     }

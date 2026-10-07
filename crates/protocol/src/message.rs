@@ -76,6 +76,21 @@ impl Progress {
     }
 }
 
+impl From<Tally> for Progress {
+    /// The counters of a typing session as reported to the server, each
+    /// clamped to the range of the wire format.
+    fn from(tally: Tally) -> Self {
+        let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
+        Self {
+            typed: count(tally.typed),
+            correct: count(tally.correct),
+            indentation: count(tally.indentation),
+            keystrokes: count(tally.keystrokes),
+            errors: count(tally.errors),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ServerMessage {
@@ -313,6 +328,38 @@ mod tests {
         let tally = progress.tally();
         assert_eq!(tally.correctly_typed(), 20);
         assert_eq!(tally.accuracy(), 80.0);
+    }
+
+    #[test]
+    fn progress_reports_the_session_tally() {
+        let tally = Tally {
+            typed: 12,
+            correct: 11,
+            indentation: 4,
+            keystrokes: 10,
+            errors: 2,
+        };
+        let progress = Progress::from(tally);
+        assert_eq!(
+            progress,
+            Progress {
+                typed: 12,
+                correct: 11,
+                indentation: 4,
+                keystrokes: 10,
+                errors: 2,
+            }
+        );
+        assert_eq!(progress.tally(), tally);
+    }
+
+    #[test]
+    fn counters_beyond_the_wire_range_are_clamped() {
+        let tally = Tally {
+            keystrokes: usize::MAX,
+            ..Tally::default()
+        };
+        assert_eq!(Progress::from(tally).keystrokes, u32::MAX);
     }
 
     #[test]
