@@ -486,9 +486,13 @@ impl App {
         }
     }
 
-    /// Focuses the explorer, showing it if it was hidden.
+    /// Focuses the explorer, showing it if it was hidden. Only showing it
+    /// counts as a choice; going back to a visible explorer keeps it hiding
+    /// itself on narrow terminals.
     fn focus_explorer(&mut self) {
-        self.set_sidebar(true);
+        if !self.sidebar {
+            self.set_sidebar(true);
+        }
         self.focus = Focus::Explorer;
     }
 

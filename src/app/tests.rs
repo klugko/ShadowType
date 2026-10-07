@@ -871,6 +871,17 @@ fn the_explorer_makes_room_on_narrow_terminals_until_the_user_decides() {
 }
 
 #[test]
+fn returning_to_a_visible_explorer_keeps_it_automatic() {
+    let mut app = app();
+    app.resize(120, 30);
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Tab);
+    assert_eq!(app.focus, Focus::Explorer);
+    app.resize(80, 20);
+    assert!(!app.sidebar, "still hides itself on a narrow terminal");
+}
+
+#[test]
 fn home_on_a_narrow_terminal_focuses_the_practice_form() {
     let mut app = app_with(Config::default(), Launch::Home);
     app.resize(80, 20);

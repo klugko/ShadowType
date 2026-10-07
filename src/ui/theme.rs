@@ -87,11 +87,13 @@ impl Palette {
     }
 }
 
+const EDITOR_HIGHLIGHT: Color = Color::Rgb(36, 40, 50);
+
 const EDITOR: Palette = Palette {
     background: Color::Rgb(26, 29, 36),
     panel: Color::Rgb(21, 24, 30),
-    highlight: Color::Rgb(36, 40, 50),
-    cursorline: Style::new().bg(Color::Rgb(36, 40, 50)),
+    highlight: EDITOR_HIGHLIGHT,
+    cursorline: Style::new().bg(EDITOR_HIGHLIGHT),
     border: Color::Rgb(44, 49, 60),
     text: Color::Rgb(171, 178, 191),
     strong: Color::Rgb(214, 219, 228),
