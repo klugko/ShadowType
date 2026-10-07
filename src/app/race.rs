@@ -10,6 +10,7 @@ use code_racer_protocol::{
 
 use crate::{
     app::{
+        SessionView,
         form::{Row, Step, Value},
         practice::{Plan, code_file_name},
         text_settings::{self, TextSetting},
@@ -128,6 +129,9 @@ pub enum RoomRequest {
 pub struct LiveRace {
     pub session: TypingSession,
     pub countdown_ends: Instant,
+    /// When the room finished the race, which stops the clock of a text
+    /// the player had not finished.
+    ended_at: Option<Instant>,
     recorded: bool,
 }
 
@@ -223,6 +227,16 @@ impl RaceClient {
     /// keys are not taken as commands.
     pub fn is_player_racing(&self) -> bool {
         self.phase() == Some(Phase::Countdown) || self.accepts_typing()
+    }
+
+    /// The race text, from its countdown to the results.
+    pub fn session_view(&self) -> Option<SessionView<'_>> {
+        self.race.as_ref().map(|race| SessionView {
+            session: &race.session,
+            syntax: self.syntax(),
+            attribution: None,
+            stopped_at: race.ended_at,
+        })
     }
 
     pub fn session_mut(&mut self) -> Option<&mut TypingSession> {
@@ -379,6 +393,7 @@ impl RaceClient {
         self.race = Some(LiveRace {
             session: TypingSession::new(text, options),
             countdown_ends: now + Duration::from_millis(duration_ms.into()),
+            ended_at: None,
             recorded: false,
         });
         self.reported = None;
@@ -388,14 +403,13 @@ impl RaceClient {
         let entered = (self.room.is_none()).then(|| room.code.clone());
         let phase = room.phase;
         self.room = Some(room);
-        match phase {
-            Phase::Lobby => self.race = None,
-            Phase::Racing => {
-                if let Some(race) = &mut self.race {
-                    race.session.start(now);
-                }
+        match (phase, &mut self.race) {
+            (Phase::Lobby, _) => self.race = None,
+            (Phase::Racing, Some(race)) => race.session.start(now),
+            (Phase::Finished, Some(race)) => {
+                race.ended_at.get_or_insert(now);
             }
-            Phase::Countdown | Phase::Finished => {}
+            _ => {}
         }
         if let Some(record) = self.conclude(now) {
             return Outcome::Finished(record);
@@ -421,8 +435,8 @@ impl RaceClient {
         }
         let progress = self.me()?.progress;
         let language = Plan::Text(self.room.as_ref()?.text).language_label();
+        let stats = self.session_view()?.stats(now);
         let race = self.race.as_mut()?;
-        let stats = race.session.stats(now);
         if race.recorded || stats.typed_chars == 0 {
             return None;
         }

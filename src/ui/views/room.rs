@@ -16,7 +16,7 @@ use unicode_width::UnicodeWidthStr;
 use super::{doc, ordinal, race_time, session::text_rows};
 use crate::{
     app::{
-        App, SessionView,
+        App,
         race::{RaceClient, Stage},
     },
     ui::{
@@ -176,12 +176,7 @@ fn race(
         .min(area.height / 2);
     let [text_area, panel_area] =
         Layout::vertical([Constraint::Min(3), Constraint::Length(panel_height)]).areas(area);
-    if let Some(race) = &client.race {
-        let view = SessionView {
-            session: &race.session,
-            syntax: client.syntax(),
-            attribution: None,
-        };
+    if let Some(view) = app.session_view() {
         let active = countdown.is_none() && app.is_typing();
         let (rows, cursor_row) = text_rows(&view, text_area, palette, active);
         let scroll = editor::scroll_for(cursor_row, text_area.height, rows.len());

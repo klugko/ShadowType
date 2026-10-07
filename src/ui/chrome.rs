@@ -216,8 +216,8 @@ fn right_segments(app: &App, palette: &Palette, now: Instant) -> Vec<Span<'stati
     let accent = Style::new().bg(palette.highlight).fg(palette.strong);
     match (app.buffer, app.session_view()) {
         (Buffer::Session, Some(view)) => {
-            let stats = view.session.stats(now);
-            let clock = view.session.time_left(now).unwrap_or(stats.elapsed);
+            let stats = view.stats(now);
+            let clock = view.time_left(now).unwrap_or(stats.elapsed);
             vec![
                 Span::styled(
                     speed_label(&stats),

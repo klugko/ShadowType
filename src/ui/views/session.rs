@@ -24,15 +24,13 @@ const CHART_LABEL_WIDTH: usize = 8;
 pub fn render(frame: &mut Frame, area: Rect, app: &App, run: &SoloRun, palette: &Palette) {
     match &run.result {
         Some(result) => results(frame, area, run, result, palette),
-        None => text(frame, area, app, run, palette),
+        None => text(frame, area, app, palette),
     }
 }
 
-fn text(frame: &mut Frame, area: Rect, app: &App, run: &SoloRun, palette: &Palette) {
-    let view = SessionView {
-        session: &run.session,
-        syntax: run.plan.syntax(),
-        attribution: run.attribution.as_deref(),
+fn text(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
+    let Some(view) = app.session_view() else {
+        return;
     };
     let (mut rows, cursor_row) = text_rows(&view, area, palette, app.is_typing());
     if let Some(source) = view.attribution {

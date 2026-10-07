@@ -29,10 +29,12 @@ fn app() -> App {
 }
 
 fn screen(app: &App, width: u16, height: u16) -> String {
+    screen_at(app, width, height, Instant::now())
+}
+
+fn screen_at(app: &App, width: u16, height: u16, now: Instant) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
-    terminal
-        .draw(|frame| draw(frame, app, Instant::now()))
-        .expect("draw");
+    terminal.draw(|frame| draw(frame, app, now)).expect("draw");
     let buffer = terminal.backend().buffer();
     let mut text = String::new();
     for y in 0..height {
@@ -107,12 +109,16 @@ fn room(phase: Phase) -> RoomView {
 
 /// An app inside a room, fed with server messages instead of a real server.
 fn in_room(phase: Phase) -> App {
+    in_room_at(room(phase), Instant::now())
+}
+
+/// An app inside `room` since `now`, the race text shown past the lobby.
+fn in_room_at(room: RoomView, now: Instant) -> App {
     let mut app = app();
     app.config.multiplayer.server = "ws://127.0.0.1:9".to_owned();
     command(&mut app, "join FK72AD");
-    let now = Instant::now();
     app.handle_network(NetworkEvent::Connected(PlayerId(1)), now);
-    if phase != Phase::Lobby {
+    if room.phase != Phase::Lobby {
         app.handle_network(
             NetworkEvent::Message(ServerMessage::Countdown {
                 text: "Simplicity is prerequisite for reliability.".to_owned(),
@@ -121,8 +127,14 @@ fn in_room(phase: Phase) -> App {
             now,
         );
     }
-    app.handle_network(NetworkEvent::Message(ServerMessage::Room(room(phase))), now);
+    app.handle_network(NetworkEvent::Message(ServerMessage::Room(room)), now);
     app
+}
+
+/// The status line of a screen drawn by [`screen`].
+fn status_line(screen: &str) -> &str {
+    let lines: Vec<&str> = screen.lines().collect();
+    lines[lines.len() - 2]
 }
 
 #[test]
@@ -308,6 +320,28 @@ async fn race_results_rank_players() {
     for expected in ["results", "0:41.2", "DNF", "you finished 1st"] {
         assert!(text.contains(expected), "missing {expected}:\n{text}");
     }
+}
+
+#[tokio::test]
+async fn the_status_line_stops_when_the_race_ends_before_the_player_finishes() {
+    let start = Instant::now();
+    let mut app = in_room_at(room(Phase::Racing), start);
+    for ch in "Simplicity".chars() {
+        app.handle_key(
+            KeyEvent::from(KeyCode::Char(ch)),
+            start + Duration::from_secs(4),
+        );
+    }
+    let end = start + Duration::from_secs(12);
+    let mut over = room(Phase::Finished);
+    over.players[0].progress.finish_ms = None;
+    app.handle_network(NetworkEvent::Message(ServerMessage::Room(over)), end);
+
+    let at_the_end = screen_at(&app, 120, 30, end);
+    let later = screen_at(&app, 120, 30, end + Duration::from_secs(45));
+    assert!(later.contains("DNF"), "{later}");
+    assert!(status_line(&later).contains(" 00:12 "), "{later}");
+    assert_eq!(status_line(&later), status_line(&at_the_end));
 }
 
 /// Types the next `count` characters of the session correctly.

@@ -595,6 +595,23 @@ fn a_race_where_nothing_was_typed_is_not_recorded() {
 }
 
 #[test]
+fn the_clock_of_an_unfinished_race_stops_when_the_race_ends() {
+    use code_racer_protocol::{PlayerProgress, ServerMessage};
+    let start = Instant::now();
+    let mut app = room::racing(start);
+    type_text_at(&mut app, "Simp", start + Duration::from_secs(2));
+    let end = start + Duration::from_secs(10);
+    let over = room::view(Phase::Finished, PlayerProgress::default());
+    room::deliver(&mut app, ServerMessage::Room(over), end);
+
+    let view = app.session_view().expect("the race text");
+    let later = end + Duration::from_secs(50);
+    assert_eq!(view.stats(later), view.stats(end), "frozen");
+    assert_eq!(view.stats(later).elapsed, Duration::from_secs(10));
+    assert_eq!(app.history.records()[0].duration, 10.0);
+}
+
+#[test]
 fn starting_something_else_in_a_room_is_refused() {
     let directory = TempDir::new();
     let file = directory.join("notes.txt");

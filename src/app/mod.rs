@@ -19,9 +19,13 @@ mod saved_config;
 pub mod settings;
 pub mod text_settings;
 
-use std::{fmt::Display, path::PathBuf, time::Instant};
+use std::{
+    fmt::Display,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
-use code_racer_engine::{CodeLanguage, TypingSession};
+use code_racer_engine::{CodeLanguage, Stats, TypingSession};
 use code_racer_protocol::{RoomCode, Username};
 
 use crate::{
@@ -232,6 +236,25 @@ pub struct SessionView<'a> {
     pub session: &'a TypingSession,
     pub syntax: Option<CodeLanguage>,
     pub attribution: Option<&'a str>,
+    /// When the race ended for a player who had not finished its text: their
+    /// clock stops there. A finished text stops its clock by itself.
+    pub stopped_at: Option<Instant>,
+}
+
+impl SessionView<'_> {
+    /// The statistics of the text at `now`, or when its clock stopped.
+    pub fn stats(&self, now: Instant) -> Stats {
+        self.session.stats(self.clock(now))
+    }
+
+    /// Time left at `now` in a timed session.
+    pub fn time_left(&self, now: Instant) -> Option<Duration> {
+        self.session.time_left(self.clock(now))
+    }
+
+    fn clock(&self, now: Instant) -> Instant {
+        self.stopped_at.map_or(now, |stop| stop.min(now))
+    }
 }
 
 #[derive(Debug)]
@@ -361,12 +384,9 @@ impl App {
                 session: &run.session,
                 syntax: run.plan.syntax(),
                 attribution: run.attribution.as_deref(),
+                stopped_at: None,
             }),
-            Some(Activity::Race(client)) => client.race.as_ref().map(|race| SessionView {
-                session: &race.session,
-                syntax: client.syntax(),
-                attribution: None,
-            }),
+            Some(Activity::Race(client)) => client.session_view(),
             None => None,
         }
     }

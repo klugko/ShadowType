@@ -138,6 +138,7 @@ mod tests {
             session,
             syntax,
             attribution: None,
+            stopped_at: None,
         }
     }
 
