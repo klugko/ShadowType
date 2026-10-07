@@ -11,6 +11,7 @@ use super::{
     practice,
     race::{self, RoomRequest},
     settings,
+    text_event::TextEvent,
 };
 use crate::config::Config;
 use code_racer_protocol::Phase;
@@ -276,11 +277,15 @@ impl App {
         }
         match (control_letter(key), key.code) {
             (Some('r'), _) => self.restart_solo(),
-            (Some('w'), _) => self.edit_session(now, SessionEdit::DeleteWord),
-            (_, KeyCode::Backspace) if erases_word(key) => {
-                self.edit_session(now, SessionEdit::DeleteWord);
+            (Some('w'), _) => {
+                self.text_event(TextEvent::DeleteWord, now);
             }
-            (_, KeyCode::Backspace) => self.edit_session(now, SessionEdit::Backspace),
+            (_, KeyCode::Backspace) if erases_word(key) => {
+                self.text_event(TextEvent::DeleteWord, now);
+            }
+            (_, KeyCode::Backspace) => {
+                self.text_event(TextEvent::Backspace, now);
+            }
             (_, KeyCode::Enter) => self.type_char('\n', now),
             (_, KeyCode::Esc) => self.leave_session(now),
             _ => {}
@@ -359,13 +364,6 @@ impl Prompt {
             self.completion = Some((typed, index));
         }
     }
-}
-
-/// How a key press edits the session text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum SessionEdit {
-    Backspace,
-    DeleteWord,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

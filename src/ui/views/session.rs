@@ -66,7 +66,7 @@ pub fn text_rows(
 
 fn results(frame: &mut Frame, area: Rect, run: &SoloRun, result: &SoloResult, palette: &Palette) {
     let stats = result.stats;
-    let heading = match run.session.status() {
+    let heading = match run.session().status() {
         Status::TimeUp => "time's up",
         _ => "session complete",
     };

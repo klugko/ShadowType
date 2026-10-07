@@ -13,6 +13,7 @@ use crate::{
         SessionView, TextField,
         form::{Row, Step, Value},
         practice::{Plan, code_file_name},
+        text_event::TextEvent,
         text_settings::{self, TextSetting},
     },
     cli::Launch,
@@ -136,9 +137,9 @@ pub enum RoomRequest {
 
 /// The race currently typed by the player.
 #[derive(Debug)]
-pub struct LiveRace {
-    pub session: TypingSession,
-    pub countdown_ends: Instant,
+struct LiveRace {
+    session: TypingSession,
+    countdown_ends: Instant,
     /// When the room finished the race, which stops the clock of a text
     /// the player had not finished.
     ended_at: Option<Instant>,
@@ -152,7 +153,7 @@ pub struct RaceClient {
     pub server: String,
     pub player: Option<PlayerId>,
     pub room: Option<RoomView>,
-    pub race: Option<LiveRace>,
+    race: Option<LiveRace>,
     intent: Option<Intent>,
     reported: Option<(Instant, Progress)>,
     /// Whether a room request is still unanswered. The server answers each
@@ -249,10 +250,6 @@ impl RaceClient {
         })
     }
 
-    pub fn session_mut(&mut self) -> Option<&mut TypingSession> {
-        self.race.as_mut().map(|race| &mut race.session)
-    }
-
     /// File name shown in the editor for the race text.
     pub fn title(&self) -> String {
         match self.room.as_ref().map(|room| room.text) {
@@ -296,8 +293,21 @@ impl RaceClient {
         }
     }
 
+    /// Hands `event` to the race text, which takes keys only while the race
+    /// is on and the player's text unfinished, then reports the progress.
+    /// Returns whether the text took the key.
+    pub fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
+        let open = event == TextEvent::Tick || self.accepts_typing();
+        let taken = match &mut self.race {
+            Some(race) if open => event.apply_to(&mut race.session, now),
+            _ => false,
+        };
+        self.report_progress(now);
+        taken
+    }
+
     /// Sends the player's progress when [`progress_due`] says so.
-    pub fn report_progress(&mut self, now: Instant) {
+    fn report_progress(&mut self, now: Instant) {
         let Some(race) = &self.race else {
             return;
         };
@@ -572,6 +582,39 @@ mod tests {
             Ok(ClientMessage::JoinRoom { .. })
         ));
         (client, sent, now)
+    }
+
+    #[test]
+    fn the_race_text_takes_keys_only_once_the_race_is_on() {
+        let (mut client, mut sent, now) = in_lobby();
+        let countdown = ServerMessage::Countdown {
+            text: "go".to_owned(),
+            duration_ms: 3_000,
+        };
+        client.handle(NetworkEvent::Message(countdown), now);
+        let mut room = lobby(true);
+        room.phase = Phase::Countdown;
+        client.handle(
+            NetworkEvent::Message(ServerMessage::Room(room.clone())),
+            now,
+        );
+        for event in [
+            TextEvent::Typed('g'),
+            TextEvent::Backspace,
+            TextEvent::DeleteWord,
+        ] {
+            assert!(!client.text_event(event, now), "{event:?}");
+        }
+        assert_eq!(
+            client.session_view().map(|view| view.session.cursor()),
+            Some(0)
+        );
+        assert!(sent.try_recv().is_err(), "nothing to report yet");
+
+        room.phase = Phase::Racing;
+        client.handle(NetworkEvent::Message(ServerMessage::Room(room)), now);
+        assert!(client.text_event(TextEvent::Typed('g'), now));
+        assert!(matches!(sent.try_recv(), Ok(ClientMessage::Progress(_))));
     }
 
     #[test]

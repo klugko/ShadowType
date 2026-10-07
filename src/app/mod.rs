@@ -18,6 +18,7 @@ pub mod practice;
 pub mod race;
 mod saved_config;
 pub mod settings;
+mod text_event;
 pub mod text_settings;
 
 use std::{
@@ -42,6 +43,7 @@ pub use messages::{Message, MessageKind};
 use practice::SoloRun;
 use race::RaceClient;
 use saved_config::SavedConfig;
+use text_event::TextEvent;
 
 /// Settings given on the command line. They apply to this run only and are
 /// never saved, unless the user changes the same setting in the app.
@@ -197,6 +199,16 @@ impl Prompt {
 pub enum Activity {
     Solo(Box<SoloRun>),
     Race(Box<RaceClient>),
+}
+
+impl Activity {
+    /// Hands `event` to the text being typed; returns whether it took the key.
+    fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
+        match self {
+            Self::Solo(run) => run.text_event(event, now),
+            Self::Race(client) => client.text_event(event, now),
+        }
+    }
 }
 
 /// Everything needed to draw the text being typed.
@@ -375,7 +387,7 @@ impl App {
     pub fn session_view(&self) -> Option<SessionView<'_>> {
         match &self.activity {
             Some(Activity::Solo(run)) => Some(SessionView {
-                session: &run.session,
+                session: run.session(),
                 syntax: run.plan.syntax(),
                 attribution: run.attribution.as_deref(),
                 stopped_at: None,

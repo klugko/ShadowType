@@ -200,7 +200,7 @@ fn completing_a_session_records_it_and_shows_results() {
     let now = Instant::now();
     type_remaining_at(&mut app, now);
     let run = app.solo().expect("solo run");
-    assert_eq!(run.session.status(), Status::Completed);
+    assert_eq!(run.session().status(), Status::Completed);
     assert!(run.result.is_some());
     assert_eq!(app.history.records().len(), 1);
     assert_eq!(app.editor_mode(), EditorMode::Normal);
@@ -976,7 +976,11 @@ fn on_a_narrow_terminal_the_explorer_shows_only_while_it_has_the_focus() {
         (KeyCode::Esc, KeyCode::Char('?')),
     ] {
         press(&mut app, reveal);
-        assert_eq!((app.sidebar, app.focus), (true, Focus::Explorer), "{reveal}");
+        assert_eq!(
+            (app.sidebar, app.focus),
+            (true, Focus::Explorer),
+            "{reveal}"
+        );
         press(&mut app, back);
         assert_eq!((app.sidebar, app.focus), (false, Focus::Editor), "{back}");
     }

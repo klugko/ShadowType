@@ -7,9 +7,9 @@ use code_racer_protocol::RoomCode;
 use super::{
     Activity, App, Buffer, TextField,
     command::{Command, Page},
-    keys::SessionEdit,
     practice::{CustomText, Plan, SoloRun},
     race::{Intent, RaceClient, RoomRequest},
+    text_event::TextEvent,
 };
 use crate::{
     cli::Launch,
@@ -224,44 +224,25 @@ impl App {
     }
 
     pub(super) fn type_char(&mut self, ch: char, now: Instant) {
-        let accepted = match &mut self.activity {
-            Some(Activity::Solo(run)) => run.type_char(ch, now),
-            Some(Activity::Race(client)) if client.accepts_typing() => client
-                .session_mut()
-                .is_some_and(|session| session.type_char(ch, now)),
-            _ => return,
-        };
-        if !accepted && self.is_typing_blocked() {
+        let taken = self.text_event(TextEvent::Typed(ch), now);
+        if !taken && self.is_typing_blocked() {
             self.info("fix the mistake first: Backspace or Ctrl+W");
         }
-        self.after_typing(now);
     }
 
-    pub(super) fn edit_session(&mut self, now: Instant, edit: SessionEdit) {
-        let session = match &mut self.activity {
-            Some(Activity::Solo(run)) => &mut run.session,
-            Some(Activity::Race(client)) if client.accepts_typing() => match client.session_mut() {
-                Some(session) => session,
-                None => return,
-            },
-            _ => return,
-        };
-        match edit {
-            SessionEdit::Backspace => session.backspace(now),
-            SessionEdit::DeleteWord => session.delete_word(now),
-        };
-        self.after_typing(now);
+    /// Hands `event` to the text being typed, solo or in a race, and keeps
+    /// the record of a solo session it ended. Returns whether the text took
+    /// the key.
+    pub(super) fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
+        let taken = self
+            .activity
+            .as_mut()
+            .is_some_and(|activity| activity.text_event(event, now));
+        self.conclude_solo(now);
+        taken
     }
 
-    fn after_typing(&mut self, now: Instant) {
-        match &mut self.activity {
-            Some(Activity::Solo(_)) => self.conclude_solo(now),
-            Some(Activity::Race(client)) => client.report_progress(now),
-            None => {}
-        }
-    }
-
-    pub(super) fn conclude_solo(&mut self, now: Instant) {
+    fn conclude_solo(&mut self, now: Instant) {
         let Some(Activity::Solo(run)) = &mut self.activity else {
             return;
         };

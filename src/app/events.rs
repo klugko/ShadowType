@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use super::{Activity, App, Buffer, race::Outcome};
+use super::{Activity, App, Buffer, race::Outcome, text_event::TextEvent};
 use crate::{history::Record, network::NetworkEvent};
 
 /// How long keys are ignored once typing stops by itself: a fast typist
@@ -60,19 +60,7 @@ impl App {
     pub fn tick(&mut self, now: Instant) {
         self.begin_event();
         let was_typing = self.is_typing();
-        match &mut self.activity {
-            Some(Activity::Solo(run)) => {
-                run.session.update(now);
-                self.conclude_solo(now);
-            }
-            Some(Activity::Race(client)) => {
-                if let Some(session) = client.session_mut() {
-                    session.update(now);
-                }
-                client.report_progress(now);
-            }
-            None => {}
-        }
+        self.text_event(TextEvent::Tick, now);
         self.quiet_if_typing_stopped(was_typing, now);
     }
 

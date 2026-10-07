@@ -17,6 +17,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::{
     app::{
         form::{Row, Step},
+        text_event::TextEvent,
         text_settings::{self, TextSetting},
     },
     config::{Mode, Practice},
@@ -259,7 +260,7 @@ pub fn code_file_name(language: CodeLanguage) -> String {
 #[derive(Debug)]
 pub struct SoloRun {
     pub plan: Plan,
-    pub session: TypingSession,
+    session: TypingSession,
     pub attribution: Option<String>,
     pub result: Option<SoloResult>,
     feed: Option<WordStream>,
@@ -316,13 +317,18 @@ impl SoloRun {
         }
     }
 
-    /// Types one character; returns whether the session accepted it.
-    pub fn type_char(&mut self, ch: char, now: Instant) -> bool {
-        let accepted = self.session.type_char(ch, now);
-        if accepted {
+    pub fn session(&self) -> &TypingSession {
+        &self.session
+    }
+
+    /// Hands `event` to the session, refilling a timed text that runs low.
+    /// Returns whether the session took the key.
+    pub fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
+        let taken = event.apply_to(&mut self.session, now);
+        if taken {
             self.refill();
         }
-        accepted
+        taken
     }
 
     pub fn is_finished(&self) -> bool {
@@ -380,7 +386,7 @@ mod tests {
     fn type_all(run: &mut SoloRun, now: Instant) {
         let text = run.session.target().concat();
         for ch in text.chars() {
-            run.type_char(ch, now);
+            run.text_event(TextEvent::Typed(ch), now);
         }
     }
 
@@ -437,7 +443,7 @@ mod tests {
         for _ in 0..3_000 {
             let next = run.session.target()[run.session.cursor()].clone();
             for ch in next.chars() {
-                run.type_char(ch, now);
+                run.text_event(TextEvent::Typed(ch), now);
             }
         }
         assert!(run.session.remaining() >= TIMED_REFILL_BELOW / 2);
@@ -461,7 +467,7 @@ mod tests {
         while !run.is_finished() {
             let next = run.session.target()[run.session.cursor()].clone();
             for ch in next.chars() {
-                run.type_char(ch, now + Duration::from_secs(60));
+                run.text_event(TextEvent::Typed(ch), now + Duration::from_secs(60));
             }
         }
         let record = run
