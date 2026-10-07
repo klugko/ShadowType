@@ -54,7 +54,8 @@ During a race the standings sit in a panel under the text, like an IDE's termina
   lualine-like status line, Vim modes (NORMAL, INSERT, COMMAND) and `:` commands with Tab completion.
 - **Themes**: `editor` (true colour), `dark` (the 16 ANSI colours on a black background), `mono` (no colour).
 - **Robust terminal handling**: the terminal is restored on exit, on error and on panic; resizing is
-  handled and small terminals get a clear message instead of a broken layout; no CPU use while idle.
+  handled, the explorer makes room for the buffer below 100 columns until `Ctrl+B` says otherwise,
+  small terminals get a clear message instead of a broken layout; no CPU use while idle.
 
 ## Installation
 
