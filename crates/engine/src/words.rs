@@ -260,19 +260,42 @@ mod tests {
         assert!(!sample(Language::English, PLAIN, 5).contains(|c: char| c.is_ascii_digit()));
     }
 
+    /// Whether a sentence may start with `first`: an ASCII capital, easy to
+    /// type on every layout, or a digit.
+    fn opens_sentence(first: char) -> bool {
+        first.is_ascii_uppercase() || first.is_ascii_digit()
+    }
+
     #[test]
-    fn punctuated_phrases_are_proper_sentences() {
-        for seed in 0..20 {
-            let text = WordStream::new(Language::English, PUNCTUATED, seed).phrase(30);
-            let first = text.chars().next().expect("non-empty");
-            assert!(first.is_ascii_uppercase(), "{text}");
-            assert!(text.ends_with(['.', '?', '!']), "{text}");
-            for sentence_end in [". ", "? ", "! "] {
-                for (index, _) in text.match_indices(sentence_end) {
-                    let next = text[index + 2..].chars().next().expect("next word");
-                    assert!(next.is_ascii_uppercase() || next.is_ascii_digit(), "{text}");
+    fn punctuated_phrases_are_proper_sentences_in_every_language() {
+        for language in Language::ALL {
+            for numbers in [false, true] {
+                let options = WordOptions {
+                    punctuation: true,
+                    numbers,
+                };
+                for seed in 0..20 {
+                    let text = WordStream::new(language, options, seed).phrase(60);
+                    let first = text.chars().next().expect("non-empty");
+                    assert!(opens_sentence(first), "{text}");
+                    assert!(text.ends_with(['.', '?', '!']), "{text}");
+                    for sentence_end in [". ", "? ", "! "] {
+                        for (index, _) in text.match_indices(sentence_end) {
+                            let next = text[index + 2..].chars().next().expect("next word");
+                            assert!(opens_sentence(next), "{text}");
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn sentence_openers_start_with_an_ascii_letter_even_in_french() {
+        let mut stream = WordStream::new(Language::French, PUNCTUATED, 0);
+        for _ in 0..2_000 {
+            let word = stream.vocabulary_word(true);
+            assert!(starts_with_ascii_letter(&word), "{word}");
         }
     }
 
