@@ -18,7 +18,8 @@ use crate::{
 /// Longest run of characters, counted from the first uncorrected mistake and
 /// including it, that can be typed before further input is refused. Mistakes
 /// have to be fixed for a session to complete, so this keeps a typo from
-/// silently ruining the rest of the line.
+/// silently ruining the rest of the line. Indentation filled in
+/// automatically is not typed, so it does not count.
 pub const ERROR_RUN_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -239,7 +240,7 @@ impl TypingSession {
     /// Whether input is refused until the first mistake is corrected.
     pub fn is_blocked(&self) -> bool {
         self.first_mistake()
-            .is_some_and(|first| self.cursor() - first >= ERROR_RUN_LIMIT)
+            .is_some_and(|first| self.typed_from(first) >= ERROR_RUN_LIMIT)
     }
 
     pub fn elapsed(&self, now: Instant) -> Duration {
@@ -301,6 +302,15 @@ impl TypingSession {
 
     fn first_mistake(&self) -> Option<usize> {
         self.entries.iter().position(|entry| !entry.correct)
+    }
+
+    /// Characters the player typed from `index` on, leaving out the
+    /// indentation filled in for them.
+    fn typed_from(&self, index: usize) -> usize {
+        self.entries[index..]
+            .iter()
+            .filter(|entry| !entry.auto)
+            .count()
     }
 
     /// Enters one character already in the form of the text.
@@ -615,6 +625,23 @@ mod tests {
         assert_eq!(session.stats(now).typed_chars, ERROR_RUN_LIMIT);
         session.backspace(now);
         assert!(!session.is_blocked());
+    }
+
+    #[test]
+    fn auto_filled_indentation_does_not_count_towards_the_error_run() {
+        let now = Instant::now();
+        let text = format!("ab\n{}{}", " ".repeat(12), "c".repeat(20));
+        let mut session = auto_indented(&text);
+        type_text(&mut session, "ax\n", now);
+        assert!(
+            !session.is_blocked(),
+            "two characters typed since the mistake"
+        );
+        for _ in 2..ERROR_RUN_LIMIT {
+            assert!(session.type_char('c', now));
+        }
+        assert!(session.is_blocked());
+        assert!(!session.type_char('c', now));
     }
 
     #[test]
