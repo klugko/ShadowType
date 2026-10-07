@@ -3,7 +3,11 @@
 //! [`Connection::open`] returns immediately: connecting, the handshake and the
 //! traffic run in a background task that reports through [`NetworkEvent`]s.
 
-use std::{ops::ControlFlow, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    ops::ControlFlow,
+    time::Duration,
+};
 
 use code_racer_protocol::{
     ClientMessage, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, PlayerId, ServerMessage, Username,
@@ -26,6 +30,9 @@ const EVENT_CAPACITY: usize = 256;
 const CONNECTION_LOST: &str = "connection lost";
 const CLOSED_BY_CLIENT: &str = "connection closed by the client";
 const SERVER_SILENT: &str = "the server stopped responding";
+/// An address on another network, from a range reserved for documentation:
+/// the route to it is the one to every other network.
+const OTHER_NETWORK: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)), 9);
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -108,10 +115,57 @@ fn websocket_scheme(scheme: &str) -> Result<&'static str, InvalidServerUrl> {
     }
 }
 
+/// Whether the server at `url` is only reachable from this computer: its
+/// host is `localhost`, or a loopback or unspecified address, which another
+/// computer would take for itself.
+pub fn is_local_only(url: &str) -> bool {
+    let address = url.split_once("://").map_or(url, |(_, address)| address);
+    let Some((host, _)) = host_and_port(address) else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
+}
+
+/// `url` with `host` in place of its host, IPv6 addresses bracketed, the
+/// scheme, user, port and path kept. `None` without a scheme.
+pub fn with_host(url: &str, host: &str) -> Option<String> {
+    let (scheme, address) = url.split_once("://")?;
+    let (authority, path) = split_authority(address);
+    let user = authority
+        .rsplit_once('@')
+        .map(|(user, _)| format!("{user}@"))
+        .unwrap_or_default();
+    let (_, port) = host_and_port(authority)?;
+    let port = port.map(|port| format!(":{port}")).unwrap_or_default();
+    Some(format!("{scheme}://{user}{host}{port}{path}"))
+}
+
+/// This computer's address on the local network: the one the system would
+/// send from to reach other networks. Connecting a UDP socket only picks
+/// that route, nothing is sent. `None` without such a route.
+pub fn lan_address() -> Option<IpAddr> {
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    socket.connect(OTHER_NETWORK).ok()?;
+    let address = socket.local_addr().ok()?.ip();
+    (!address.is_loopback() && !address.is_unspecified()).then_some(address)
+}
+
+/// The authority of `address`, then what follows it: path, query and
+/// fragment.
+fn split_authority(address: &str) -> (&str, &str) {
+    let end = address.find(['/', '?', '#']).unwrap_or(address.len());
+    address.split_at(end)
+}
+
 /// Host and port of the authority in `address`, `None` when an IPv6 address
 /// is not properly bracketed.
 fn host_and_port(address: &str) -> Option<(&str, Option<&str>)> {
-    let authority = address.split(['/', '?', '#']).next().unwrap_or_default();
+    let (authority, _) = split_authority(address);
     let host_and_port = authority
         .rsplit_once('@')
         .map_or(authority, |(_, host_and_port)| host_and_port);
@@ -545,6 +599,57 @@ mod tests {
         for (input, expected) in cases {
             assert_eq!(server_url(input), Err(expected), "{input:?}");
         }
+    }
+
+    #[test]
+    fn servers_only_this_computer_reaches_are_told_apart() {
+        for url in [
+            "ws://127.0.0.1:8080",
+            "ws://127.1.2.3:8080",
+            "ws://localhost:8080",
+            "ws://LOCALHOST",
+            "ws://race.localhost:9000/rooms",
+            "ws://[::1]:8080",
+            "ws://0.0.0.0:8080",
+            "ws://player@127.0.0.1:8080",
+        ] {
+            assert!(is_local_only(url), "{url}");
+        }
+        for url in [
+            "ws://192.168.1.42:8080",
+            "ws://race.lan:8080",
+            "wss://race.example.com",
+            "ws://[fe80::1]:8080",
+            "ws://localhost.example.com",
+        ] {
+            assert!(!is_local_only(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn the_host_of_a_server_address_can_be_replaced() {
+        let cases = [
+            (
+                "ws://127.0.0.1:8080",
+                "192.168.1.42",
+                "ws://192.168.1.42:8080",
+            ),
+            (
+                "wss://localhost/rooms?x=1",
+                "10.0.0.9",
+                "wss://10.0.0.9/rooms?x=1",
+            ),
+            ("ws://[::1]:9000", "[fe80::1]", "ws://[fe80::1]:9000"),
+            (
+                "ws://ada@127.0.0.1:8080",
+                "10.0.0.9",
+                "ws://ada@10.0.0.9:8080",
+            ),
+        ];
+        for (url, host, expected) in cases {
+            assert_eq!(with_host(url, host).as_deref(), Some(expected), "{url}");
+        }
+        assert_eq!(with_host("127.0.0.1:8080", "10.0.0.9"), None, "no scheme");
     }
 
     #[test]

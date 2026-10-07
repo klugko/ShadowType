@@ -142,8 +142,13 @@ fn in_room(phase: Phase) -> App {
 
 /// An app inside `room` since `now`, the race text shown past the lobby.
 fn in_room_at(room: RoomView, now: Instant) -> App {
+    in_room_on("ws://127.0.0.1:9", room, now)
+}
+
+/// An app inside `room` of the race server at `server` since `now`.
+fn in_room_on(server: &str, room: RoomView, now: Instant) -> App {
     let mut app = app();
-    app.config.multiplayer.server = "ws://127.0.0.1:9".to_owned();
+    app.config.multiplayer.server = server.to_owned();
     command(&mut app, "join FK72AD");
     app.handle_network(NetworkEvent::Connected(PlayerId(1)), now);
     if room.phase != Phase::Lobby {
@@ -219,15 +224,34 @@ fn the_smallest_size_gives_the_explorer_columns_to_whole_buffer_lines() {
 
 #[tokio::test]
 async fn the_lobby_shows_the_whole_server_address_at_the_smallest_size() {
-    let mut app = in_room(Phase::Lobby);
+    let mut app = in_room_on("ws://10.0.0.9:8080", room(Phase::Lobby), Instant::now());
     app.resize(MIN_WIDTH, MIN_HEIGHT);
     let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
     for expected in [
-        "# invite: code-racer join FK72AD --server ws://127.0.0.1:9",
-        "server  = \"ws://127.0.0.1:9\"",
+        "# invite: code-racer join FK72AD --server ws://10.0.0.9:8080",
+        "server  = \"ws://10.0.0.9:8080\"",
     ] {
         assert!(text.contains(expected), "missing {expected}:\n{text}");
     }
+    assert!(!text.contains("--host 0.0.0.0"), "{text}");
+}
+
+#[tokio::test]
+async fn the_lobby_never_invites_teammates_to_their_own_computer() {
+    let mut app = in_room(Phase::Lobby);
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
+    let invite = text
+        .lines()
+        .find(|line| line.contains("# invite: code-racer join FK72AD --server ws://"))
+        .unwrap_or_else(|| panic!("no invite:\n{text}"));
+    assert!(!invite.contains("127.0.0.1"), "{invite}");
+    assert!(invite.trim_end().ends_with(":9"), "{invite}");
+    assert!(
+        text.contains("# start the server with --host 0.0.0.0 for teammates to reach it"),
+        "{text}"
+    );
+    assert!(text.contains("server  = \"ws://127.0.0.1:9\""), "{text}");
 }
 
 #[test]

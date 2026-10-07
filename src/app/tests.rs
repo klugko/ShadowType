@@ -496,7 +496,10 @@ fn releasing_the_ready_key_sends_nothing() {
     ));
     let answer = room::view(Phase::Lobby, PlayerProgress::default());
     room::deliver(&mut app, ServerMessage::Room(answer), now);
-    app.handle_key(released(KeyCode::Char('r')), now + Duration::from_millis(200));
+    app.handle_key(
+        released(KeyCode::Char('r')),
+        now + Duration::from_millis(200),
+    );
     assert!(sent.try_recv().is_err(), "the release is not a press");
 }
 

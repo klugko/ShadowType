@@ -80,15 +80,12 @@ fn lobby(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, pa
             palette,
         ))
     };
-    let mut rows = vec![
-        doc::title(format!("room {}", room.code), palette),
-        doc::comment(
-            format!(
-                "invite: code-racer join {} --server {}",
-                room.code, client.server
-            ),
-            palette,
-        ),
+    let mut rows = vec![doc::title(format!("room {}", room.code), palette)];
+    if let Some(invite) = client.invite() {
+        rows.push(doc::comment(format!("invite: {}", invite.command), palette));
+        rows.extend(invite.note.map(|note| doc::comment(note, palette)));
+    }
+    rows.extend([
         doc::blank(),
         setting("server", &client.server),
         setting("text", &client.text_label()),
@@ -98,7 +95,7 @@ fn lobby(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, pa
         ),
         doc::blank(),
         doc::heading("players", palette),
-    ];
+    ]);
     rows.extend(
         room.players
             .iter()

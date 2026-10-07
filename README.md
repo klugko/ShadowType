@@ -148,7 +148,10 @@ speed or accuracy, in solo sessions and races alike.
 
 1. Someone runs a race server (see below).
 2. The host opens `race.toml` (`m`), picks the text under `[create]` and selects `▶ create room`
-   (or presses `c`, or runs `code-racer create`). The room code appears, e.g. `FK72AD`.
+   (or presses `c`, or runs `code-racer create`). The room code appears, e.g. `FK72AD`, with the
+   command teammates run to join. When the server runs on the host's computer, that command gives
+   this computer's address on the local network rather than `127.0.0.1`, which would lead teammates
+   to their own computers.
 3. Teammates type the code in the `room` line of `race.toml` and press Enter
    (or run `code-racer join FK72AD`, or type `:join FK72AD`).
 4. Everyone presses `r` to get ready. The host presses `s`.
