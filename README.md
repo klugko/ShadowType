@@ -52,7 +52,7 @@ During a race the standings sit in a panel under the text, like an IDE's termina
   server-driven countdown, live standings, server-measured finishing times and a final ranking.
 - **Editor look**: explorer, tab line, line numbers, cursor line, `~` past the end of the buffer,
   lualine-like status line, Vim modes (NORMAL, INSERT, COMMAND) and `:` commands with Tab completion.
-- **Themes**: `editor` (true colour), `dark` (the 16 ANSI colours), `mono` (no colour).
+- **Themes**: `editor` (true colour), `dark` (the 16 ANSI colours on a black background), `mono` (no colour).
 - **Robust terminal handling**: the terminal is restored on exit, on error and on panic; resizing is
   handled and small terminals get a clear message instead of a broken layout; no CPU use while idle.
 

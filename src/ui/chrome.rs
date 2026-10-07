@@ -71,8 +71,8 @@ fn explorer_entry(app: &App, buffer: Buffer, width: u16, palette: &Palette) -> L
     let label = format!("   {marker} {name}");
     let padded = format!("{label:<width$}", width = usize::from(width));
     let style = match (selected, app.focus) {
-        (true, Focus::Explorer) => palette
-            .cursorline()
+        (true, Focus::Explorer) => Style::new()
+            .bg(palette.highlight)
             .fg(palette.strong)
             .add_modifier(Modifier::BOLD),
         (true, Focus::Editor) => Style::new().fg(palette.accent).add_modifier(Modifier::BOLD),
@@ -155,7 +155,7 @@ pub fn tabline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
                 .fg(palette.strong)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::new().bg(palette.panel).fg(palette.muted)
+            Style::new().bg(palette.panel).fg(palette.text)
         };
         spans.push(Span::styled(format!(" {name}{modified} "), style));
         spans.push(Span::styled(
@@ -360,16 +360,13 @@ fn hints(app: &App, palette: &Palette) -> Line<'static> {
     let mut spans = vec![mode];
     for (index, (key, action)) in keys.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled("  ", palette.fg(palette.faint)));
+            spans.push(Span::raw("  "));
         }
         spans.push(Span::styled(
             (*key).to_owned(),
-            palette.fg(palette.muted).add_modifier(Modifier::BOLD),
+            palette.fg(palette.strong).add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled(
-            format!(" {action}"),
-            palette.fg(palette.faint),
-        ));
+        spans.push(Span::styled(format!(" {action}"), palette.fg(palette.text)));
     }
     Line::from(spans)
 }

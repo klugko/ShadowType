@@ -1,5 +1,5 @@
 //! Colour palettes. `editor` uses true colours, `dark` the 16 ANSI colours of
-//! the terminal, `mono` no colour at all.
+//! the terminal on a black background, `mono` no colour at all.
 
 use ratatui::style::{Color, Modifier, Style};
 
@@ -9,7 +9,13 @@ use crate::{config::Theme, ui::syntax::Token};
 pub struct Palette {
     pub background: Color,
     pub panel: Color,
+    /// Background of the status line segments and of the selected explorer
+    /// entry, which hold only strong text.
     pub highlight: Color,
+    /// The line under the cursor. The ANSI palette makes it bold: its only
+    /// grey is the one of the text still to type, which a grey background
+    /// would hide.
+    pub cursorline: Style,
     pub border: Color,
     pub text: Color,
     pub strong: Color,
@@ -49,15 +55,6 @@ impl Palette {
         Style::new().fg(color)
     }
 
-    /// Background of the line under the cursor.
-    pub fn cursorline(&self) -> Style {
-        if self.mono {
-            Style::new().add_modifier(Modifier::BOLD)
-        } else {
-            Style::new().bg(self.highlight)
-        }
-    }
-
     /// A pill such as the mode indicator of the status line.
     pub fn badge(&self, color: Color) -> Style {
         if self.mono {
@@ -94,6 +91,7 @@ const EDITOR: Palette = Palette {
     background: Color::Rgb(26, 29, 36),
     panel: Color::Rgb(21, 24, 30),
     highlight: Color::Rgb(36, 40, 50),
+    cursorline: Style::new().bg(Color::Rgb(36, 40, 50)),
     border: Color::Rgb(44, 49, 60),
     text: Color::Rgb(171, 178, 191),
     strong: Color::Rgb(214, 219, 228),
@@ -117,9 +115,10 @@ const EDITOR: Palette = Palette {
 };
 
 const DARK: Palette = Palette {
-    background: Color::Reset,
-    panel: Color::Reset,
-    highlight: Color::Black,
+    background: Color::Black,
+    panel: Color::Black,
+    highlight: Color::DarkGray,
+    cursorline: Style::new().add_modifier(Modifier::BOLD),
     border: Color::DarkGray,
     text: Color::Gray,
     strong: Color::White,
@@ -146,6 +145,7 @@ const MONO: Palette = Palette {
     background: Color::Reset,
     panel: Color::Reset,
     highlight: Color::Reset,
+    cursorline: Style::new().add_modifier(Modifier::BOLD),
     border: Color::Reset,
     text: Color::Reset,
     strong: Color::Reset,

@@ -105,7 +105,7 @@ fn buffer_line(row: &Row, gutter: u16, palette: &Palette) -> Line<'static> {
     spans.extend(row.spans.iter().cloned());
     let line = Line::from(spans);
     if row.current {
-        line.style(palette.cursorline())
+        line.style(palette.cursorline)
     } else {
         line
     }

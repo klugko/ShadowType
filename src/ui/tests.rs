@@ -3,7 +3,11 @@ use std::time::{Duration, Instant};
 use code_racer_engine::{Language, TextSource};
 use code_racer_protocol::{Phase, PlayerId, PlayerProgress, PlayerView, RoomView, ServerMessage};
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::{Terminal, backend::TestBackend};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    style::{Color, Style},
+};
 
 use super::*;
 use crate::{
@@ -64,7 +68,7 @@ fn find(terminal: &Terminal<TestBackend>, needle: &str) -> Option<(u16, u16)> {
     })
 }
 
-fn style_at(terminal: &Terminal<TestBackend>, (x, y): (u16, u16)) -> ratatui::style::Style {
+fn style_at(terminal: &Terminal<TestBackend>, (x, y): (u16, u16)) -> Style {
     terminal.backend().buffer()[(x, y)].style()
 }
 
@@ -393,6 +397,74 @@ fn command_line_shows_the_command_and_errors() {
     press(&mut app, KeyCode::Esc);
     command(&mut app, "nope");
     assert!(screen(&app, 100, 24).contains("E492: Not an editor command: nope"));
+}
+
+/// Relative luminance of a true colour, as WCAG defines it.
+fn luminance(color: Color) -> Option<f64> {
+    let Color::Rgb(red, green, blue) = color else {
+        return None;
+    };
+    let linear = |channel: u8| {
+        let value = f64::from(channel) / 255.0;
+        if value <= 0.039_28 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    Some(0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue))
+}
+
+/// WCAG contrast ratio of two true colours, from 1 to 21.
+fn contrast(first: Color, second: Color) -> Option<f64> {
+    let (first, second) = (luminance(first)?, luminance(second)?);
+    Some((first.max(second) + 0.05) / (first.min(second) + 0.05))
+}
+
+#[test]
+fn command_line_hints_are_readable_in_every_theme() {
+    let mut app = app();
+    for theme in Theme::ALL {
+        app.config.theme = theme;
+        let palette = Palette::of(theme);
+        let terminal = drawn(&app, 100, 24, Instant::now());
+        let hints = 23;
+        let (key, _) = find(&terminal, "j/k move").expect("the hints");
+        let key_style = style_at(&terminal, (key, hints));
+        let action = style_at(&terminal, (key + 4, hints)).fg.expect("a colour");
+        assert_eq!(key_style.fg, Some(palette.strong), "{theme}");
+        assert!(key_style.add_modifier.contains(Modifier::BOLD), "{theme}");
+        assert_ne!(action, palette.faint, "{theme}");
+        assert_ne!(action, palette.muted, "{theme}");
+        if let Some(ratio) = contrast(action, palette.background) {
+            assert!(ratio >= 4.5, "{theme}: {ratio:.2}");
+        }
+    }
+}
+
+#[test]
+fn the_dark_theme_draws_on_black_with_visible_selections() {
+    let mut app = app();
+    app.config.theme = Theme::Dark;
+    let palette = Palette::of(Theme::Dark);
+    let terminal = drawn(&app, 120, 30, Instant::now());
+    let blank = find(&terminal, "~").expect("an empty line");
+    assert_eq!(style_at(&terminal, blank).bg, Some(Color::Black));
+    let entry = find(&terminal, "    practice.toml").expect("the explorer entry");
+    let selected = style_at(&terminal, (entry.0 + 4, entry.1));
+    assert_eq!(selected.bg, Some(palette.highlight));
+    assert_ne!(palette.highlight, palette.background);
+
+    press(&mut app, KeyCode::Enter);
+    let terminal = drawn(&app, 120, 30, Instant::now());
+    let line = find(&terminal, "mode ").expect("the selected line");
+    let style = style_at(&terminal, line);
+    assert!(style.add_modifier.contains(Modifier::BOLD), "{style:?}");
+    assert_eq!(
+        style.bg,
+        Some(Color::Black),
+        "no grey that hides ghost text"
+    );
 }
 
 #[tokio::test]

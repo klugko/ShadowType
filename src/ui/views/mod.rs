@@ -117,7 +117,7 @@ mod doc {
             ));
             spans.push(Span::styled(
                 format!("  {action}"),
-                palette.fg(palette.muted),
+                palette.fg(palette.text),
             ));
         }
         Row::new(spans)
