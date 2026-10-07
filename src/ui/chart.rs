@@ -7,35 +7,84 @@ const TICK: char = '┤';
 const TICK_COLUMN_WIDTH: usize = 2;
 
 /// Renders `values` as a line chart of exactly `height` rows (no rows when there
-/// is nothing to plot), each at most `width` cells wide.
+/// is nothing to plot), each exactly `width` cells wide.
 ///
 /// Every row starts with a right-aligned integer label and an axis tick (`┼` on
-/// the bottom row, `┤` above it), followed by one column per value. When there
-/// are more values than columns, consecutive values are averaged into a column
-/// each; the axis still spans the minimum and maximum of the whole series.
-/// Labels do not repeat: a series that spans fewer units than there are rows
-/// gets one unit per row, centred on the data. The labels are dropped when
-/// `width` cannot fit them next to at least one column. Non-finite values are
-/// ignored.
+/// the bottom row, `┤` above it), followed by the curve across the rest of the
+/// width: when there are more values than columns, consecutive values are
+/// averaged into a column each, and when there are fewer, the curve runs
+/// straight from one value to the next. The axis spans the minimum and maximum
+/// of the whole series. Labels do not repeat: a series that spans fewer units
+/// than there are rows gets one unit per row, centred on the data. The labels
+/// are dropped when `width` cannot fit them next to at least one column.
+/// Non-finite values are ignored.
 pub fn line_chart(values: &[f64], width: u16, height: u16) -> Vec<String> {
-    let finite = values.iter().copied().filter(|value| value.is_finite());
-    let count = finite.clone().count();
-    if count == 0 || height == 0 {
+    let finite: Vec<f64> = values
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+        .collect();
+    if finite.is_empty() || height == 0 {
         return Vec::new();
     }
     let (min, max) = finite
-        .clone()
+        .iter()
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
-            (min.min(value), max.max(value))
+            (min.min(*value), max.max(*value))
         });
     let scale = Scale::fit(min, max, usize::from(height));
     let width = usize::from(width);
     let label_width = Some(scale.label_width()).filter(|label| label + TICK_COLUMN_WIDTH < width);
     let plot_width = width - label_width.map_or(0, |label| label + TICK_COLUMN_WIDTH);
-    let levels = bucket_levels(finite, count, count.min(plot_width), scale);
+    let levels: Vec<usize> = resample(&finite, plot_width)
+        .into_iter()
+        .map(|value| scale.level(value))
+        .collect();
     (0..=scale.top_level)
         .rev()
         .map(|level| render_row(level, scale, label_width, &levels))
+        .collect()
+}
+
+/// The series spread over exactly `columns` columns.
+fn resample(values: &[f64], columns: usize) -> Vec<f64> {
+    match columns {
+        0 => Vec::new(),
+        _ if values.len() >= columns => average_into(values, columns),
+        _ => interpolate(values, columns),
+    }
+}
+
+/// Consecutive values averaged into `columns` columns, at least one value
+/// each since there are at least as many values as columns.
+fn average_into(values: &[f64], columns: usize) -> Vec<f64> {
+    let mut buckets = vec![(0.0, 0.0); columns];
+    for (index, value) in values.iter().enumerate() {
+        let (sum, members) = &mut buckets[index * columns / values.len()];
+        *sum += value;
+        *members += 1.0;
+    }
+    buckets
+        .into_iter()
+        .map(|(sum, members)| sum / members)
+        .collect()
+}
+
+/// `columns` values running straight from each value to the next, the
+/// first and last ones unchanged.
+fn interpolate(values: &[f64], columns: usize) -> Vec<f64> {
+    let Some(last) = values.len().checked_sub(1) else {
+        return Vec::new();
+    };
+    let steps = columns.saturating_sub(1).max(1) as f64;
+    (0..columns)
+        .map(|column| {
+            let position = (column * last) as f64 / steps;
+            let index = (position.floor() as usize).min(last);
+            let next = (index + 1).min(last);
+            let fraction = position - index as f64;
+            values[index] + (values[next] - values[index]) * fraction
+        })
         .collect()
 }
 
@@ -102,30 +151,6 @@ fn display_width(number: i64) -> usize {
     digits + usize::from(number < 0)
 }
 
-fn bucket_levels(
-    values: impl Iterator<Item = f64>,
-    count: usize,
-    columns: usize,
-    scale: Scale,
-) -> Vec<usize> {
-    let mut levels = Vec::with_capacity(columns);
-    if columns == 0 {
-        return levels;
-    }
-    let (mut bucket, mut sum, mut members) = (0, 0.0, 0.0);
-    for (index, value) in values.enumerate() {
-        let target = index * columns / count;
-        if target != bucket {
-            levels.push(scale.level(sum / members));
-            (bucket, sum, members) = (target, 0.0, 0.0);
-        }
-        sum += value;
-        members += 1.0;
-    }
-    levels.push(scale.level(sum / members));
-    levels
-}
-
 fn render_row(level: usize, scale: Scale, label_width: Option<usize>, levels: &[usize]) -> String {
     let mut row = match label_width {
         Some(width) => {
@@ -187,17 +212,20 @@ mod tests {
     }
 
     #[test]
-    fn rows_have_the_requested_height_and_fit_the_width() {
-        let series: Vec<f64> = (0..300).map(|step| f64::from(step % 37) * 3.5).collect();
-        for height in 1..=12 {
-            for width in 0..=50 {
-                let lines = line_chart(&series, width, height);
-                assert_eq!(lines.len(), usize::from(height), "{width}x{height}");
-                for line in &lines {
-                    assert!(
-                        line.width() <= usize::from(width),
-                        "{width}x{height}: {line:?}"
-                    );
+    fn rows_have_the_requested_height_and_fill_the_width() {
+        for len in [1, 3, 300] {
+            let series: Vec<f64> = (0..len).map(|step| f64::from(step % 37) * 3.5).collect();
+            for height in 1..=12 {
+                for width in 0..=50 {
+                    let lines = line_chart(&series, width, height);
+                    assert_eq!(lines.len(), usize::from(height), "{width}x{height}");
+                    for line in &lines {
+                        assert_eq!(
+                            line.width(),
+                            usize::from(width),
+                            "{len} values at {width}x{height}: {line:?}"
+                        );
+                    }
                 }
             }
         }
@@ -205,15 +233,34 @@ mod tests {
 
     #[test]
     fn rising_and_falling_steps_use_rounded_corners() {
-        assert_eq!(line_chart(&[0.0, 10.0], 20, 2), ["10 ┤ ╭", " 0 ┼─╯"]);
-        assert_eq!(line_chart(&[10.0, 0.0], 20, 2), ["10 ┤─╮", " 0 ┼ ╰"]);
+        assert_eq!(line_chart(&[0.0, 10.0], 6, 2), ["10 ┤ ╭", " 0 ┼─╯"]);
+        assert_eq!(line_chart(&[10.0, 0.0], 6, 2), ["10 ┤─╮", " 0 ┼ ╰"]);
     }
 
     #[test]
     fn steep_steps_are_joined_by_vertical_bars() {
-        let lines = line_chart(&[0.0, 30.0, 0.0], 20, 4);
+        let lines = line_chart(&[0.0, 30.0, 0.0], 7, 4);
         let plots: Vec<&str> = lines.iter().map(|line| plot(line)).collect();
         assert_eq!(plots, [" ╭╮", " ││", " ││", "─╯╰"]);
+    }
+
+    #[test]
+    fn short_series_are_stretched_across_the_width() {
+        assert_eq!(
+            line_chart(&[0.0, 30.0], 10, 4),
+            ["30 ┤     ╭", "20 ┤   ╭─╯", "10 ┤ ╭─╯  ", " 0 ┼─╯    "]
+        );
+    }
+
+    #[test]
+    fn interpolation_keeps_the_values_and_runs_straight_between_them() {
+        assert_eq!(
+            interpolate(&[10.0, 20.0], 5),
+            [10.0, 12.5, 15.0, 17.5, 20.0]
+        );
+        assert_eq!(interpolate(&[1.0, 3.0, 2.0], 5), [1.0, 2.0, 3.0, 2.5, 2.0]);
+        assert_eq!(interpolate(&[4.0], 3), [4.0; 3]);
+        assert!(interpolate(&[], 3).is_empty());
     }
 
     #[test]
@@ -240,7 +287,7 @@ mod tests {
     fn flat_series_is_a_straight_line_in_the_middle() {
         let lines = line_chart(&[60.0; 5], 40, 5);
         assert_eq!(labels(&lines), [62, 61, 60, 59, 58]);
-        assert_eq!(plot(&lines[2]), "─────");
+        assert_eq!(plot(&lines[2]), "─".repeat(36));
         assert!(
             lines
                 .iter()
@@ -250,9 +297,9 @@ mod tests {
     }
 
     #[test]
-    fn single_value_renders_one_dash() {
-        let lines = line_chart(&[72.0], 10, 3);
-        assert_eq!(lines, ["73 ┤ ", "72 ┤─", "71 ┼ "]);
+    fn single_value_is_a_flat_line_across_the_width() {
+        let lines = line_chart(&[72.0], 7, 3);
+        assert_eq!(lines, ["73 ┤   ", "72 ┤───", "71 ┼   "]);
     }
 
     #[test]
@@ -263,14 +310,8 @@ mod tests {
 
     #[test]
     fn negative_labels_are_right_aligned() {
-        let lines = line_chart(&[-120.0, 5.0], 20, 2);
+        let lines = line_chart(&[-120.0, 5.0], 8, 2);
         assert_eq!(lines, ["   5 ┤ ╭", "-120 ┼─╯"]);
-    }
-
-    #[test]
-    fn one_column_per_point_when_the_width_allows() {
-        let lines = line_chart(&[1.0, 20.0, 3.0], 40, 4);
-        assert!(lines.iter().all(|line| plot(line).chars().count() == 3));
     }
 
     #[test]
@@ -293,8 +334,7 @@ mod tests {
 
     #[test]
     fn labels_are_dropped_when_they_leave_no_room_for_the_curve() {
-        let lines = line_chart(&[100.0, 250.0], 4, 2);
-        assert_eq!(lines, [" ╭", "─╯"]);
+        assert_eq!(line_chart(&[100.0, 250.0], 4, 2), ["  ╭─", "──╯ "]);
         assert_eq!(line_chart(&[100.0, 250.0], 0, 2), ["", ""]);
     }
 
@@ -383,18 +423,12 @@ mod tests {
             let rows = if values.is_empty() { 0 } else { height };
             assert_eq!(lines.len(), usize::from(rows), "{context}");
             assert!(
-                lines.iter().all(|line| line.width() <= usize::from(width)),
+                lines.iter().all(|line| line.width() == usize::from(width)),
                 "{context}"
             );
             if lines.is_empty() || width == 0 {
                 continue;
             }
-            let plotted = columns(&lines).len();
-            let full = lines.iter().all(|line| line.width() == usize::from(width));
-            assert!(
-                plotted == values.len() || (plotted < values.len() && full),
-                "{context}"
-            );
             assert_curve_is_connected(&lines, &context);
             assert_labels_span_the_series(&values, &lines, &context);
         }
@@ -413,12 +447,12 @@ mod tests {
                 .flat_map(|value| std::iter::repeat_n(*value, repeat))
                 .collect();
             let height = rng.random_range(1..10);
-            let sparse = line_chart(&values, 200, height);
-            let exact_width = sparse.first().map_or(0, |line| line.width());
-            let width = u16::try_from(exact_width).expect("narrow chart");
+            let wide = line_chart(&values, 200, height);
+            let axis = wide[0].width() - plot(&wide[0]).chars().count();
+            let width = u16::try_from(axis + values.len()).expect("narrow chart");
             assert_eq!(
                 line_chart(&dense, width, height),
-                sparse,
+                line_chart(&values, width, height),
                 "{values:?} x{repeat}"
             );
         }

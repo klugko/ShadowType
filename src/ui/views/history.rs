@@ -2,11 +2,11 @@
 
 use ratatui::{Frame, layout::Rect, style::Modifier, text::Span};
 
-use super::{doc, session::chart_rows};
+use super::doc;
 use crate::{
     app::{
         App,
-        history_log::{CHART_HEIGHT, CHART_SESSIONS},
+        history_log::{self, CHART_HEIGHT, CHART_SESSIONS},
     },
     history::Summary,
     ui::{
@@ -42,8 +42,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
             format!("wpm, last {} sessions", recent.len()),
             palette,
         ));
-        let width = editor::text_width(area.width, 999).saturating_sub(2);
-        rows.extend(chart_rows(&recent, width, CHART_HEIGHT, palette));
+        let width = editor::text_width(area.width, history_log::line_count(records.len()));
+        rows.extend(doc::chart(&recent, width, CHART_HEIGHT, palette));
     }
     rows.push(doc::blank());
     rows.push(Row::new(vec![Span::styled(

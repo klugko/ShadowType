@@ -10,7 +10,6 @@ use crate::{
         practice::{SoloResult, SoloRun},
     },
     ui::{
-        chart,
         editor::{self, Row},
         format::race_time,
         theme::Palette,
@@ -19,8 +18,10 @@ use crate::{
 };
 
 const RESULT_KEY_WIDTH: usize = 11;
-/// Columns taken by the y-axis labels of a chart.
-const CHART_LABEL_WIDTH: usize = 8;
+/// Tallest the speed chart of the results gets.
+const MAX_CHART_HEIGHT: usize = 8;
+/// Fewest rows worth drawing the speed chart in.
+const MIN_CHART_HEIGHT: usize = 4;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App, run: &SoloRun, palette: &Palette) {
     match &run.result {
@@ -129,42 +130,19 @@ fn results(frame: &mut Frame, area: Rect, run: &SoloRun, result: &SoloResult, pa
         ),
     ];
     let wpm: Vec<f64> = result.samples.iter().map(|sample| sample.wpm).collect();
-    let room = usize::from(area.height).saturating_sub(rows.len() + footer.len() + 2);
-    if wpm.len() >= 2 && room >= 4 {
-        rows.push(doc::blank());
-        rows.push(doc::heading("wpm over time", palette));
-        let width = editor::text_width(area.width, 99).saturating_sub(2);
-        let height = u16::try_from(room.min(8)).unwrap_or(4);
-        rows.extend(chart_rows(&wpm, width, height, palette));
+    let heading = [doc::blank(), doc::heading("wpm over time", palette)];
+    let room = usize::from(area.height).saturating_sub(rows.len() + heading.len() + footer.len());
+    let height = room.min(MAX_CHART_HEIGHT);
+    if wpm.len() >= 2 && height >= MIN_CHART_HEIGHT {
+        let lines = rows.len() + heading.len() + height + footer.len();
+        let width = editor::text_width(area.width, lines);
+        let height = u16::try_from(height).unwrap_or(u16::MAX);
+        rows.extend(heading);
+        rows.extend(doc::chart(&wpm, width, height, palette));
     }
     rows.extend(footer);
     editor::number_rows(&mut rows);
     editor::render(frame, area, &rows, 0, palette);
-}
-
-pub fn chart_rows(values: &[f64], width: u16, height: u16, palette: &Palette) -> Vec<Row> {
-    let plot_width = usize::from(width).saturating_sub(CHART_LABEL_WIDTH);
-    chart::line_chart(&stretch(values, plot_width), width, height)
-        .into_iter()
-        .map(|line| Row::new(vec![Span::styled(line, palette.fg(palette.accent))]))
-        .collect()
-}
-
-/// Interpolates a short series so that it spans `columns` columns.
-fn stretch(values: &[f64], columns: usize) -> Vec<f64> {
-    if values.len() < 2 || values.len() >= columns {
-        return values.to_vec();
-    }
-    let last = (values.len() - 1) as f64;
-    (0..columns)
-        .map(|column| {
-            let position = column as f64 * last / (columns - 1) as f64;
-            let index = position.floor() as usize;
-            let next = (index + 1).min(values.len() - 1);
-            let fraction = position - index as f64;
-            values[index] + (values[next] - values[index]) * fraction
-        })
-        .collect()
 }
 
 fn metric(name: &str, value: String, style: ratatui::style::Style, palette: &Palette) -> Row {
@@ -190,23 +168,5 @@ fn personal_best(result: &SoloResult, palette: &Palette) -> Row {
             palette,
         ),
         None => doc::blank(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stretch_keeps_the_endpoints_and_interpolates_between_them() {
-        let stretched = stretch(&[10.0, 20.0], 5);
-        assert_eq!(stretched, [10.0, 12.5, 15.0, 17.5, 20.0]);
-    }
-
-    #[test]
-    fn stretch_leaves_long_series_alone() {
-        let values = [1.0, 2.0, 3.0];
-        assert_eq!(stretch(&values, 2), values);
-        assert_eq!(stretch(&[4.0], 10), [4.0]);
     }
 }

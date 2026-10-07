@@ -365,6 +365,16 @@ fn history_shows_records_and_a_chart() {
     for expected in ["5 sessions", "best", "75", "words 50", "┤"] {
         assert!(text.contains(expected), "missing {expected}:\n{text}");
     }
+    assert_eq!(chart_end(&text), Some(117), "two columns short of the edge");
+}
+
+/// The last column the chart of a screen draws in.
+fn chart_end(screen: &str) -> Option<usize> {
+    screen
+        .lines()
+        .filter(|line| line.contains(['┤', '┼']))
+        .filter_map(|line| line.trim_end().chars().count().checked_sub(1))
+        .max()
 }
 
 #[test]
