@@ -26,6 +26,8 @@ const MAX_MESSAGE_ROWS: usize = 4;
 /// than cut to a stub, its padding included.
 const MIN_CONTEXT_WIDTH: usize = 10;
 const CONTEXT_SEPARATOR: &str = " · ";
+/// What the command line starts with while a command is typed.
+const PROMPT: &str = ":";
 
 pub fn sidebar(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     let block = Block::new()
@@ -319,16 +321,20 @@ fn error_color(stats: &Stats, palette: &Palette) -> Color {
 /// Draws the command line; returns the cursor position when typing a command.
 pub fn cmdline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Option<Position> {
     if let Some(prompt) = &app.prompt {
-        let text = format!(":{}", prompt.input.value());
+        let width = usize::from(area.width).saturating_sub(PROMPT.width());
+        let input = format::input_view(&prompt.input, width);
         frame.render_widget(
-            Paragraph::new(Span::styled(text, palette.fg(palette.strong))),
+            Paragraph::new(Span::styled(
+                format!("{PROMPT}{}", input.text),
+                palette.fg(palette.strong),
+            )),
             area,
         );
-        let column = 1 + prompt.input.before_cursor().width();
+        let column = PROMPT.width() + input.cursor;
         return Some(Position {
             x: area.x
                 + u16::try_from(column)
-                    .unwrap_or(0)
+                    .unwrap_or(u16::MAX)
                     .min(area.width.saturating_sub(1)),
             y: area.y,
         });

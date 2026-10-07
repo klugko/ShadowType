@@ -55,6 +55,8 @@ pub fn render(
 
 /// Small builders for markdown and TOML looking lines.
 mod doc {
+    use unicode_width::UnicodeWidthStr;
+
     use super::{Modifier, Palette, Row, Span};
     use crate::ui::chart;
 
@@ -99,6 +101,9 @@ mod doc {
         Row::blank()
     }
 
+    /// What separates the key of an [`assignment`] from its value.
+    const EQUALS: &str = " = ";
+
     /// `key = value`, the key padded to `width` columns. The value is the
     /// last span.
     pub fn assignment(
@@ -108,10 +113,19 @@ mod doc {
         palette: &Palette,
     ) -> Vec<Span<'static>> {
         vec![
-            Span::styled(format!("{key:<width$}"), palette.fg(palette.function)),
-            Span::styled(" = ", palette.fg(palette.punctuation)),
+            Span::styled(padded_key(key, width), palette.fg(palette.function)),
+            Span::styled(EQUALS, palette.fg(palette.punctuation)),
             value,
         ]
+    }
+
+    /// The column the value of an [`assignment`] starts at.
+    pub fn value_column(key: &str, width: usize) -> usize {
+        padded_key(key, width).width() + EQUALS.width()
+    }
+
+    fn padded_key(key: &str, width: usize) -> String {
+        format!("{key:<width$}")
     }
 
     /// What opens and closes a [`string`].

@@ -4,7 +4,7 @@ use code_racer_engine::{Language, TextSource};
 use code_racer_protocol::{
     MAX_ROOM_PLAYERS, Phase, PlayerId, PlayerProgress, PlayerView, RoomView, ServerMessage,
 };
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -660,6 +660,66 @@ fn the_terminal_cursor_follows_the_value_being_typed() {
     assert_eq!(cursor, Position::new(x + 18, y), "after \"FK7\"");
 }
 
+/// Types `text` key by key.
+fn type_keys(app: &mut App, text: &str) {
+    for ch in text.chars() {
+        press(app, KeyCode::Char(ch));
+    }
+}
+
+/// The command line of a terminal.
+fn last_line(terminal: &Terminal<TestBackend>) -> String {
+    text_of(terminal)
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+#[test]
+fn a_command_longer_than_the_line_scrolls_to_keep_the_cursor_in_view() {
+    let mut app = app();
+    press(&mut app, KeyCode::Char(':'));
+    type_keys(
+        &mut app,
+        "e /home/someone/projects/a-rather-long-directory-name/src/some/module/file_name.rs",
+    );
+    let (cursor, terminal) = cursor_of(&app, MIN_WIDTH, MIN_HEIGHT);
+    let line = last_line(&terminal);
+    assert!(line.starts_with(":…"), "the start is cut: {line}");
+    let (x, y) = find(&terminal, "file_name.rs").expect("the end of the command");
+    assert_eq!(cursor, Position::new(x + 12, y), "just after it: {line}");
+
+    press(&mut app, KeyCode::Home);
+    let (cursor, terminal) = cursor_of(&app, MIN_WIDTH, MIN_HEIGHT);
+    let line = last_line(&terminal);
+    assert!(line.starts_with(":e /home/someone"), "{line}");
+    assert_eq!(cursor, Position::new(1, MIN_HEIGHT - 1));
+}
+
+#[test]
+fn a_value_longer_than_its_field_scrolls_to_keep_the_cursor_in_view() {
+    let mut app = app();
+    app.resize(MIN_WIDTH, MIN_HEIGHT);
+    command(&mut app, "config");
+    for _ in 0..2 {
+        press(&mut app, KeyCode::Char('j'));
+    }
+    press(&mut app, KeyCode::Enter);
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        Instant::now(),
+    );
+    let host = "a-very-long-host-name".repeat(4);
+    type_keys(&mut app, &format!("ws://{host}.example.com:8080"));
+    let (cursor, terminal) = cursor_of(&app, MIN_WIDTH, MIN_HEIGHT);
+    let text = text_of(&terminal);
+    let (x, y) = find(&terminal, "example.com:8080\"").expect("the end of the value");
+    assert_eq!(cursor, Position::new(x + 16, y), "just after it:\n{text}");
+    let row = text.lines().nth(usize::from(y)).unwrap_or_default();
+    assert!(row.contains("server   = \"…"), "the start is cut: {row}");
+}
+
 #[tokio::test]
 async fn lobby_lists_players_and_invite_command() {
     let app = in_room(Phase::Lobby);
@@ -906,7 +966,26 @@ async fn preview_screens() {
         "full results",
         &mut in_room_at(results, Instant::now()),
     ));
+    screens.extend(long_input_shots());
     for (name, text) in screens {
         println!("──── {name}\n{text}");
     }
+}
+
+/// A server address and then a command too long for their line, being typed.
+fn long_input_shots() -> Vec<(String, String)> {
+    let mut app = app();
+    command(&mut app, "config");
+    press(&mut app, KeyCode::Char('G'));
+    press(&mut app, KeyCode::Enter);
+    type_keys(
+        &mut app,
+        "/a-very-long-path/to/a/race/server/behind/a/proxy",
+    );
+    let mut screens = shots("long value", &mut app);
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Char(':'));
+    type_keys(&mut app, &format!("e {}", "/a-very-long-path".repeat(6)));
+    screens.extend(shots("long command", &mut app));
+    screens
 }

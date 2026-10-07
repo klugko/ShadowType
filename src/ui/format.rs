@@ -4,6 +4,8 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::app::input::TextInput;
+
 const ELLIPSIS: &str = "…";
 
 /// Completion as a whole percentage. It rounds to the nearest percent but
@@ -41,20 +43,65 @@ pub fn truncate(text: &str, width: usize) -> String {
     if text.width() <= width {
         return text.to_owned();
     }
-    let room = width.saturating_sub(ELLIPSIS.width());
-    let mut kept = String::new();
-    let mut used = 0;
-    for grapheme in text.graphemes(true) {
-        used += grapheme.width();
-        if used > room {
-            break;
-        }
-        kept.push_str(grapheme);
-    }
+    let kept = head(text, width.saturating_sub(ELLIPSIS.width()));
     if width > 0 {
-        kept.push_str(ELLIPSIS);
+        format!("{kept}{ELLIPSIS}")
+    } else {
+        String::new()
     }
-    kept
+}
+
+/// The part of a text field in view, and where its cursor is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputView {
+    pub text: String,
+    /// Column of the cursor in `text`.
+    pub cursor: usize,
+}
+
+/// What `input` shows in `width` columns. It scrolls as little as keeps
+/// the text before the cursor in view with a column left for the cursor,
+/// `…` standing for the start it hides. The end is cut at the edge.
+pub fn input_view(input: &TextInput, width: usize) -> InputView {
+    let before = input.before_cursor();
+    let after = &input.value()[before.len()..];
+    let room = width.saturating_sub(1);
+    let shown_before = if before.width() <= room {
+        before.to_owned()
+    } else {
+        format!(
+            "{ELLIPSIS}{}",
+            tail(before, room.saturating_sub(ELLIPSIS.width()))
+        )
+    };
+    InputView {
+        cursor: shown_before.width(),
+        text: head(&format!("{shown_before}{after}"), width).to_owned(),
+    }
+}
+
+/// The longest start of `text` within `width` columns, whole graphemes only.
+fn head(text: &str, width: usize) -> &str {
+    let mut used = 0;
+    for (index, grapheme) in text.grapheme_indices(true) {
+        used += grapheme.width();
+        if used > width {
+            return &text[..index];
+        }
+    }
+    text
+}
+
+/// The longest end of `text` within `width` columns, whole graphemes only.
+fn tail(text: &str, width: usize) -> &str {
+    let mut used = 0;
+    for (index, grapheme) in text.grapheme_indices(true).rev() {
+        used += grapheme.width();
+        if used > width {
+            return &text[index + grapheme.len()..];
+        }
+    }
+    text
 }
 
 /// `text` in a column of exactly `width` columns, cut short of the last one
@@ -89,6 +136,8 @@ pub fn leading_parts(parts: &[String], separator: &str, width: usize) -> String 
 
 #[cfg(test)]
 mod tests {
+    use crossterm::event::{KeyCode, KeyEvent};
+
     use super::*;
 
     #[test]
@@ -131,6 +180,54 @@ mod tests {
         assert_eq!(truncate("日本語のファイル", 7), "日本語…");
         assert_eq!(truncate("abc", 1), "…");
         assert_eq!(truncate("abc", 0), "");
+    }
+
+    /// A text field holding `before` and `after`, its cursor between them.
+    fn input(before: &str, after: &str) -> TextInput {
+        let mut input = TextInput::new(&format!("{before}{after}"), 200);
+        for _ in after.graphemes(true) {
+            input.handle_key(KeyEvent::from(KeyCode::Left));
+        }
+        input
+    }
+
+    fn view(text: &str, cursor: usize) -> InputView {
+        InputView {
+            text: text.to_owned(),
+            cursor,
+        }
+    }
+
+    #[test]
+    fn a_field_that_fits_shows_whole() {
+        assert_eq!(input_view(&input("join", ""), 10), view("join", 4));
+        assert_eq!(input_view(&input("jo", "in"), 10), view("join", 2));
+        assert_eq!(input_view(&input("", "join FK72AD"), 5), view("join ", 0));
+    }
+
+    #[test]
+    fn a_long_field_scrolls_to_keep_its_cursor_in_view() {
+        assert_eq!(
+            input_view(&input("e src/main.rs", ""), 10),
+            view("…/main.rs", 9),
+            "a column is left for the cursor"
+        );
+        assert_eq!(
+            input_view(&input("e src/main", ".rs"), 10),
+            view("…src/main.", 9),
+            "the end is cut"
+        );
+    }
+
+    #[test]
+    fn a_scrolled_field_never_splits_a_character() {
+        assert_eq!(input_view(&input("a日本語", ""), 6), view("…本語", 5));
+        assert_eq!(input_view(&input("ab日本", ""), 5), view("…本", 3));
+        assert_eq!(input_view(&input("", "日本"), 3), view("日", 0));
+        assert_eq!(
+            input_view(&input("abce\u{301}", ""), 3),
+            view("…e\u{301}", 2)
+        );
     }
 
     #[test]
