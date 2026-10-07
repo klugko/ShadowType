@@ -76,10 +76,7 @@ fn explorer_entry(app: &App, buffer: Buffer, width: u16, palette: &Palette) -> L
     };
     let label = format::column(&format!("   {marker} {name}"), usize::from(width));
     let style = match (selected, app.focus) {
-        (true, Focus::Explorer) => Style::new()
-            .bg(palette.highlight)
-            .fg(palette.strong)
-            .add_modifier(Modifier::BOLD),
+        (true, Focus::Explorer) => palette.selection,
         (true, Focus::Editor) => Style::new().fg(palette.accent).add_modifier(Modifier::BOLD),
         (false, _) => Style::new().fg(file_kind(&name, palette).1),
     };

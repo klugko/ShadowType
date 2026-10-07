@@ -302,21 +302,25 @@ fn typing_screen_shows_insert_mode_and_live_statistics() {
     }
 }
 
-#[test]
-fn typed_text_shows_right_wrong_cursor_and_pending_characters_apart() {
+/// The styles of a character typed right, one typed wrong, the cursor and a
+/// character still to type, in that order on the cursor line, in `theme`.
+fn typing_cells(theme: Theme) -> [Style; 4] {
     let mut app = app();
+    app.config.theme = theme;
     app.resize(MIN_WIDTH, MIN_HEIGHT);
     command(&mut app, "words 10");
     type_prefix(&mut app, 1);
     mistake(&mut app);
     let terminal = drawn(&app, MIN_WIDTH, MIN_HEIGHT, Instant::now());
-    let palette = Palette::of(Theme::Editor);
     let first_row = 1;
     let text = 5;
-    let right = style_at(&terminal, (text, first_row));
-    let wrong = style_at(&terminal, (text + 1, first_row));
-    let cursor = style_at(&terminal, (text + 2, first_row));
-    let pending = style_at(&terminal, (text + 3, first_row));
+    [0, 1, 2, 3].map(|offset| style_at(&terminal, (text + offset, first_row)))
+}
+
+#[test]
+fn typed_text_shows_right_wrong_cursor_and_pending_characters_apart() {
+    let palette = Palette::of(Theme::Editor);
+    let [right, wrong, cursor, pending] = typing_cells(Theme::Editor);
     assert_eq!(right.fg, Some(palette.strong), "typed right");
     assert_eq!(wrong.fg, Some(palette.error), "typed wrong");
     assert!(wrong.add_modifier.contains(Modifier::UNDERLINED));
@@ -325,8 +329,38 @@ fn typed_text_shows_right_wrong_cursor_and_pending_characters_apart() {
         (Some(palette.on_accent), Some(palette.accent)),
         "the cursor"
     );
-    assert_eq!(pending.fg, Some(palette.muted), "still to type");
+    assert_eq!(pending.fg, palette.pending.fg, "still to type");
+    assert_ne!(pending.fg, right.fg);
     assert_eq!(pending.bg, Some(palette.highlight), "on the cursor line");
+}
+
+#[test]
+fn the_mono_theme_shows_typed_text_apart_without_colour() {
+    let cells = typing_cells(Theme::Mono);
+    let [right, wrong, cursor, pending] = cells;
+    for style in cells {
+        for colour in [style.fg, style.bg] {
+            assert!(matches!(colour, None | Some(Color::Reset)), "{style:?}");
+        }
+    }
+    assert!(
+        cursor.add_modifier.contains(Modifier::REVERSED),
+        "{cursor:?}"
+    );
+    assert!(
+        !wrong.add_modifier.contains(Modifier::REVERSED),
+        "a mistake never looks like the cursor: {wrong:?}"
+    );
+    assert!(
+        wrong.add_modifier.contains(Modifier::UNDERLINED),
+        "{wrong:?}"
+    );
+    assert!(pending.add_modifier.contains(Modifier::DIM), "{pending:?}");
+    assert!(
+        !pending.add_modifier.contains(Modifier::BOLD),
+        "no bold, which some terminals let win over dim: {pending:?}"
+    );
+    assert!(!right.add_modifier.contains(Modifier::DIM), "{right:?}");
 }
 
 #[test]
@@ -595,15 +629,65 @@ fn command_line_hints_are_readable_in_every_theme() {
         let hints = 23;
         let (key, _) = find(&terminal, "j/k move").expect("the hints");
         let key_style = style_at(&terminal, (key, hints));
-        let action = style_at(&terminal, (key + 4, hints)).fg.expect("a colour");
+        let action_style = style_at(&terminal, (key + 4, hints));
+        let action = action_style.fg.expect("a colour");
         assert_eq!(key_style.fg, Some(palette.strong), "{theme}");
         assert!(key_style.add_modifier.contains(Modifier::BOLD), "{theme}");
-        assert_ne!(action, palette.faint, "{theme}");
-        assert_ne!(action, palette.muted, "{theme}");
+        assert!(
+            !action_style.add_modifier.contains(Modifier::DIM),
+            "{theme}"
+        );
+        if !palette.mono {
+            assert_ne!(action, palette.faint, "{theme}");
+            assert_ne!(action, palette.muted, "{theme}");
+        }
         if let Some(ratio) = contrast(action, palette.background) {
             assert!(ratio >= 4.5, "{theme}: {ratio:.2}");
         }
     }
+}
+
+#[test]
+fn text_still_to_type_is_readable_on_the_cursor_line() {
+    let palette = Palette::of(Theme::Editor);
+    let pending = palette.pending.fg.expect("a colour");
+    for (place, background) in [
+        ("cursor line", palette.highlight),
+        ("buffer", palette.background),
+    ] {
+        let ratio = contrast(pending, background).expect("true colours");
+        assert!(ratio >= 4.5, "{place}: {ratio:.2}");
+    }
+    let typed = contrast(palette.strong, pending).expect("true colours");
+    assert!(
+        typed >= 2.0,
+        "typed text stands out from the rest: {typed:.2}"
+    );
+}
+
+#[test]
+fn mono_tells_every_typing_state_apart_without_colour() {
+    let palette = Palette::of(Theme::Mono);
+    let styles = [
+        ("cursor", palette.cursor),
+        ("mistake", palette.mistake),
+        ("pending", palette.pending),
+        ("selection", palette.selection),
+    ];
+    for (name, style) in styles {
+        assert_eq!(style.fg, None, "{name} uses no colour");
+        assert_eq!(style.bg, None, "{name} uses no colour");
+    }
+    for (index, (name, style)) in styles.iter().enumerate() {
+        for (other, other_style) in &styles[index + 1..] {
+            assert_ne!(
+                style.add_modifier, other_style.add_modifier,
+                "{name} and {other} look the same"
+            );
+        }
+    }
+    assert!(!palette.mistake.add_modifier.contains(Modifier::REVERSED));
+    assert!(palette.cursor.add_modifier.contains(Modifier::REVERSED));
 }
 
 #[test]
@@ -629,6 +713,26 @@ fn the_dark_theme_draws_on_black_with_visible_selections() {
         Some(Color::Black),
         "no grey that hides ghost text"
     );
+}
+
+#[test]
+fn the_mono_theme_shows_which_side_has_the_focus_without_colour() {
+    let mut app = app();
+    app.config.theme = Theme::Mono;
+    let selected_entry = |app: &App| {
+        let terminal = drawn(app, 120, 30, Instant::now());
+        let entry = find(&terminal, "    practice.toml").expect("the explorer entry");
+        style_at(&terminal, (entry.0 + 4, entry.1))
+    };
+    let in_explorer = selected_entry(&app);
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.focus, crate::app::Focus::Editor);
+    let in_editor = selected_entry(&app);
+    assert!(
+        in_explorer.add_modifier.contains(Modifier::REVERSED),
+        "{in_explorer:?}"
+    );
+    assert_ne!(in_explorer, in_editor);
 }
 
 /// Where the terminal cursor is left once `app` is drawn.

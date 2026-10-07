@@ -1,10 +1,7 @@
 //! The text being typed: ghost text ahead of the cursor, real code behind it.
 
 use code_racer_engine::{Mark, TypingSession};
-use ratatui::{
-    style::{Modifier, Style},
-    text::Span,
-};
+use ratatui::{style::Style, text::Span};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
@@ -52,7 +49,7 @@ pub fn layout(view: &SessionView<'_>, width: u16, palette: &Palette, active: boo
                 push_merged(&mut spans, cell);
             }
             if cursor == Some(target.len()) && index + 1 == lines.len() {
-                spans.push(Span::styled(" ", cursor_style(palette)));
+                spans.push(Span::styled(" ", palette.cursor));
             }
             Row {
                 number: if prose { Some(index + 1) } else { line.number },
@@ -81,14 +78,14 @@ fn cell(
         other => other,
     };
     let style = if is_cursor {
-        cursor_style(palette)
+        palette.cursor
     } else {
         match mark {
-            Mark::Pending => palette.fg(palette.muted),
+            Mark::Pending => palette.pending,
             Mark::Correct => {
                 token.map_or_else(|| palette.fg(palette.strong), |token| palette.syntax(token))
             }
-            Mark::Incorrect => error_style(palette),
+            Mark::Incorrect => palette.mistake,
         }
     };
     (glyph.to_owned(), style)
@@ -98,25 +95,6 @@ fn push_merged(spans: &mut Vec<Span<'static>>, (text, style): (String, Style)) {
     match spans.last_mut() {
         Some(last) if last.style == style => last.content.to_mut().push_str(&text),
         _ => spans.push(Span::styled(text, style)),
-    }
-}
-
-fn cursor_style(palette: &Palette) -> Style {
-    if palette.mono {
-        Style::new().add_modifier(Modifier::REVERSED)
-    } else {
-        Style::new().fg(palette.on_accent).bg(palette.accent)
-    }
-}
-
-fn error_style(palette: &Palette) -> Style {
-    if palette.mono {
-        Style::new().add_modifier(Modifier::REVERSED | Modifier::UNDERLINED)
-    } else {
-        Style::new()
-            .fg(palette.error)
-            .underline_color(palette.error)
-            .add_modifier(Modifier::UNDERLINED)
     }
 }
 
@@ -227,9 +205,6 @@ mod tests {
         let row = &active.rows[0];
         assert_eq!(text_of(row), "ab ");
         let end = row.spans.last().expect("the cursor");
-        assert_eq!(
-            (end.content.as_ref(), end.style),
-            (" ", cursor_style(&palette))
-        );
+        assert_eq!((end.content.as_ref(), end.style), (" ", palette.cursor));
     }
 }

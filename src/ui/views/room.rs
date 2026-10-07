@@ -356,7 +356,7 @@ fn results_footer(client: &RaceClient, room: &RoomView, palette: &Palette) -> [R
         doc::blank(),
         own_result(client, room, palette),
         doc::blank(),
-        doc::keys(&[next, ("Esc", "leave")], palette),
+        doc::keys(&[next, ("Esc Esc", "leave the room")], palette),
     ]
 }
 
