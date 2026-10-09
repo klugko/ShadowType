@@ -10,7 +10,16 @@ use crate::{
     persist::scratch::TempDir,
 };
 
-fn app_saving_to(path: &Path, config: Config, overrides: &Overrides, launch: Launch) -> App {
+fn app_saving_to(path: &Path) -> App {
+    app_saving_with(
+        path,
+        configured("jean"),
+        &Overrides::default(),
+        Launch::Home,
+    )
+}
+
+fn app_saving_with(path: &Path, config: Config, overrides: &Overrides, launch: Launch) -> App {
     App::new(
         config,
         overrides,
@@ -29,7 +38,7 @@ fn reload(path: &Path) -> Config {
 fn the_first_name_is_saved() {
     let dir = TempDir::new();
     let path = dir.join("config.toml");
-    let mut app = app_saving_to(
+    let mut app = app_saving_with(
         &path,
         Config::default(),
         &Overrides::default(),
@@ -45,12 +54,7 @@ fn the_first_name_is_saved() {
 fn commands_save_their_settings() {
     let dir = TempDir::new();
     let path = dir.join("config.toml");
-    let mut app = app_saving_to(
-        &path,
-        configured("jean"),
-        &Overrides::default(),
-        Launch::Home,
-    );
+    let mut app = app_saving_to(&path);
     for line in [
         "set theme=mono",
         "set punctuation",
@@ -85,12 +89,7 @@ fn commands_save_their_settings() {
 fn forms_save_their_settings_for_the_next_run() {
     let dir = TempDir::new();
     let path = dir.join("config.toml");
-    let mut app = app_saving_to(
-        &path,
-        configured("jean"),
-        &Overrides::default(),
-        Launch::Home,
-    );
+    let mut app = app_saving_to(&path);
     press(&mut app, KeyCode::Enter);
     press(&mut app, KeyCode::Char('l'));
     command(&mut app, "config");
@@ -123,7 +122,7 @@ fn flags_of_this_run_are_saved_only_once_changed_in_the_app() {
         },
         file: None,
     };
-    let mut app = app_saving_to(&path, configured("jean"), &overrides, launch);
+    let mut app = app_saving_with(&path, configured("jean"), &overrides, launch);
     assert_eq!(app.config.theme, Theme::Mono);
     assert_eq!(app.config.practice.mode, Mode::Code);
     press(&mut app, KeyCode::Esc);
@@ -152,7 +151,7 @@ fn a_flag_chosen_again_in_the_app_is_saved() {
         },
         file: None,
     };
-    let mut app = app_saving_to(&path, configured("jean"), &overrides, launch);
+    let mut app = app_saving_with(&path, configured("jean"), &overrides, launch);
     press(&mut app, KeyCode::Esc);
     command(&mut app, "set theme=mono");
     assert_eq!(reload(&path).theme, Theme::Mono);
@@ -165,12 +164,7 @@ fn a_flag_chosen_again_in_the_app_is_saved() {
 fn the_server_line_of_race_toml_is_edited_in_place() {
     let dir = TempDir::new();
     let path = dir.join("config.toml");
-    let mut app = app_saving_to(
-        &path,
-        configured("jean"),
-        &Overrides::default(),
-        Launch::Home,
-    );
+    let mut app = app_saving_to(&path);
     command(&mut app, "race");
     press(&mut app, KeyCode::Char('G'));
     press(&mut app, KeyCode::Enter);
@@ -186,12 +180,7 @@ fn the_server_line_of_race_toml_is_edited_in_place() {
 fn lines_without_a_value_save_nothing() {
     let dir = TempDir::new();
     let path = dir.join("config.toml");
-    let mut app = app_saving_to(
-        &path,
-        configured("jean"),
-        &Overrides::default(),
-        Launch::Home,
-    );
+    let mut app = app_saving_to(&path);
     press(&mut app, KeyCode::Enter);
     press(&mut app, KeyCode::Char('G'));
     press(&mut app, KeyCode::Char('l'));
@@ -206,12 +195,7 @@ fn lines_without_a_value_save_nothing() {
 fn settings_edited_by_hand_while_running_are_kept() {
     let dir = TempDir::new();
     let path = dir.join("config.toml");
-    let mut app = app_saving_to(
-        &path,
-        configured("jean"),
-        &Overrides::default(),
-        Launch::Home,
-    );
+    let mut app = app_saving_to(&path);
     std::fs::write(
         &path,
         "username = \"jean\"\ntheme = \"dark\"\n[multiplayer]\nserver = \"ws://10.0.0.5:8080\"\n",
