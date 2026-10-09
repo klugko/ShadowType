@@ -4,9 +4,9 @@ mod input;
 
 use std::time::{Duration, Instant};
 
-pub use self::grading::{grapheme_count, graphemes};
-use self::history::History;
 use crate::stats::{Sample, Stats, Tally, completion};
+pub use grading::{grapheme_count, graphemes};
+use history::History;
 
 /**
  * Longest run of characters, counted from the first uncorrected mistake and

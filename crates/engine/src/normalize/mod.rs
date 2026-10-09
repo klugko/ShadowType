@@ -3,8 +3,8 @@ mod keyboard;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
-pub(crate) use self::keyboard::keyboard_form;
-use self::keyboard::{KeyboardForm, has_no_key};
+pub(crate) use keyboard::keyboard_form;
+use keyboard::{KeyboardForm, has_no_key};
 
 const TAB_WIDTH: usize = 4;
 
