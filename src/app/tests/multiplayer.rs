@@ -49,6 +49,20 @@ async fn pump_until(app: &mut App, done: impl Fn(&App) -> bool) {
     assert!(waited.is_ok(), "timed out, message: {:?}", app.message());
 }
 
+async fn pump_until_closed(app: &mut App) {
+    let waited = timeout(WAIT, async {
+        while let Some(connection) = app.connection_mut() {
+            let event = connection
+                .next_event()
+                .await
+                .expect("an explicit close event");
+            app.handle_network(event, Instant::now());
+        }
+    })
+    .await;
+    assert!(waited.is_ok());
+}
+
 fn phase(app: &App) -> Option<Phase> {
     app.race()?.room.as_ref().map(|room| room.phase)
 }
@@ -173,14 +187,7 @@ async fn joining_an_unknown_room_reports_the_error() {
     let (url, stop) = server().await;
     let mut app = player("carol", &url);
     command(&mut app, "join ABCDEF");
-    let waited = timeout(WAIT, async {
-        while let Some(connection) = app.connection_mut() {
-            let event = connection.next_event().await.expect("event");
-            app.handle_network(event, Instant::now());
-        }
-    })
-    .await;
-    assert!(waited.is_ok());
+    pump_until_closed(&mut app).await;
     assert!(
         app.message()
             .is_some_and(|message| message.is_error() && message.text.contains("ABCDEF"))
@@ -199,17 +206,7 @@ async fn a_secure_address_without_tls_is_reported_without_crashing() {
     });
     let mut app = player("erin", &format!("wss://{address}"));
     command(&mut app, "create");
-    let waited = timeout(WAIT, async {
-        while let Some(connection) = app.connection_mut() {
-            let event = connection
-                .next_event()
-                .await
-                .expect("an explicit close event");
-            app.handle_network(event, Instant::now());
-        }
-    })
-    .await;
-    assert!(waited.is_ok());
+    pump_until_closed(&mut app).await;
     assert!(app.message().is_some_and(Message::is_error));
 }
 
@@ -220,14 +217,7 @@ async fn an_unreachable_server_is_reported() {
     drop(listener);
     let mut app = player("dave", &format!("ws://{address}"));
     command(&mut app, "create");
-    let waited = timeout(WAIT, async {
-        while let Some(connection) = app.connection_mut() {
-            let event = connection.next_event().await.expect("event");
-            app.handle_network(event, Instant::now());
-        }
-    })
-    .await;
-    assert!(waited.is_ok());
+    pump_until_closed(&mut app).await;
     assert!(app.activity.is_none());
     assert!(app.message().is_some_and(Message::is_error));
 }
