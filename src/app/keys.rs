@@ -112,13 +112,6 @@ impl App {
         }
     }
 
-    fn toggle_focus(&mut self) {
-        match self.focus {
-            Focus::Explorer => self.focus_editor(),
-            Focus::Editor => self.focus_explorer(),
-        }
-    }
-
     fn explorer_key(&mut self, key: KeyEvent) -> bool {
         let entries = self.entries();
         let index = entries
