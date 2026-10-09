@@ -24,12 +24,10 @@ impl Figure {
     ];
 }
 
-/// What a line of `history.log` shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Line {
     Title,
     Blank,
-    /// The hint of a history without sessions.
     NoSessions,
     /// How many sessions there are, and the time spent on them.
     Totals,
@@ -46,8 +44,8 @@ pub enum Line {
     Session(usize),
 }
 
-/// The lines of the buffer for a history of `sessions` sessions. The chart
-/// needs two sessions to draw a line.
+/// The lines of the buffer for `sessions` sessions; the chart needs two of
+/// them to draw a line.
 pub fn lines(sessions: usize) -> Vec<Line> {
     if sessions == 0 {
         return vec![Line::Title, Line::Blank, Line::NoSessions];

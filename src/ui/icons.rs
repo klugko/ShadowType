@@ -1,8 +1,6 @@
-//! File icons, as a code editor's file icon theme puts them in front of file
-//! names: a glyph and a colour for each kind of file.
-//!
-//! The `unicode` set uses symbols every terminal font has, the `nerd` set
-//! the icons of a Nerd Font. The colours are those of VS Code's Seti icons.
+//! File icons, as a code editor's icon theme puts them in front of file names.
+//! The `unicode` set uses symbols every terminal font has, the `nerd` set the
+//! icons of a Nerd Font; the colours are those of VS Code's Seti icons.
 
 use code_racer_engine::CodeLanguage;
 use ratatui::style::Color;

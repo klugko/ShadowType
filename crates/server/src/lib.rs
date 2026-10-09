@@ -133,7 +133,6 @@ impl Admission {
     }
 }
 
-/// Lets connections finish their goodbyes, then cuts the ones still open.
 async fn close_all(mut connections: JoinSet<()>) {
     let drained = time::timeout(SHUTDOWN_GRACE, async {
         while connections.join_next().await.is_some() {}

@@ -39,7 +39,6 @@ pub struct Moment {
 }
 
 impl Moment {
-    /// A frame at `now` where nothing moves.
     #[cfg(test)]
     pub fn still(now: Instant) -> Self {
         Self {

@@ -50,7 +50,7 @@ pub(crate) enum KeyboardForm {
     Char(char),
     /// An ASCII spelling of a symbol, such as `->` for `→`.
     Spelled(&'static str),
-    /// Nothing: the character displays as nothing.
+    /// The character displays as nothing.
     Nothing,
 }
 
@@ -125,8 +125,6 @@ fn plain_equivalent(ch: char) -> Option<char> {
     Some(plain)
 }
 
-/// The ASCII stroke that draws a box-drawing character: `-` for horizontal
-/// lines, `|` for vertical ones and `+` for corners and junctions.
 fn box_drawing_stroke(ch: char) -> char {
     match ch {
         '─' | '━' | '┄' | '┅' | '┈' | '┉' | '═' | '╌' | '╍' | '╴' | '╶' | '╸' | '╺' | '╼' | '╾' => {

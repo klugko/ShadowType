@@ -413,7 +413,6 @@ async fn send_next(
     }
 }
 
-/// Sends `frame`, giving up after `limit`.
 async fn send_frame(
     socket: &mut Socket,
     frame: Message,

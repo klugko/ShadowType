@@ -47,7 +47,6 @@ const OUTBOX_CAPACITY: usize = 256;
 const RATE_LIMIT: usize = 40;
 const RATE_WINDOW: Duration = Duration::from_secs(1);
 
-/// Serves one player from the WebSocket handshake to the end of the connection.
 pub async fn serve_player(stream: TcpStream, id: PlayerId, hub: mpsc::Sender<Command>) {
     let Some(mut socket) = accept(stream).await else {
         return;
@@ -87,7 +86,6 @@ async fn accept(stream: TcpStream) -> Option<Socket> {
     }
 }
 
-/// Waits for the client's `Hello` and checks that both sides speak the same protocol.
 async fn greet<S>(socket: &mut WebSocketStream<S>) -> Result<Username, ServerError>
 where
     S: AsyncRead + AsyncWrite + Unpin,

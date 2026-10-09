@@ -8,7 +8,6 @@ use crate::{
     config::{Mode, Practice},
 };
 
-/// One setting of the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextSetting {
     Mode,

@@ -26,7 +26,6 @@ use crate::{config::ServerConfig, room::Room};
 /// How often rooms advance and coalesced progress is broadcast (20 Hz).
 const TICK_INTERVAL: Duration = Duration::from_millis(50);
 
-/// What connections tell the hub.
 #[derive(Debug)]
 pub enum Command {
     /// A player completed the handshake. Messages for them go to `outbox`.
@@ -93,7 +92,6 @@ impl Hub {
         self.drop_stuck_players(now);
     }
 
-    /// Advances every room, broadcasts the rooms that changed and closes idle ones.
     pub fn tick(&mut self, now: Instant) {
         let race_timeout = self.config.race_timeout;
         for (code, room) in &mut self.rooms {

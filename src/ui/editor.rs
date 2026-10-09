@@ -13,7 +13,6 @@ use crate::{
     ui::{hits, theme::Palette},
 };
 
-/// One row of a buffer.
 #[derive(Debug, Clone, Default)]
 pub struct Row {
     /// Line number shown in the gutter, `None` for wrapped continuations.

@@ -1,23 +1,18 @@
 //! The text being typed: ghost text ahead of the cursor, real text behind it.
-//!
-//! Code shows its syntax from the start: the text still to type in the
-//! colours of its syntax dimmed, and lighting up as it is typed, its
-//! brackets coloured by depth and its indentation marked by guides. Prose is
-//! dressed as the kind of file its look makes it. Freshly typed characters
-//! glow for a moment before they dry, and the cursor breathes while the
-//! player pauses.
+//! Code shows its syntax from the start, dimmed until typed; prose is dressed
+//! as the kind of file its look makes it.
 
 use std::{f64::consts::TAU, time::Duration};
 
-use code_racer_engine::{Mark, Status};
+use code_racer_engine::{CodeLanguage, Mark, Status};
 use ratatui::{
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::Span,
 };
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    app::{SessionView, ink::DRYING_TIME},
+    app::{Disguise, SessionView, ink::DRYING_TIME},
     ui::{
         Moment,
         editor::Row,
@@ -30,26 +25,20 @@ use crate::{
 
 /// How long the cursor stays still after a key before it starts breathing.
 const BREATHE_AFTER: Duration = Duration::from_millis(600);
-/// How long one breath of the cursor takes.
 const BREATH: Duration = Duration::from_millis(1_400);
 /// How far the cursor fades into the line at the bottom of a breath.
 const BREATH_DEPTH: f64 = 0.75;
 /// How much of the cursor's colour its trail takes at its brightest.
 const TRAIL_STRENGTH: f64 = 0.65;
-/// What marks the levels of indentation of code.
 const INDENT_GUIDE: &str = "│";
-/// Indentation assumed for code without any.
 const DEFAULT_INDENT: usize = 4;
 
-/// Rows of the session text and the position of the typing cursor.
 #[derive(Debug)]
 pub struct TypingLayout {
     pub rows: Vec<Row>,
     pub cursor_row: usize,
 }
 
-/// Lays out the session text in `width` columns, as it looks at `moment`.
-///
 /// Prose is numbered row by row like a soft-wrapped file, with the lines its
 /// look puts around it; code keeps its own line numbers. The cursor block is
 /// drawn only while `active`.
@@ -60,86 +49,48 @@ pub fn layout(
     active: bool,
     moment: Moment,
 ) -> TypingLayout {
-    let session = view.session;
-    let target = session.target();
+    let target = view.session.target();
     let prose = !target.iter().any(|grapheme| grapheme == "\n");
     let disguise = view.disguise.filter(|_| view.syntax.is_none());
     let prefix = disguise.map_or(0, looks::prefix_width);
     let lines = wrap::wrap(target, width.saturating_sub(prefix).max(1));
-    let code = view.syntax.map(|language| {
-        let tokens = syntax::highlight(target, language);
-        let depths = bracket_depths(target, &tokens);
-        (tokens, depths)
-    });
-    let guides = (!prose).then(|| indent_unit(target, &lines));
     let painter = Painter {
         view,
         palette,
         moment,
-        cursor: active.then(|| session.cursor()),
+        disguise,
+        cursor: active.then(|| view.session.cursor()),
         cursor_style: cursor_style(view, palette, moment),
+        syntax: view.syntax.map(|language| Syntax::of(target, language)),
+        indent: (!prose).then(|| indent_unit(target, &lines)),
     };
-    let (cursor_line, _) = wrap::locate(target, &lines, session.cursor());
-    let background = |current: bool| {
-        let line = palette.cursorline.bg.filter(|_| current);
-        line.unwrap_or(palette.background)
-    };
+    let (cursor_line, _) = wrap::locate(target, &lines, view.session.cursor());
     let mut rows = disguise.map_or_else(Vec::new, |disguise| looks::header(disguise, palette));
     let cursor_row = rows.len() + cursor_line;
     for (index, line) in lines.iter().enumerate() {
-        let state = row_state(view, index, line);
-        let mut spans = disguise.map_or_else(Vec::new, |disguise| {
-            looks::prefix(disguise, state, palette, moment)
-        });
-        let guide_until = guides.map_or(0, |_| leading_spaces(target, line));
-        for position in line.start..line.end {
-            let syntax = code
-                .as_ref()
-                .map(|(tokens, depths)| (tokens[position], depths[position]));
-            let guide = guides.is_some_and(|unit| {
-                let column = position - line.start;
-                position < line.start + guide_until && column % unit == 0
-            });
-            let (glyph, style) = painter.cell(position, syntax, guide);
-            let mut style = painter.trailing(position, style, background(index == cursor_line));
-            if let Some(disguise) = disguise
-                && painter.cursor != Some(position)
-            {
-                style = looks::restyle(disguise, state, style, palette);
-            }
-            push_merged(&mut spans, (glyph, style));
-        }
-        if painter.cursor == Some(target.len()) && index + 1 == lines.len() {
-            spans.push(Span::styled(" ", painter.cursor_style));
-        }
-        rows.push(Row {
-            number: if prose { None } else { line.number },
-            current: index == cursor_line,
-            ..Row::new(spans)
-        });
+        let last = index + 1 == lines.len();
+        rows.push(painter.row(index, line, index == cursor_line, last));
     }
     if let Some(source) = view.attribution {
         rows.push(Row::blank());
         rows.push(Row::new(vec![Span::styled(
             format!("-- {source}"),
-            palette
-                .fg(palette.comment)
-                .add_modifier(ratatui::style::Modifier::ITALIC),
+            palette.fg(palette.comment).add_modifier(Modifier::ITALIC),
         )]));
     }
     if let Some(disguise) = disguise {
         rows.extend(looks::footer(disguise, palette));
     }
     if prose {
-        for (index, row) in rows.iter_mut().enumerate() {
-            row.number = Some(index + 1);
+        for (number, row) in (1..).zip(&mut rows) {
+            row.number = Some(number);
         }
     }
     TypingLayout { rows, cursor_row }
 }
 
-/// Whether the text of `view` moves at `moment`: fresh ink drying, a row
-/// of its look glowing, or the cursor breathing.
+/// Whether the text of `view` moves at `moment`: fresh ink drying, the
+/// cursor trailing, or a running text, whose cursor breathes.
 pub fn is_moving(view: &SessionView<'_>, moment: Moment) -> bool {
     let Some(ink) = view.ink.filter(|_| moment.animate) else {
         return false;
@@ -149,8 +100,6 @@ pub fn is_moving(view: &SessionView<'_>, moment: Moment) -> bool {
         || view.session.status() == Status::Running
 }
 
-/// What the look of the text needs to know about the row `line`, the
-/// `index`th of the text.
 fn row_state(view: &SessionView<'_>, index: usize, line: &VisualLine) -> RowState {
     let session = view.session;
     let done = line.end > line.start
@@ -167,25 +116,71 @@ fn row_state(view: &SessionView<'_>, index: usize, line: &VisualLine) -> RowStat
     }
 }
 
-/// What every cell of a text is drawn with.
+/// The syntax class and bracket depth of every character of code.
+struct Syntax {
+    tokens: Vec<Token>,
+    depths: Vec<Option<usize>>,
+}
+
+impl Syntax {
+    fn of(target: &[String], language: CodeLanguage) -> Self {
+        let tokens = syntax::highlight(target, language);
+        let depths = bracket_depths(target, &tokens);
+        Self { tokens, depths }
+    }
+}
+
 struct Painter<'a> {
     view: &'a SessionView<'a>,
     palette: &'a Palette,
     moment: Moment,
+    disguise: Option<Disguise<'a>>,
     cursor: Option<usize>,
     cursor_style: Style,
+    syntax: Option<Syntax>,
+    /// The width of a level of indentation, in code, which shows guides.
+    indent: Option<usize>,
 }
 
 impl Painter<'_> {
-    /// The glyph and style of the character at `index`, with its syntax
-    /// class and bracket depth in code, drawn as an indentation guide when
-    /// `guide` and blank.
-    fn cell(
-        &self,
-        index: usize,
-        syntax: Option<(Token, Option<usize>)>,
-        guide: bool,
-    ) -> (String, Style) {
+    /// The row of the text `line`, its `index`th, under the cursor when
+    /// `current`, the end of the text when `last`.
+    fn row(&self, index: usize, line: &VisualLine, current: bool, last: bool) -> Row {
+        let target = self.view.session.target();
+        let state = row_state(self.view, index, line);
+        let mut spans = self.disguise.map_or_else(Vec::new, |disguise| {
+            looks::prefix(disguise, state, self.palette, self.moment)
+        });
+        let background = match self.palette.cursorline.bg {
+            Some(cursorline) if current => cursorline,
+            _ => self.palette.background,
+        };
+        let indentation = line.start + leading_spaces(target, line);
+        for position in line.start..line.end {
+            let guide = self.indent.is_some_and(|unit| {
+                position < indentation && (position - line.start).is_multiple_of(unit)
+            });
+            let (glyph, style) = self.cell(position, guide);
+            let mut style = self.trailing(position, style, background);
+            if let Some(disguise) = self.disguise
+                && self.cursor != Some(position)
+            {
+                style = looks::restyle(disguise, state, style, self.palette);
+            }
+            push_merged(&mut spans, (glyph, style));
+        }
+        if last && self.cursor == Some(target.len()) {
+            spans.push(Span::styled(" ", self.cursor_style));
+        }
+        Row {
+            number: line.number,
+            current,
+            ..Row::new(spans)
+        }
+    }
+
+    /// A blank is drawn as an indentation guide when `guide`.
+    fn cell(&self, index: usize, guide: bool) -> (String, Style) {
         let session = self.view.session;
         let palette = self.palette;
         let grapheme = session.target()[index].as_str();
@@ -202,8 +197,8 @@ impl Painter<'_> {
         if is_cursor {
             return (glyph.to_owned(), self.cursor_style);
         }
-        let token = syntax.map(|(token, _)| token);
-        let depth = syntax.and_then(|(_, depth)| depth);
+        let token = self.syntax.as_ref().map(|syntax| syntax.tokens[index]);
+        let depth = self.syntax.as_ref().and_then(|syntax| syntax.depths[index]);
         let style = match mark {
             _ if glyph == INDENT_GUIDE => guide_style(palette),
             Mark::Pending => match depth {
@@ -226,8 +221,8 @@ impl Painter<'_> {
         (glyph.to_owned(), style)
     }
 
-    /// How much of the cursor's trail lies on the character at `index`,
-    /// when trails are drawn.
+    /// How much of the cursor's trail lies on the character at `index`, 0
+    /// when no trail is drawn.
     fn trail_at(&self, index: usize) -> f64 {
         match self.view.ink {
             Some(ink) if self.moment.trail && self.palette.blends() => {
@@ -346,8 +341,7 @@ fn indent_unit(target: &[String], lines: &[VisualLine]) -> usize {
         .unwrap_or(DEFAULT_INDENT)
 }
 
-/// The spaces a line of code starts with, zero for the rows that continue
-/// a wrapped line.
+/// Zero for the rows that continue a wrapped line.
 fn leading_spaces(target: &[String], line: &VisualLine) -> usize {
     if line.number.is_none() {
         return 0;
@@ -493,7 +487,6 @@ mod tests {
         assert_eq!((end.content.as_ref(), end.style), (" ", palette.cursor));
     }
 
-    /// The style of the grapheme at `column` of the first row of `layout`.
     fn style_at(layout: &TypingLayout, row: usize, column: usize) -> Style {
         let mut start = 0;
         for span in &layout.rows[row].spans {

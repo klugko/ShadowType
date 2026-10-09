@@ -1,6 +1,4 @@
-//! The mascot: a little pixel-art ghost that lives under the explorer. It
-//! floats about, types along, startles at mistakes, rejoices at the end of
-//! a text and naps when nothing happens.
+//! The mascot: a pixel-art ghost under the explorer that reacts to the typing.
 //!
 //! It is drawn with half blocks, two pixels to a cell: `▀` takes the colour
 //! of its upper pixel as foreground and of its lower pixel as background.
@@ -66,7 +64,6 @@ enum Eyes {
     Wide,
 }
 
-/// One pose of the ghost, from its mood at some age.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Pose {
     /// How far above its lowest point it floats, in pixels.
@@ -132,7 +129,6 @@ impl Pose {
         }
     }
 
-    /// The pixels of the ghost in this pose.
     fn canvas(self) -> [[Option<Pixel>; CANVAS_WIDTH]; CANVAS_HEIGHT] {
         let mut canvas = [[None; CANVAS_WIDTH]; CANVAS_HEIGHT];
         let top = 2 - self.lift.min(2);
@@ -191,8 +187,6 @@ impl Pose {
     }
 }
 
-/// Draws the mascot feeling `mood` at `age` in `area`. Without animations
-/// it holds its first pose.
 pub fn render(frame: &mut Frame, area: Rect, mood: Mood, age: Duration, palette: &Palette) {
     let pose = Pose::of(mood, age);
     let canvas = pose.canvas();
@@ -218,8 +212,8 @@ pub fn render(frame: &mut Frame, area: Rect, mood: Mood, age: Duration, palette:
     frame.render_widget(Paragraph::new(lines).style(panel(palette)), area);
 }
 
-/// Sparkles, sighs and snores around the ghost: column after the canvas,
-/// row, text and colour.
+/// Sparkles and snores around the ghost: column after the canvas, row, text
+/// and colour.
 fn decorations(
     mood: Mood,
     age: Duration,
@@ -271,7 +265,6 @@ fn panel(palette: &Palette) -> Style {
     Style::new().bg(palette.panel)
 }
 
-/// The cell for an upper and a lower pixel.
 fn half_block(top: Option<Pixel>, bottom: Option<Pixel>, palette: &Palette) -> Span<'static> {
     let top = top.and_then(|pixel| color(pixel, palette));
     let bottom = bottom.and_then(|pixel| color(pixel, palette));
@@ -310,7 +303,7 @@ fn color(pixel: Pixel, palette: &Palette) -> Option<Color> {
     })
 }
 
-/// The mascot drawn as text, one character per pixel pair, for tests.
+/// The mascot drawn as text, one character per pixel pair.
 #[cfg(test)]
 fn sketch(mood: Mood, age: Duration) -> Vec<String> {
     let palette = Palette::of(crate::config::Theme::Mono);

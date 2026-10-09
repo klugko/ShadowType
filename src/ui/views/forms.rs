@@ -33,7 +33,6 @@ enum Item<'a> {
     Field {
         row: form::Row,
         selected: bool,
-        /// What is being typed in the line, while it is.
         editing: Option<&'a TextInput>,
     },
 }
@@ -106,8 +105,8 @@ pub fn settings(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> 
     draw(frame, area, items, palette)
 }
 
-/// Draws the form lines; returns where the terminal cursor goes when a
-/// value is being typed and shows.
+/// Returns where the terminal cursor goes while a value is being typed and
+/// in view.
 fn draw(
     frame: &mut Frame,
     area: Rect,
@@ -160,7 +159,6 @@ fn draw(
     })
 }
 
-/// The columns of a form.
 #[derive(Debug, Clone, Copy)]
 struct Columns {
     /// Width the keys are padded to.
@@ -172,7 +170,6 @@ struct Columns {
 }
 
 impl Columns {
-    /// The columns of the form of `items`, in an area `area_width` wide.
     fn of(items: &[Item<'_>], area_width: u16, palette: &Palette) -> Self {
         let rows = items.iter().filter_map(|item| match item {
             Item::Field { row, .. } if !matches!(row.value, Value::Action(_)) => Some(row),

@@ -51,7 +51,6 @@ impl Tally {
     }
 }
 
-/// A snapshot of how a session is going.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Stats {
     /// Correctly typed characters per minute, divided by five; see [`Tally::wpm`].
@@ -66,9 +65,8 @@ pub struct Stats {
     pub correct_chars: usize,
     /// Characters of the text currently typed incorrectly.
     pub incorrect_chars: usize,
-    /// Keys pressed so far, corrected mistakes included; see
-    /// [`Tally::keystrokes`]. Auto-filled indentation is not typed, so it
-    /// does not count.
+    /// Keys pressed so far, corrected mistakes included and auto-filled
+    /// indentation left out.
     pub keystrokes: usize,
     /// Characters of `correct_chars` that auto-indentation filled in.
     pub indentation: usize,
@@ -79,7 +77,6 @@ pub struct Stats {
 }
 
 impl Stats {
-    /// Derives the figures of a session from its counters after `elapsed`.
     pub fn new(tally: Tally, elapsed: Duration, progress: f64) -> Self {
         Self {
             wpm: tally.wpm(elapsed),
@@ -110,7 +107,7 @@ pub struct Sample {
     pub errors: u32,
 }
 
-/// Converts a number of characters typed in `elapsed` into words per minute.
+/// Words of [`CHARS_PER_WORD`] characters per minute, 0 when no time has elapsed.
 pub fn words_per_minute(chars: usize, elapsed: Duration) -> f64 {
     let minutes = elapsed.as_secs_f64() / 60.0;
     if minutes <= 0.0 {
@@ -120,11 +117,9 @@ pub fn words_per_minute(chars: usize, elapsed: Duration) -> f64 {
     }
 }
 
-/// How far a player is through a text of `length` characters, between 0
-/// and 1: the share of it currently typed correctly, auto-filled
-/// indentation included. Solo sessions and race standings both use it.
-/// It reaches 1 only once the whole text is correct, as correct characters
-/// never outnumber the characters of the text.
+/// Share of a text of `length` characters currently typed correctly,
+/// auto-filled indentation included, between 0 and 1. Solo sessions and race
+/// standings both use it, and it reaches 1 only once the whole text is correct.
 pub fn completion(correct: usize, length: usize) -> f64 {
     if length == 0 {
         0.0

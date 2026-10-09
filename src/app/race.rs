@@ -47,7 +47,7 @@ pub enum Field {
     Join,
     Text(TextSetting),
     Create,
-    /// The address of the race server, the one of `config.toml`.
+    /// The race server address, the same setting as in `config.toml`.
     Server,
 }
 
@@ -185,9 +185,9 @@ struct SharedServer {
 
 impl SharedServer {
     /// How teammates reach `server`. An address only this computer reaches,
-    /// such as `ws://127.0.0.1:8080`, would send them to their own computer:
-    /// this computer's address on the local network, found by
-    /// `lan_address`, or a placeholder for it takes its place.
+    /// such as `ws://127.0.0.1:8080`, would send them to their own computer,
+    /// so this computer's LAN address from `lan_address`, or a placeholder
+    /// for it, takes its place.
     fn of(server: &str, lan_address: impl FnOnce() -> Option<IpAddr>) -> Self {
         if !network::is_local_only(server) {
             return Self {
@@ -223,7 +223,6 @@ pub struct RaceClient {
     /// be decided: a held key would otherwise flood the server, and
     /// toggling twice would ask for the same state twice.
     awaiting_answer: bool,
-    /// The last room request pressed, and when.
     last_press: Option<(RoomRequest, Instant)>,
 }
 
@@ -292,7 +291,6 @@ impl RaceClient {
         self.is_live() || self.phase() == Some(Phase::Finished)
     }
 
-    /// Whether the race text takes what the player types.
     pub fn accepts_typing(&self) -> bool {
         self.phase() == Some(Phase::Racing)
             && self

@@ -1,8 +1,6 @@
-//! Application state and behaviour, independent of rendering.
-//!
-//! The screen is organised like a code editor: an explorer lists the
-//! available buffers (practice settings, races, history, settings, help and
-//! the running session) and the editor pane shows the selected one.
+//! Application state and behaviour, independent of rendering. The screen is
+//! organised like a code editor: an explorer lists the buffers and the editor
+//! pane shows the selected one.
 
 mod actions;
 mod changes;
@@ -58,7 +56,7 @@ use text_event::TextEvent;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Overrides {
     pub theme: Option<Theme>,
-    /// A server address, already normalised by `network::server_url`.
+    /// Already normalised by `network::server_url`.
     pub server: Option<String>,
 }
 
@@ -127,12 +125,10 @@ impl Viewport {
     /// give its columns to the buffer, whose lines would be cut otherwise.
     const EXPLORER_MIN_WIDTH: u16 = 100;
 
-    /// Lines of a buffer the editor pane shows at once.
     pub fn editor_rows(self) -> usize {
         usize::from(self.height.saturating_sub(Self::CHROME_ROWS))
     }
 
-    /// Whether the explorer fits next to whole buffer lines.
     fn has_room_for_explorer(self) -> bool {
         self.width >= Self::EXPLORER_MIN_WIDTH
     }
@@ -210,7 +206,7 @@ pub enum Activity {
 }
 
 impl Activity {
-    /// Hands `event` to the text being typed; returns whether it took the key.
+    /// Returns whether the text being typed took the key.
     fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
         match self {
             Self::Solo(run) => run.text_event(event, now),
@@ -287,7 +283,6 @@ pub struct App {
     pub help_scroll: usize,
     pub editing: Option<FieldEdit>,
     pub prompt: Option<Prompt>,
-    /// The command palette, while it is open.
     pub palette: Option<CommandPalette>,
     messages: Messages,
     pub activity: Option<Activity>,
@@ -307,7 +302,6 @@ pub struct App {
     leave_armed: Option<Instant>,
     /// The look drawn for the session when the settings shuffle looks.
     shuffled: Look,
-    /// When the app started.
     born: Instant,
     /// When the player last pressed a key, pasted or clicked.
     last_input: Option<Instant>,
@@ -378,7 +372,6 @@ impl App {
         self.messages.first()
     }
 
-    /// Where the settings are saved, if they are.
     pub fn config_path(&self) -> Option<&std::path::Path> {
         self.saved.path()
     }
@@ -560,7 +553,6 @@ impl App {
         self.sidebar = self.resting_sidebar();
     }
 
-    /// Focuses the explorer if it is shown, the editor otherwise.
     fn focus_explorer_if_shown(&mut self) {
         self.focus = if self.sidebar {
             Focus::Explorer
@@ -623,7 +615,6 @@ impl App {
     }
 }
 
-/// The name of the current directory, `workspace` when it has none.
 fn workspace_name() -> String {
     std::env::current_dir()
         .ok()

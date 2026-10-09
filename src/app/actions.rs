@@ -164,8 +164,8 @@ impl App {
         true
     }
 
-    /// Asks the room for `request`, pressed at `now`, telling why when it
-    /// cannot be made.
+    /// Asks the room for `request`, telling the player why when it cannot be
+    /// made.
     pub(super) fn request_room(&mut self, request: RoomRequest, now: Instant) {
         let Some(Activity::Race(client)) = &mut self.activity else {
             return;

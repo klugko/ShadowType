@@ -84,7 +84,6 @@ impl App {
         }
     }
 
-    /// Whether keys are still ignored after typing stopped by itself.
     pub(super) fn is_quiet(&self, now: Instant) -> bool {
         self.quiet_until.is_some_and(|until| now < until)
     }

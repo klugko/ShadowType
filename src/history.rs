@@ -1,9 +1,6 @@
-//! Results of finished sessions, stored in `history.json`.
-//!
-//! The file is a JSON array of records, oldest first. Files written by
-//! code-racer 0.1 are understood and migrated on the next save. Several
-//! running instances can share the file: each result is appended to what the
-//! file holds at that moment, not to what it held at start-up.
+//! Results of finished sessions, stored in `history.json` as a JSON array of
+//! records, oldest first. Files written by code-racer 0.1 are understood and
+//! migrated on the next save.
 
 use std::{
     collections::BTreeSet,

@@ -1,14 +1,13 @@
 //! What prose looks like on screen: the kind of file it is typed in. A look
-//! dresses the rows of the text with what such a file holds around them,
-//! a checkbox, a comment marker or a timestamp before each row and a few
-//! lines above and below, none of which is typed.
+//! dresses the text with what such a file holds around it, before each row
+//! and above and below, none of which is typed.
 
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local};
 use code_racer_engine::{CodeLanguage, graphemes};
 use ratatui::{
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::Span,
 };
 use unicode_normalization::UnicodeNormalization;
@@ -34,7 +33,6 @@ const LOG_LEVEL_WIDTH: usize = 5;
 /// The state of one row of the text, for what a look puts before it.
 #[derive(Debug, Clone, Copy)]
 pub struct RowState {
-    /// Index of the row among the rows of the text, from 0.
     pub index: usize,
     /// Whether every character of the row is typed right.
     pub done: bool,
@@ -103,7 +101,6 @@ pub fn footer(disguise: Disguise<'_>, palette: &Palette) -> Vec<Row> {
     }
 }
 
-/// What the look puts before a row of the text.
 pub fn prefix(
     disguise: Disguise<'_>,
     row: RowState,
@@ -154,8 +151,6 @@ pub fn prefix(
     }
 }
 
-/// How the look restyles the text of a row: docs are in italics, and the
-/// rows of a checklist that are done are struck through and dimmed.
 pub fn restyle(disguise: Disguise<'_>, row: RowState, style: Style, palette: &Palette) -> Style {
     match disguise.look {
         Look::Docs => style.add_modifier(Modifier::ITALIC),
@@ -168,12 +163,7 @@ pub fn restyle(disguise: Disguise<'_>, row: RowState, style: Style, palette: &Pa
 }
 
 /// `color`, glowing from the glow colour of `palette` right after `since`.
-fn glowing(
-    palette: &Palette,
-    color: ratatui::style::Color,
-    since: Option<Instant>,
-    moment: Moment,
-) -> ratatui::style::Color {
+fn glowing(palette: &Palette, color: Color, since: Option<Instant>, moment: Moment) -> Color {
     let (Some(glow), Some(since), true) = (palette.glow, since, moment.animate) else {
         return color;
     };
@@ -184,8 +174,8 @@ fn glowing(
     blend(glow, color, age.as_secs_f64() / STAMP_GLOW.as_secs_f64())
 }
 
-/// The level of the `index`th row of a log: mostly information, now and
-/// then a debug line or a warning, the same for a row every time.
+/// Mostly information, now and then a debug line or a warning, always the
+/// same for a given row.
 fn log_level(index: usize) -> &'static str {
     const LEVELS: [&str; 10] = [
         "INFO", "INFO", "DEBUG", "INFO", "INFO", "WARN", "INFO", "DEBUG", "INFO", "INFO",
@@ -269,7 +259,6 @@ fn commit_template(palette: &Palette) -> Vec<Row> {
     ]
 }
 
-/// A line of code, highlighted as code in `language`.
 fn code(line: &str, language: CodeLanguage, palette: &Palette) -> Row {
     let text = graphemes(line);
     let tokens = syntax::highlight(&text, language);

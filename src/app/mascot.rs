@@ -32,7 +32,6 @@ pub enum Mood {
 }
 
 impl App {
-    /// How the mascot feels at `now`.
     pub fn mascot_mood(&self, now: Instant) -> Mood {
         let typing = self.session_view().and_then(|view| view.ink);
         if self.is_typing_blocked()

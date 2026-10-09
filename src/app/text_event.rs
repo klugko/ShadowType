@@ -16,8 +16,7 @@ pub enum TextEvent {
 }
 
 impl TextEvent {
-    /// Applies the event to `session`; returns whether the session took
-    /// the key, never for a tick.
+    /// Returns whether the session took the key, never for a tick.
     pub fn apply_to(self, session: &mut TypingSession, now: Instant) -> bool {
         match self {
             Self::Typed(ch) => session.type_char(ch, now),

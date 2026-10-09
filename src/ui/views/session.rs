@@ -153,9 +153,10 @@ fn results(
         ),
     ];
     if !result.missed.is_empty() {
-        let mut spans = doc::assignment("missed", RESULT_KEY_WIDTH, Span::raw(""), palette);
-        spans.pop();
-        spans.extend(missed_table(&result.missed, palette));
+        let mut table = missed_table(&result.missed, palette);
+        let opening = table.remove(0);
+        let mut spans = doc::assignment("missed", RESULT_KEY_WIDTH, opening, palette);
+        spans.extend(table);
         rows.push(Row::new(spans));
     }
     rows.push(doc::blank());

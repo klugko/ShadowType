@@ -6,18 +6,16 @@ const BASELINE_TICK: char = '┼';
 const TICK: char = '┤';
 const TICK_COLUMN_WIDTH: usize = 2;
 
-/// Renders `values` as a line chart of exactly `height` rows (no rows when there
-/// is nothing to plot), each exactly `width` cells wide.
+/// Renders `values` as a line chart of exactly `height` rows (none when there is
+/// nothing to plot), each exactly `width` cells wide. Non-finite values are
+/// ignored.
 ///
 /// Every row starts with a right-aligned integer label and an axis tick (`┼` on
-/// the bottom row, `┤` above it), followed by the curve across the rest of the
-/// width: when there are more values than columns, consecutive values are
-/// averaged into a column each, and when there are fewer, the curve runs
-/// straight from one value to the next. The axis spans the minimum and maximum
-/// of the whole series. Labels do not repeat: a series that spans fewer units
-/// than there are rows gets one unit per row, centred on the data. The labels
-/// are dropped when `width` cannot fit them next to at least one column.
-/// Non-finite values are ignored.
+/// the bottom row, `┤` above it). More values than columns are averaged into a
+/// column each; fewer are joined by straight lines. The axis spans the minimum
+/// and maximum of the series, but labels never repeat: a series that spans fewer
+/// units than there are rows gets one unit per row, centred on the data. The
+/// labels are dropped when they leave no room for at least one column.
 pub fn line_chart(values: &[f64], width: u16, height: u16) -> Vec<String> {
     let finite: Vec<f64> = values
         .iter()

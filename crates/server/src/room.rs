@@ -498,7 +498,6 @@ mod tests {
             self.0 + Duration::from_millis(millis)
         }
 
-        /// Instant `millis` after the end of the countdown started at `at(0)`.
         fn racing(&self, millis: u64) -> Instant {
             self.at(millis) + COUNTDOWN
         }

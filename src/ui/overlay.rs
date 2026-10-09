@@ -20,11 +20,8 @@ use crate::{
     ui::{format, hits, theme::Palette},
 };
 
-/// Widest the palette gets.
 const MAX_WIDTH: u16 = 76;
-/// Most commands listed at once.
 const MAX_LISTED: u16 = 12;
-/// What the line to type in starts with.
 const PROMPT: &str = "> ";
 
 /// Draws the palette at the top of `area`; returns where the terminal

@@ -82,7 +82,6 @@ impl TextInput {
         &self.value
     }
 
-    /// Text before the cursor, used to place the terminal cursor.
     pub fn before_cursor(&self) -> &str {
         &self.value[..self.cursor]
     }

@@ -37,7 +37,6 @@ pub enum Status {
     Running,
     /// The whole text was typed without uncorrected mistakes.
     Completed,
-    /// The time limit was reached.
     TimeUp,
 }
 
@@ -104,7 +103,7 @@ enum Judgement {
 /// Texts are compared grapheme by grapheme after Unicode NFC normalisation, so
 /// `é` matches whether it was typed precomposed or as `e` followed by a
 /// combining accent, and an emoji made of several code points is a single
-/// character. All time-dependent methods take the current instant explicitly.
+/// character.
 ///
 /// A keystroke that only begins the expected character, such as `e` for `é`,
 /// counts as correct while the accent may still follow, and becomes an error
@@ -116,8 +115,7 @@ pub struct TypingSession {
     entries: Vec<Entry>,
     keystrokes: Vec<Keystroke>,
     /// First keystroke of the last character while it is only the beginning
-    /// of the expected one. Those keystrokes count as correct until the
-    /// character is completed, and become errors if it is left unfinished.
+    /// of the expected one.
     pending_since: Option<usize>,
     checkpoints: Vec<Checkpoint>,
     options: SessionOptions,
@@ -224,7 +222,6 @@ impl TypingSession {
         self.entries.len()
     }
 
-    /// Characters of the text that have not been typed yet.
     pub fn remaining(&self) -> usize {
         self.target.len() - self.cursor()
     }
@@ -254,7 +251,6 @@ impl TypingSession {
         })
     }
 
-    /// Time left before the limit, for timed sessions.
     pub fn time_left(&self, now: Instant) -> Option<Duration> {
         self.options
             .time_limit

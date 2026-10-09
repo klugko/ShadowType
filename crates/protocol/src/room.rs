@@ -17,7 +17,6 @@ pub const RACE_WORD_COUNTS: RangeInclusive<u16> = 5..=200;
 /// longest names still fits in [`MAX_MESSAGE_BYTES`](crate::MAX_MESSAGE_BYTES).
 pub const MAX_ROOM_PLAYERS: u8 = 32;
 
-/// Whether a text can be raced on: every quote and snippet can, words within [`RACE_WORD_COUNTS`].
 pub fn is_raceable(text: &TextSource) -> bool {
     match text {
         TextSource::Words { count, .. } => RACE_WORD_COUNTS.contains(count),
@@ -28,7 +27,6 @@ pub fn is_raceable(text: &TextSource) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
-    /// Players gather and get ready.
     Lobby,
     /// The text is known and the race starts when the countdown ends.
     Countdown,

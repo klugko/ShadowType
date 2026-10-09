@@ -10,7 +10,6 @@ pub enum MessageKind {
     Error,
 }
 
-/// A line shown in the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub kind: MessageKind,
@@ -58,7 +57,6 @@ impl Message {
 #[derive(Debug, Default)]
 pub struct Messages {
     waiting: VecDeque<Message>,
-    /// Whether the first message has been on screen.
     first_seen: bool,
     /// Whether the last message was left by the event being handled.
     last_is_new: bool,
@@ -68,12 +66,10 @@ impl Messages {
     /// Most messages kept waiting: the oldest go first past it.
     const CAPACITY: usize = 8;
 
-    /// The message on screen.
     pub fn first(&self) -> Option<&Message> {
         self.waiting.front()
     }
 
-    /// How many messages wait behind the one on screen.
     pub fn waiting_behind(&self) -> usize {
         self.waiting.len().saturating_sub(1)
     }
@@ -100,7 +96,6 @@ impl Messages {
         self.last_is_new = true;
     }
 
-    /// Removes the first message, bringing the next one on screen.
     pub fn dismiss(&mut self) {
         self.waiting.pop_front();
         self.first_seen = false;

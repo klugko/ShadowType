@@ -17,7 +17,6 @@ const WHEEL_LINES: usize = 3;
 pub enum Target {
     /// An entry of the explorer.
     Entry(Buffer),
-    /// A tab of the tab line.
     Tab(Buffer),
     /// The `index`th line of values of the form on screen.
     FormLine(usize),
@@ -27,7 +26,10 @@ pub enum Target {
     Overlay,
     /// A key shown on screen, such as `r  new text` under the results,
     /// pressed `times` times.
-    Key { code: KeyCode, times: u8 },
+    Key {
+        code: KeyCode,
+        times: u8,
+    },
     /// The editor pane, which the wheel scrolls.
     Editor,
     /// The mode in the status line, which opens the command palette.
@@ -178,13 +180,7 @@ impl App {
         if self.palette.is_some() {
             let count = self.palette_matches().len();
             if let Some(palette) = &mut self.palette {
-                let selected = palette.selected(count);
-                let selected = if down {
-                    selected + 1
-                } else {
-                    selected.saturating_sub(1)
-                };
-                palette.select(selected, count);
+                palette.scroll(down, count);
             }
             return;
         }

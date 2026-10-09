@@ -81,7 +81,6 @@ impl App {
         self.change_text(|text| text.code_language = language);
     }
 
-    /// Changes how texts are written, solo and in races alike, and saves it.
     fn change_text(&mut self, change: impl Fn(&mut Practice)) {
         self.choose(|config| {
             change(&mut config.practice);
@@ -130,8 +129,6 @@ impl App {
         Ok(())
     }
 
-    /// Applies a setting the user chose in the app, and saves it with the
-    /// other settings changed since the last save.
     pub(super) fn choose(&mut self, choice: impl Fn(&mut Config)) {
         if let Err(error) = self.saved.choose(&mut self.config, choice) {
             self.error(error);

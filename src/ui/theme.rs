@@ -1,14 +1,11 @@
-//! Colour palettes. `editor` uses true colours, `dark` the 16 ANSI colours of
-//! the terminal on a black background, `mono` no colour at all: it shows
-//! every state with bold, dim, underlined or reversed text instead.
-//! `vscode` takes the true colours of VS Code's default dark theme, Dark+,
-//! its blue status bar and its syntax colours included.
+//! Colour palettes: `editor` and `vscode` (VS Code's Dark+) in true colours,
+//! `dark` in the 16 ANSI colours on black, and `mono` without colour, telling
+//! every state apart by bold, dim, underlined or reversed text instead.
 
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::{config::Theme, ui::syntax::Token};
 
-/// The colours of the syntax of the code being typed.
 #[derive(Debug, Clone, Copy)]
 pub struct SyntaxColors {
     pub keyword: Color,
@@ -19,8 +16,7 @@ pub struct SyntaxColors {
     pub comment: Color,
     pub punctuation: Color,
     pub plain: Color,
-    /// Brackets, by how deep they are nested, like an editor's bracket
-    /// pair colouring.
+    /// By nesting depth, like an editor's bracket pair colouring.
     pub brackets: [Color; 3],
 }
 
@@ -38,7 +34,6 @@ impl SyntaxColors {
         }
     }
 
-    /// The colour of a bracket nested `depth` deep.
     pub fn bracket(&self, depth: usize) -> Color {
         self.brackets[depth % self.brackets.len()]
     }
@@ -65,11 +60,9 @@ pub struct Palette {
     /// Background of the status line segments and of the selected explorer
     /// entry, which hold only strong text.
     pub highlight: Color,
-    /// The line under the cursor. The ANSI palette makes it bold: its only
-    /// grey is the one of the text still to type, which a grey background
-    /// would hide.
+    /// The line under the cursor. Bold in the ANSI palette, whose only grey is
+    /// the one of the text still to type, which a grey background would hide.
     pub cursorline: Style,
-    /// The typing cursor.
     pub cursor: Style,
     /// A character typed wrong. Never reversed like the cursor: next to it,
     /// a mistake would read as a wider cursor.
@@ -98,7 +91,7 @@ pub struct Palette {
     pub comment: Color,
     pub punctuation: Color,
     pub on_accent: Color,
-    /// Code once typed: lit up, brighter than the code still to type.
+    /// Code once typed, brighter than the code still to type.
     pub lit: SyntaxColors,
     /// Code still to type, in the colours of its syntax dimmed; `None`
     /// where only grey tells it apart, as on 16 colours.
@@ -106,9 +99,8 @@ pub struct Palette {
     /// What freshly typed text glows with before it dries, where colours
     /// can blend.
     pub glow: Option<Color>,
-    /// The status line, and the segments it sets apart such as the name of
-    /// the file.
     pub status: Style,
+    /// The segments the status line sets apart, such as the name of the file.
     pub status_item: Style,
     /// The number of errors in the status line, once there are some.
     pub status_alert: Color,
@@ -173,7 +165,6 @@ impl Palette {
         }
     }
 
-    /// A bracket nested `depth` deep, typed or still to type.
     pub fn bracket(&self, depth: usize, typed: bool) -> Style {
         match (typed, self.ghost) {
             _ if self.mono => self.typed(Some(Token::Punctuation)),
@@ -203,12 +194,10 @@ impl Palette {
     }
 }
 
-/// The typing cursor of a colour theme: a block of its accent colour.
 const fn block(accent: Color, on_accent: Color) -> Style {
     Style::new().fg(on_accent).bg(accent)
 }
 
-/// A mistake in a colour theme: in its error colour, underlined.
 const fn underlined(error: Color) -> Style {
     Style::new()
         .fg(error)
@@ -216,7 +205,6 @@ const fn underlined(error: Color) -> Style {
         .add_modifier(Modifier::UNDERLINED)
 }
 
-/// A selection in a colour theme: bold strong text on its highlight.
 const fn highlighted(highlight: Color, strong: Color) -> Style {
     Style::new()
         .bg(highlight)
@@ -366,8 +354,6 @@ const VSCODE_BLUE: Color = Color::Rgb(0, 122, 204);
 const VSCODE_WHITE: Color = Color::Rgb(255, 255, 255);
 const VSCODE_ERROR: Color = Color::Rgb(241, 76, 76);
 
-/// VS Code's Dark+: its editor, side bar, list selection, blue status bar
-/// and syntax colours. Code still to type takes them dimmed.
 const VSCODE: Palette = Palette {
     background: VSCODE_BACKGROUND,
     panel: Color::Rgb(37, 37, 38),
@@ -437,8 +423,7 @@ const VSCODE: Palette = Palette {
     mono: false,
 };
 
-/// The text still to type in `mono`: dim, and never bold, as on the bold
-/// cursor line some terminals let bold win over dim.
+/// Never bold: on the bold cursor line, some terminals let bold win over dim.
 const MONO_PENDING: Style = Style::new()
     .add_modifier(Modifier::DIM)
     .remove_modifier(Modifier::BOLD);

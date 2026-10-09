@@ -1,8 +1,6 @@
-//! What the screen and the results need to know about the keys typed, and
-//! the typing engine does not keep: when each character was typed, for the
-//! ink of fresh text to dry on screen and log rows to be stamped, where the
-//! cursor went, for the trail it leaves, and which characters the player
-//! missed.
+//! What the screen and the results need to know about the keys typed that the
+//! typing engine does not keep: when each character was typed (for drying ink
+//! and log stamps), where the cursor went (for its trail), and what was missed.
 
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -22,7 +20,6 @@ pub const TRAIL_TIME: Duration = Duration::from_millis(320);
 /// [`TRAIL_TIME`] at any typing speed.
 const TRAIL_MOVES: usize = 32;
 
-/// The cursor going from one position of the text to another.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Move {
     at: Instant,
@@ -34,20 +31,14 @@ impl Move {
     /// How far along this move `position` lies, from just above 0 where
     /// the cursor left to 1 next to where it arrived; `None` off its path.
     fn along(self, position: usize) -> Option<f64> {
-        let (length, from_arrival) = if self.from < self.to {
-            let path = self.from..self.to;
-            (
-                self.to - self.from,
-                path.contains(&position).then(|| self.to - 1 - position)?,
-            )
+        let (length, distance) = if self.from < self.to {
+            let on_path = (self.from..self.to).contains(&position);
+            (self.to - self.from, on_path.then(|| self.to - 1 - position))
         } else {
-            let path = self.to + 1..=self.from;
-            (
-                self.from - self.to,
-                path.contains(&position).then(|| position - self.to - 1)?,
-            )
+            let on_path = (self.to + 1..=self.from).contains(&position);
+            (self.from - self.to, on_path.then(|| position - self.to - 1))
         };
-        Some(1.0 - from_arrival as f64 / length as f64)
+        Some(1.0 - distance? as f64 / length as f64)
     }
 }
 
@@ -102,12 +93,10 @@ impl Ink {
         taken
     }
 
-    /// When the character at `position` was typed, if it was.
     pub fn typed_at(&self, position: usize) -> Option<Instant> {
         self.typed_at.get(position).copied()
     }
 
-    /// The wall-clock time at which the character at `position` was typed.
     pub fn wall_time(&self, position: usize) -> Option<DateTime<Local>> {
         let (start, wall) = self.started?;
         let at = self.typed_at(position)?;
@@ -148,14 +137,12 @@ impl Ink {
             .fold(0.0, f64::max)
     }
 
-    /// Whether the cursor still trails at `now`.
     pub fn is_trailing(&self, now: Instant) -> bool {
         self.moves
             .back()
             .is_some_and(|step| now.saturating_duration_since(step.at) < TRAIL_TIME)
     }
 
-    /// The characters missed most, the most missed first, at most `count`.
     pub fn most_missed(&self, count: usize) -> Vec<(String, u32)> {
         let mut missed: Vec<(String, u32)> = self
             .missed

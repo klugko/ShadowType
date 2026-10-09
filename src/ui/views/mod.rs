@@ -78,8 +78,6 @@ mod doc {
     /// Columns left free on the right of a chart.
     const CHART_MARGIN: u16 = 2;
 
-    /// A line chart of `values`, `height` rows tall, in a text `width`
-    /// columns wide.
     pub fn chart(values: &[f64], width: u16, height: u16, palette: &Palette) -> Vec<Row> {
         chart::line_chart(values, width.saturating_sub(CHART_MARGIN), height)
             .into_iter()

@@ -26,13 +26,11 @@ use crate::{
 };
 
 const MEANINGFUL_SPEED_AFTER: Duration = Duration::from_secs(1);
-/// Most rows a long message takes in the command line.
 const MAX_MESSAGE_ROWS: usize = 4;
 /// Columns below which the context of the status line is left out rather
 /// than cut to a stub, its padding included.
 const MIN_CONTEXT_WIDTH: usize = 10;
 const CONTEXT_SEPARATOR: &str = " · ";
-/// What the command line starts with while a command is typed.
 const PROMPT: &str = ":";
 
 pub fn sidebar(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, moment: Moment) {
@@ -73,8 +71,8 @@ pub fn sidebar(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, mome
     }
 }
 
-/// Whether the mascot is on screen: it is wanted, and the explorer has
-/// room for it under `lines` lines of its own, a blank line between them.
+/// Whether the mascot is wanted and fits under the `lines` lines of the
+/// explorer, a blank line between them.
 fn has_room_for_mascot(app: &App, inner: Rect, lines: usize) -> bool {
     app.config.mascot
         && !app.config.discreet
@@ -92,13 +90,12 @@ pub fn shows_mascot(app: &App) -> bool {
         .height
         .saturating_sub(1 + cmdline_height(app, viewport.width));
     let inner = Rect::new(0, 0, SIDEBAR_WIDTH - 1, body);
-    let records = records_section(app, &Palette::of(app.config.theme)).len();
-    let explorer = explorer_lines(app, inner.width, &Palette::of(app.config.theme)).len();
-    has_room_for_mascot(app, inner, explorer + records)
+    let palette = Palette::of(app.config.theme);
+    let lines =
+        records_section(app, &palette).len() + explorer_lines(app, inner.width, &palette).len();
+    has_room_for_mascot(app, inner, lines)
 }
 
-/// The entries of the explorer, the ones that key navigation walks, the
-/// running session in a folder of its own.
 /// The row of each entry of the explorer, as [`explorer_lines`] lays them out.
 fn entry_rows(app: &App) -> Vec<(u16, Buffer)> {
     let mut row = 2;
@@ -129,8 +126,8 @@ fn explorer_lines(app: &App, width: u16, palette: &Palette) -> Vec<Line<'static>
     lines
 }
 
-/// An entry of the explorer: its icon, its name, and a dot on the right
-/// while it holds a text in progress, as an editor marks unsaved files.
+/// The dot on the right of an entry holding a text in progress mirrors how an
+/// editor marks unsaved files.
 fn explorer_entry(app: &App, buffer: Buffer, width: u16, palette: &Palette) -> Line<'static> {
     let name = app.buffer_name(buffer);
     let selected = app.buffer == buffer;
@@ -157,8 +154,7 @@ fn explorer_entry(app: &App, buffer: Buffer, width: u16, palette: &Palette) -> L
 /// Columns before the name of an explorer entry: its indentation and icon.
 const ENTRY_INDENT: usize = 5;
 
-/// The icon of the file `name` in `style`, coloured by the kind of file;
-/// a blank without icons.
+/// Coloured by the kind of file; a blank when icons are off.
 fn icon(name: &str, app: &App, style: Style, palette: &Palette) -> Span<'static> {
     match icons::file(name, app.config.icons, palette) {
         Some((glyph, color)) => Span::styled(glyph, style.fg(color)),
@@ -166,8 +162,7 @@ fn icon(name: &str, app: &App, style: Style, palette: &Palette) -> Span<'static>
     }
 }
 
-/// The name the editor goes by: the application's, or in discreet mode
-/// the directory it runs in, as for any project.
+/// In discreet mode, the directory it runs in, as an editor names any project.
 fn project_name(app: &App) -> &str {
     if app.config.discreet {
         &app.workspace
@@ -315,8 +310,8 @@ pub fn tabline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-/// Draws the status line. The statistics on the right always show in full:
-/// the context and then the buffer name on the left make room for them.
+/// The statistics on the right always show in full: the context and then the
+/// buffer name on the left make room for them.
 pub fn statusline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, now: Instant) {
     let right = right_segments(app, palette, now);
     let room = usize::from(area.width).saturating_sub(spans_width(&right));
@@ -337,8 +332,6 @@ pub fn statusline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, n
     );
 }
 
-/// The mode, whether typing is blocked, the buffer name and its context,
-/// within `width` columns.
 fn left_segments(app: &App, palette: &Palette, width: usize) -> Vec<Span<'static>> {
     let mut spans = vec![mode_badge(app.editor_mode(), palette)];
     if app.is_typing_blocked() {
@@ -432,9 +425,9 @@ fn right_segments(app: &App, palette: &Palette, now: Instant) -> Vec<Span<'stati
     }
 }
 
-/// The line and column of the typing cursor in the file the text is
-/// shown as, both from 1, as an editor counts them: the lines a look puts
-/// above prose count, and a soft-wrapped line is one line.
+/// The 1-based line and column of the typing cursor in the file the text
+/// poses as: the lines a look puts above prose count, and a soft-wrapped line
+/// is one line.
 fn cursor_position(view: &SessionView<'_>, palette: &Palette) -> (usize, usize) {
     let session = view.session;
     let typed = &session.target()[..session.cursor()];
@@ -476,7 +469,7 @@ fn error_color(stats: &Stats, palette: &Palette) -> Color {
     }
 }
 
-/// Draws the command line; returns the cursor position when typing a command.
+/// Returns the cursor position while a command is typed.
 pub fn cmdline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Option<Position> {
     if let Some(prompt) = &app.prompt {
         let width = usize::from(area.width).saturating_sub(PROMPT.width());
@@ -508,9 +501,8 @@ pub fn cmdline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> O
     None
 }
 
-/// Rows the command line takes at `width` columns: those of the message on
-/// screen, so that a long one such as a warning with the path of a backup
-/// shows whole, and one otherwise.
+/// As many rows as the message on screen needs, so that a long one, such as a
+/// warning with the path of a backup, shows whole.
 pub fn cmdline_height(app: &App, width: u16) -> u16 {
     let rows = match (&app.prompt, app.message()) {
         (None, Some(message)) => message_rows(&message.text, width).len(),
@@ -519,7 +511,6 @@ pub fn cmdline_height(app: &App, width: u16) -> u16 {
     u16::try_from(rows.max(1)).unwrap_or(1)
 }
 
-/// `text` wrapped at `width` columns, in at most [`MAX_MESSAGE_ROWS`] rows.
 fn message_rows(text: &str, width: u16) -> Vec<String> {
     let graphemes: Vec<String> = text.graphemes(true).map(str::to_owned).collect();
     wrap::wrap(&graphemes, width)

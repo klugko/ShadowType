@@ -1,9 +1,6 @@
-//! User settings stored in `config.toml`.
-//!
-//! The file is meant to be edited by hand too: missing keys take their
-//! default, and saving changes only the values of the settings, so comments
-//! and keys this version does not know are kept. A file that cannot be parsed
-//! is moved aside rather than overwritten.
+//! User settings stored in `config.toml`, a file meant to be edited by hand
+//! too: missing keys take their default, and saving keeps comments and keys
+//! this version does not know.
 
 use std::{
     fmt, io,
@@ -321,9 +318,7 @@ impl Default for Multiplayer {
 pub struct Config {
     pub username: String,
     pub theme: Theme,
-    /// The icons in front of file names.
     pub icons: Icons,
-    /// What prose texts look like on screen.
     pub look: Look,
     /// Whether the mascot lives at the bottom of the explorer.
     pub mascot: bool,
@@ -608,7 +603,6 @@ word_count = 50
 server = "ws://127.0.0.1:8080"
 "#;
 
-    /// Saves every setting of `config` over those of the file.
     fn save(path: &Path, config: &Config) -> io::Result<()> {
         update_config(path, |saved| saved.clone_from(config))
     }

@@ -1,12 +1,9 @@
 //! The settings saved in `config.toml`, kept apart from the settings in use.
 //!
-//! Command-line flags such as `--theme mono` or `solo --mode code` apply to
-//! one run: they change the settings in use and never reach the file,
-//! unless the user chooses the same setting in the app.
-//!
-//! The file can change while the app runs, edited by hand or saved by
-//! another instance, so a save applies only what the user chose onto what
-//! the file holds at that moment.
+//! Command-line flags such as `--theme mono` apply to one run and never reach
+//! the file unless the user chooses the same setting in the app. The file can
+//! change while the app runs, edited by hand or saved by another instance, so a
+//! save applies only what the user chose onto what the file holds at that moment.
 
 use std::path::{Path, PathBuf};
 
@@ -35,7 +32,6 @@ impl SavedConfig {
         self.path.as_deref()
     }
 
-    /// Applies `change` to the settings in use for this run only.
     pub fn change_for_this_run(&mut self, in_use: &mut Config, change: impl Fn(&mut Config)) {
         change(in_use);
         change(&mut self.reference);

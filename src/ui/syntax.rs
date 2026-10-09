@@ -1,8 +1,6 @@
-//! Syntax highlighting for the code snippets shown in the typing editor.
-//!
-//! Each language is described by a small table driving one hand-written
-//! lexer. It aims at idiomatic snippets rather than full grammars, and it is
-//! total: any input, including half-typed or malformed code, gets exactly one
+//! Syntax highlighting of code snippets: one hand-written lexer driven by a
+//! small table per language, aimed at idiomatic snippets rather than full
+//! grammars. It is total: any input, half-typed or malformed, gets exactly one
 //! token per grapheme.
 
 use std::iter;

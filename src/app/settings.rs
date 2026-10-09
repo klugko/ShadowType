@@ -69,8 +69,6 @@ pub fn row(config: &Config, field: Field) -> Row {
     }
 }
 
-/// Moves the value of `field` to its next or previous choice: the theme
-/// cycles, the switches turn over.
 pub fn adjust(config: &mut Config, field: Field, step: Step) {
     match field {
         Field::Theme => config.theme = cycle(&Theme::ALL, config.theme, step),

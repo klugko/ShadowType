@@ -47,7 +47,6 @@ fn screen_at(app: &App, width: u16, height: u16, now: Instant) -> String {
     text_of(&drawn(app, width, height, now))
 }
 
-/// A terminal of `width` by `height` with the app drawn on it at `now`.
 fn drawn(app: &App, width: u16, height: u16, now: Instant) -> Terminal<TestBackend> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
     terminal
@@ -149,12 +148,10 @@ fn in_room(phase: Phase) -> App {
     in_room_at(room(phase), Instant::now())
 }
 
-/// An app inside `room` since `now`, the race text shown past the lobby.
 fn in_room_at(room: RoomView, now: Instant) -> App {
     in_room_on("ws://127.0.0.1:9", room, now)
 }
 
-/// An app inside `room` of the race server at `server` since `now`.
 fn in_room_on(server: &str, room: RoomView, now: Instant) -> App {
     let mut app = app();
     app.config.multiplayer.server = server.to_owned();
@@ -173,7 +170,7 @@ fn in_room_on(server: &str, room: RoomView, now: Instant) -> App {
     app
 }
 
-/// The status line of a screen drawn by [`screen`].
+/// The line just above the command line.
 fn status_line(screen: &str) -> &str {
     let lines: Vec<&str> = screen.lines().collect();
     lines[lines.len() - 2]
@@ -390,7 +387,6 @@ fn the_typing_view_scrolls_to_keep_context_above_the_cursor() {
     assert_eq!(style_at(&terminal, (1, 2)).fg, Some(palette.faint));
 }
 
-/// Types a character other than the one the session expects next.
 fn mistake(app: &mut App) {
     let expected = app
         .session_view()
@@ -812,7 +808,6 @@ fn the_mono_theme_shows_which_side_has_the_focus_without_colour() {
     assert_ne!(in_explorer, in_editor);
 }
 
-/// Where the terminal cursor is left once `app` is drawn.
 fn cursor_of(app: &App, width: u16, height: u16) -> (Position, Terminal<TestBackend>) {
     let mut terminal = drawn(app, width, height, Instant::now());
     let position = terminal.get_cursor_position().expect("cursor");
@@ -841,7 +836,6 @@ fn the_terminal_cursor_follows_the_value_being_typed() {
     assert_eq!(cursor, Position::new(x + 18, y), "after \"FK7\"");
 }
 
-/// Types `text` key by key.
 fn type_keys(app: &mut App, text: &str) {
     for ch in text.chars() {
         press(app, KeyCode::Char(ch));
@@ -963,8 +957,7 @@ async fn the_standings_always_show_the_player_even_last_of_a_full_room() {
     assert!(standings[0].trim_start().starts_with("1 racer8"), "{text}");
 }
 
-/// A room of `size` players in `phase`, the client joined last, made by
-/// `player` from each id.
+/// A room of `size` players in `phase`, the client joined last.
 fn full_room(phase: Phase, size: u8, player: impl Fn(u64) -> PlayerView) -> RoomView {
     let others = 2..=u64::from(size);
     RoomView {
@@ -1075,7 +1068,6 @@ fn type_whole_text(app: &mut App, duration: Duration) -> Instant {
     end
 }
 
-/// Where the things a click acts on lie once `app` is drawn at `now`.
 fn hits_of(app: &App, width: u16, height: u16, now: Instant) -> crate::app::mouse::Hits {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
     let mut hits = crate::app::mouse::Hits::default();
@@ -1283,8 +1275,6 @@ fn the_results_count_up_when_they_come_on_screen() {
     assert!(!still.contains("wpm         = 0.0"), "{still}");
 }
 
-/// Sizes the preview draws every screen at: the smallest supported and a
-/// large one.
 const PREVIEW_SIZES: [(u16, u16); 2] = [(MIN_WIDTH, MIN_HEIGHT), (200, 60)];
 
 /// `app` drawn at every preview size, resized first as by the terminal.
@@ -1361,7 +1351,6 @@ async fn preview_screens() {
     }
 }
 
-/// A code session in the VS Code theme.
 fn vscode_shots() -> Vec<(String, String)> {
     let mut vscode = app();
     vscode.config.theme = Theme::VsCode;

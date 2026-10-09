@@ -15,7 +15,6 @@ pub struct WordOptions {
     /// Capitalised sentences, commas, quotes, parentheses and sentence endings.
     #[serde(default)]
     pub punctuation: bool,
-    /// Numbers interleaved with the words.
     #[serde(default)]
     pub numbers: bool,
 }
