@@ -61,13 +61,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     let Loaded {
         value: history,
         warning: history_warning,
-    } = paths.as_ref().map_or_else(
-        || Loaded {
-            value: History::in_memory(),
-            warning: None,
-        },
-        |paths| History::load(&paths.history_file),
-    );
+    } = load_history(paths.as_ref());
     let launch = cli.launch(&config)?;
     let warnings: Vec<String> = [config_warning, history_warning]
         .into_iter()
@@ -91,6 +85,13 @@ fn load_settings(paths: Option<&Paths>) -> Loaded<(Config, Option<PathBuf>)> {
         Some(config) => (config, Some(paths.config_file.clone())),
         None => (Config::default(), None),
     })
+}
+
+fn load_history(paths: Option<&Paths>) -> Loaded<History> {
+    paths.map_or_else(
+        || Loaded::clean(History::in_memory()),
+        |paths| History::load(&paths.history_file),
+    )
 }
 
 /**
