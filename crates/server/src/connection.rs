@@ -1,8 +1,10 @@
-//! One task per WebSocket connection.
-//!
-//! A connection must open with [`ClientMessage::Hello`]. Afterwards every
-//! client message is forwarded to the hub, while a writer task delivers the
-//! player's outbox and pings the client so that dead peers are noticed.
+/*!
+ * One task per WebSocket connection.
+ *
+ * A connection must open with [`ClientMessage::Hello`]. Afterwards every
+ * client message is forwarded to the hub, while a writer task delivers the
+ * player's outbox and pings the client so that dead peers are noticed.
+ */
 
 use std::{
     collections::VecDeque,
@@ -36,8 +38,10 @@ type Socket = WebSocketStream<TcpStream>;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_INTERVAL: Duration = Duration::from_secs(30);
-/// Silence after which the client is considered gone: a live client answers
-/// pings long before.
+/**
+ * Silence after which the client is considered gone: a live client answers
+ * pings long before.
+ */
 const IDLE_TIMEOUT: Duration = Duration::from_secs(75);
 /// Longest a single write may block before the client is considered stuck.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -98,11 +102,13 @@ where
     check_hello(&first)
 }
 
-/// Accepts a `Hello` in the current protocol version.
-///
-/// The version is looked up leniently first, so that clients of another
-/// version learn why they are refused even when the rest of their first
-/// message does not parse in this version.
+/**
+ * Accepts a `Hello` in the current protocol version.
+ *
+ * The version is looked up leniently first, so that clients of another
+ * version learn why they are refused even when the rest of their first
+ * message does not parse in this version.
+ */
 fn check_hello(text: &str) -> Result<Username, ServerError> {
     let current = u64::from(PROTOCOL_VERSION);
     if let Some(version) = announced_version(text).filter(|&version| version != current) {
@@ -129,8 +135,10 @@ fn announced_version(text: &str) -> Option<u64> {
     message.get("data")?.get("version")?.as_u64()
 }
 
-/// The next text message, skipping control frames. `None` once the client
-/// closes, errs or sends something that cannot be a hello.
+/**
+ * The next text message, skipping control frames. `None` once the client
+ * closes, errs or sends something that cannot be a hello.
+ */
 async fn next_text<S>(socket: &mut WebSocketStream<S>) -> Option<Utf8Bytes>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -145,8 +153,10 @@ where
     None
 }
 
-/// Sends a last error and closes, waiting briefly for the client to
-/// acknowledge so that the error is not lost to a connection reset.
+/**
+ * Sends a last error and closes, waiting briefly for the client to
+ * acknowledge so that the error is not lost to a connection reset.
+ */
 async fn refuse(mut socket: Socket, error: ServerError) {
     let farewell = async {
         socket.send(encode(&ServerMessage::Error(error))).await?;
@@ -224,8 +234,10 @@ async fn read_messages(
     }
 }
 
-/// Queues an error for this client only. Holds no strong outbox sender, so
-/// the connection still closes as soon as the hub lets go of the player.
+/**
+ * Queues an error for this client only. Holds no strong outbox sender, so
+ * the connection still closes as soon as the hub lets go of the player.
+ */
 fn reply(replies: &mpsc::WeakSender<ServerMessage>, code: ErrorCode, message: impl Into<String>) {
     let error = ServerMessage::error(code, message);
     let queued = replies
@@ -236,8 +248,10 @@ fn reply(replies: &mpsc::WeakSender<ServerMessage>, code: ErrorCode, message: im
     }
 }
 
-/// Delivers the outbox and pings the client. Closes the connection once the
-/// hub drops the outbox, or gives up when the client stops reading.
+/**
+ * Delivers the outbox and pings the client. Closes the connection once the
+ * hub drops the outbox, or gives up when the client stops reading.
+ */
 async fn write_messages(
     mut sink: SplitSink<Socket, Message>,
     mut inbox: mpsc::Receiver<ServerMessage>,
@@ -260,9 +274,11 @@ async fn write_messages(
     }
 }
 
-/// Keeps reading, and discarding, until the client acknowledges the close.
-/// Dropping a socket with unread data would reset the connection and could
-/// destroy the last messages before the client reads them.
+/**
+ * Keeps reading, and discarding, until the client acknowledges the close.
+ * Dropping a socket with unread data would reset the connection and could
+ * destroy the last messages before the client reads them.
+ */
 async fn say_goodbye(mut stream: SplitStream<Socket>, writer: JoinHandle<()>) {
     let drain = async { while let Some(Ok(_)) = stream.next().await {} };
     if timeout(CLOSE_TIMEOUT, drain).await.is_err() {
@@ -282,8 +298,10 @@ struct RateLimiter {
 }
 
 impl RateLimiter {
-    /// Records a message arriving at `now` and tells whether at most
-    /// [`RATE_LIMIT`] messages arrived within [`RATE_WINDOW`].
+    /**
+     * Records a message arriving at `now` and tells whether at most
+     * [`RATE_LIMIT`] messages arrived within [`RATE_WINDOW`].
+     */
     fn allow(&mut self, now: Instant) -> bool {
         while self
             .arrivals

@@ -1,6 +1,8 @@
-//! Application state and behaviour, independent of rendering. The screen is
-//! organised like a code editor: an explorer lists the buffers and the editor
-//! pane shows the selected one.
+/*!
+ * Application state and behaviour, independent of rendering. The screen is
+ * organised like a code editor: an explorer lists the buffers and the editor
+ * pane shows the selected one.
+ */
 
 mod actions;
 mod changes;
@@ -51,8 +53,10 @@ use race::RaceClient;
 use saved_config::SavedConfig;
 use text_event::TextEvent;
 
-/// Settings given on the command line. They apply to this run only and are
-/// never saved, unless the user sets the same setting in the app.
+/**
+ * Settings given on the command line. They apply to this run only and are
+ * never saved, unless the user sets the same setting in the app.
+ */
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Overrides {
     pub theme: Option<Theme>,
@@ -118,11 +122,15 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    /// Rows around the editor pane: the tab line, the status line and the
-    /// command line.
+    /**
+     * Rows around the editor pane: the tab line, the status line and the
+     * command line.
+     */
     const CHROME_ROWS: u16 = 3;
-    /// Narrowest terminal that shows the explorer by itself. Narrower ones
-    /// give its columns to the buffer, whose lines would be cut otherwise.
+    /**
+     * Narrowest terminal that shows the explorer by itself. Narrower ones
+     * give its columns to the buffer, whose lines would be cut otherwise.
+     */
     const EXPLORER_MIN_WIDTH: u16 = 100;
 
     pub fn editor_rows(self) -> usize {
@@ -134,8 +142,10 @@ impl Viewport {
     }
 }
 
-/// The size assumed before the terminal reports its own: a common one, with
-/// room for the explorer.
+/**
+ * The size assumed before the terminal reports its own: a common one, with
+ * room for the explorer.
+ */
 impl Default for Viewport {
     fn default() -> Self {
         Self {
@@ -221,8 +231,10 @@ pub struct SessionView<'a> {
     pub session: &'a TypingSession,
     pub syntax: Option<CodeLanguage>,
     pub attribution: Option<&'a str>,
-    /// When the race ended for a player who had not finished its text: their
-    /// clock stops there. A finished text stops its clock by itself.
+    /**
+     * When the race ended for a player who had not finished its text: their
+     * clock stops there. A finished text stops its clock by itself.
+     */
     pub stopped_at: Option<Instant>,
     /// When each character was typed.
     pub ink: Option<&'a Ink>,
@@ -230,8 +242,10 @@ pub struct SessionView<'a> {
     pub disguise: Option<Disguise<'a>>,
 }
 
-/// What a prose text looks like on screen, and what its look takes from
-/// the settings.
+/**
+ * What a prose text looks like on screen, and what its look takes from
+ * the settings.
+ */
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Disguise<'a> {
     pub look: Look,
@@ -286,12 +300,16 @@ pub struct App {
     pub palette: Option<CommandPalette>,
     messages: Messages,
     pub activity: Option<Activity>,
-    /// Whether the explorer is shown. The explorer has the focus only while
-    /// it is shown: keys would otherwise switch buffers out of sight.
+    /**
+     * Whether the explorer is shown. The explorer has the focus only while
+     * it is shown: keys would otherwise switch buffers out of sight.
+     */
     pub sidebar: bool,
-    /// Whether the user showed or hid the explorer for good, with Ctrl+B or
-    /// `:set sidebar`. Until then it is shown when the terminal has room for
-    /// it, and otherwise only while it has the focus.
+    /**
+     * Whether the user showed or hid the explorer for good, with Ctrl+B or
+     * `:set sidebar`. Until then it is shown when the terminal has room for
+     * it, and otherwise only while it has the focus.
+     */
     sidebar_choice: Option<bool>,
     pub viewport: Viewport,
     /// What to open once the name being asked for is set.
@@ -305,16 +323,20 @@ pub struct App {
     born: Instant,
     /// When the player last pressed a key, pasted or clicked.
     last_input: Option<Instant>,
-    /// The name of the directory the app runs in, which the explorer shows
-    /// in discreet mode, as an editor shows the project it opened.
+    /**
+     * The name of the directory the app runs in, which the explorer shows
+     * in discreet mode, as an editor shows the project it opened.
+     */
     pub workspace: String,
     quit: bool,
 }
 
 impl App {
-    /// An application started with the `saved` settings, saved back to
-    /// `config_path` when there is one, and `overrides` for this run. The
-    /// `warnings` of loading the files are shown first, then `launch` opens.
+    /**
+     * An application started with the `saved` settings, saved back to
+     * `config_path` when there is one, and `overrides` for this run. The
+     * `warnings` of loading the files are shown first, then `launch` opens.
+     */
     pub fn new(
         saved: Config,
         overrides: &Overrides,
@@ -448,8 +470,10 @@ impl App {
         })
     }
 
-    /// What prose looks like in the session: the look of the settings, or
-    /// for a shuffle the one drawn for the session.
+    /**
+     * What prose looks like in the session: the look of the settings, or
+     * for a shuffle the one drawn for the session.
+     */
     pub fn disguise(&self) -> Disguise<'_> {
         let look = match self.config.look {
             Look::Shuffle => self.shuffled,
@@ -478,8 +502,10 @@ impl App {
         }
     }
 
-    /// Whether the player is in the middle of a text: leaving it takes a
-    /// confirmation, and its buffer is marked as modified.
+    /**
+     * Whether the player is in the middle of a text: leaving it takes a
+     * confirmation, and its buffer is marked as modified.
+     */
     pub fn session_in_progress(&self) -> bool {
         match &self.activity {
             Some(Activity::Solo(run)) => run.is_in_progress(),
@@ -500,8 +526,10 @@ impl App {
         }
     }
 
-    /// Takes the new size of the terminal, keeping the scrolled buffers
-    /// within their content, and the explorer as it rests at that size.
+    /**
+     * Takes the new size of the terminal, keeping the scrolled buffers
+     * within their content, and the explorer as it rests at that size.
+     */
     pub fn resize(&mut self, width: u16, height: u16) {
         self.viewport = Viewport { width, height };
         self.show_sidebar(self.resting_sidebar());
@@ -509,8 +537,10 @@ impl App {
         self.help_scroll = self.help_scroll.min(self.last_scroll(Buffer::Help));
     }
 
-    /// The scroll of `buffer` that shows its last line at the bottom of the
-    /// editor pane, zero for buffers that do not scroll.
+    /**
+     * The scroll of `buffer` that shows its last line at the bottom of the
+     * editor pane, zero for buffers that do not scroll.
+     */
     fn last_scroll(&self, buffer: Buffer) -> usize {
         let lines = match buffer {
             Buffer::History => history_log::lines(self.history.records().len()).len(),
@@ -520,8 +550,10 @@ impl App {
         lines.saturating_sub(self.viewport.editor_rows())
     }
 
-    /// Shows or hides the explorer as the user asks, whatever the width of
-    /// the terminal from then on.
+    /**
+     * Shows or hides the explorer as the user asks, whatever the width of
+     * the terminal from then on.
+     */
     fn set_sidebar(&mut self, visible: bool) {
         self.sidebar_choice = Some(visible);
         self.show_sidebar(visible);
@@ -534,8 +566,10 @@ impl App {
         }
     }
 
-    /// Whether the explorer is shown while the editor has the focus: as the
-    /// user chose, or when the terminal has room for it.
+    /**
+     * Whether the explorer is shown while the editor has the focus: as the
+     * user chose, or when the terminal has room for it.
+     */
     fn resting_sidebar(&self) -> bool {
         self.sidebar_choice
             .unwrap_or_else(|| self.viewport.has_room_for_explorer())
@@ -569,8 +603,10 @@ impl App {
                 .is_some_and(|view| view.session.is_blocked())
     }
 
-    /// Starts handling an event. The screen was drawn since the previous
-    /// one, showing the first message unless the command line hid it.
+    /**
+     * Starts handling an event. The screen was drawn since the previous
+     * one, showing the first message unless the command line hid it.
+     */
     fn begin_event(&mut self) {
         self.messages.next_event(self.prompt.is_none());
     }
@@ -583,10 +619,12 @@ impl App {
         self.messages.push(Message::error(text));
     }
 
-    /// A key press dismisses the message on screen. The command line hides
-    /// the messages, so none is dismissed while it is open. An error while
-    /// typing stays unless another message waits: it would vanish at the
-    /// next character, before it could be read.
+    /**
+     * A key press dismisses the message on screen. The command line hides
+     * the messages, so none is dismissed while it is open. An error while
+     * typing stays unless another message waits: it would vanish at the
+     * next character, before it could be read.
+     */
     fn dismiss_message(&mut self) {
         let hidden = self.prompt.is_some();
         let typing_error = self.is_typing()
@@ -597,8 +635,10 @@ impl App {
         }
     }
 
-    /// Shows `buffer` in the editor. A field being typed in another buffer
-    /// is cancelled: hidden, it would still take every key.
+    /**
+     * Shows `buffer` in the editor. A field being typed in another buffer
+     * is cancelled: hidden, it would still take every key.
+     */
     fn open(&mut self, buffer: Buffer) {
         if buffer != self.buffer {
             self.cancel_edit();
@@ -607,8 +647,10 @@ impl App {
         self.focus_editor();
     }
 
-    /// Drops the field being typed, and what was to follow the name asked
-    /// at first launch.
+    /**
+     * Drops the field being typed, and what was to follow the name asked
+     * at first launch.
+     */
     fn cancel_edit(&mut self) {
         self.editing = None;
         self.pending = None;

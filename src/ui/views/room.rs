@@ -70,8 +70,10 @@ fn connecting(frame: &mut Frame, area: Rect, client: &RaceClient, palette: &Pale
     editor::render(frame, area, &rows, 0, palette);
 }
 
-/// The lobby. The server address has a line of its own, so that it shows
-/// in full when the invite command is too long for the window.
+/**
+ * The lobby. The server address has a line of its own, so that it shows
+ * in full when the invite command is too long for the window.
+ */
 fn lobby(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, palette: &Palette) {
     let setting = |key: &str, value: &str| {
         Row::new(doc::assignment(
@@ -112,9 +114,11 @@ fn lobby(frame: &mut Frame, area: Rect, client: &RaceClient, room: &RoomView, pa
     editor::render(frame, area, &rows, 0, palette);
 }
 
-/// The rows of `players` that fit in `fitting` rows, made by `row` from each
-/// player and their place in the list. The player `me` always shows, and a
-/// last row counts the players left out.
+/**
+ * The rows of `players` that fit in `fitting` rows, made by `row` from each
+ * player and their place in the list. The player `me` always shows, and a
+ * last row counts the players left out.
+ */
 fn player_rows(
     players: &[&PlayerView],
     me: Option<PlayerId>,
@@ -259,9 +263,11 @@ fn standings(
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-/// The places and players of the list of `players` that fit in `rows`
-/// rows. The player `me` always shows: when their place falls below the
-/// last row, they take that row, with their real place.
+/**
+ * The places and players of the list of `players` that fit in `rows`
+ * rows. The player `me` always shows: when their place falls below the
+ * last row, they take that row, with their real place.
+ */
 fn visible_players<'a>(
     players: &[&'a PlayerView],
     me: Option<PlayerId>,

@@ -1,6 +1,8 @@
-//! What the screen and the results need to know about the keys typed that the
-//! typing engine does not keep: when each character was typed (for drying ink
-//! and log stamps), where the cursor went (for its trail), and what was missed.
+/*!
+ * What the screen and the results need to know about the keys typed that the
+ * typing engine does not keep: when each character was typed (for drying ink
+ * and log stamps), where the cursor went (for its trail), and what was missed.
+ */
 
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -16,8 +18,10 @@ use super::text_event::TextEvent;
 pub const DRYING_TIME: Duration = Duration::from_millis(450);
 /// How long the trail of the cursor takes to fade.
 pub const TRAIL_TIME: Duration = Duration::from_millis(320);
-/// Most moves of the cursor kept for its trail: far more than fit in
-/// [`TRAIL_TIME`] at any typing speed.
+/**
+ * Most moves of the cursor kept for its trail: far more than fit in
+ * [`TRAIL_TIME`] at any typing speed.
+ */
 const TRAIL_MOVES: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,8 +32,10 @@ struct Move {
 }
 
 impl Move {
-    /// How far along this move `position` lies, from just above 0 where
-    /// the cursor left to 1 next to where it arrived; `None` off its path.
+    /**
+     * How far along this move `position` lies, from just above 0 where
+     * the cursor left to 1 next to where it arrived; `None` off its path.
+     */
     fn along(self, position: usize) -> Option<f64> {
         let (length, distance) = if self.from < self.to {
             let on_path = (self.from..self.to).contains(&position);
@@ -58,8 +64,10 @@ pub struct Ink {
 }
 
 impl Ink {
-    /// Hands `event` to `session`, noting what it changed. Returns whether
-    /// the session took the key, like [`TextEvent::apply_to`].
+    /**
+     * Hands `event` to `session`, noting what it changed. Returns whether
+     * the session took the key, like [`TextEvent::apply_to`].
+     */
     pub fn apply(&mut self, event: TextEvent, session: &mut TypingSession, now: Instant) -> bool {
         if event == TextEvent::Tick {
             return event.apply_to(session, now);
@@ -118,10 +126,12 @@ impl Ink {
             .is_some_and(|at| now.saturating_duration_since(at) < DRYING_TIME)
     }
 
-    /// How much of the cursor's trail lies on `position` at `now`, from 0
-    /// to 1: the most right behind the cursor, where it just was, fading
-    /// out along the way it came and as time passes. A jump, such as a word
-    /// erased or a line indented, leaves a streak all along it.
+    /**
+     * How much of the cursor's trail lies on `position` at `now`, from 0
+     * to 1: the most right behind the cursor, where it just was, fading
+     * out along the way it came and as time passes. A jump, such as a word
+     * erased or a line indented, leaves a streak all along it.
+     */
     pub fn trail(&self, position: usize, now: Instant) -> f64 {
         self.moves
             .iter()
@@ -155,9 +165,11 @@ impl Ink {
     }
 }
 
-/// The character the player was expected to type when a keystroke went
-/// wrong at `position`: the one there, or the one before it when moving on
-/// left an accent unfinished there.
+/**
+ * The character the player was expected to type when a keystroke went
+ * wrong at `position`: the one there, or the one before it when moving on
+ * left an accent unfinished there.
+ */
 fn missed_at(session: &TypingSession, position: usize) -> Option<String> {
     let wrong = |index: usize| session.mark(index) == Mark::Incorrect;
     let index = if position < session.cursor() && wrong(position) {

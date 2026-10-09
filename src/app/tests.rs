@@ -1418,8 +1418,10 @@ mod multiplayer {
 
     use super::*;
 
-    /// Longer than the client's connection and handshake timeouts, five seconds
-    /// each, so that a test fails on its assertions rather than on this limit.
+    /**
+     * Longer than the client's connection and handshake timeouts, five seconds
+     * each, so that a test fails on its assertions rather than on this limit.
+     */
     const WAIT: Duration = Duration::from_secs(15);
 
     async fn server() -> (String, oneshot::Sender<()>) {
@@ -1469,8 +1471,10 @@ mod multiplayer {
             .map_or(0, |room| room.players.len())
     }
 
-    /// The server refuses progress faster than 30 characters per second plus
-    /// a burst of 5: how long typing `length` characters takes at least.
+    /**
+     * The server refuses progress faster than 30 characters per second plus
+     * a burst of 5: how long typing `length` characters takes at least.
+     */
     fn believable_typing_time(length: usize) -> Duration {
         Duration::from_secs_f64(length.saturating_sub(5) as f64 / 30.0 + 0.05)
     }

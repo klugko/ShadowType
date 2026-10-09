@@ -40,8 +40,10 @@ pub fn render(
     }
 }
 
-/// How long the results take to come up: the figures count up and the
-/// chart draws itself from left to right.
+/**
+ * How long the results take to come up: the figures count up and the
+ * chart draws itself from left to right.
+ */
 const REVEAL: Duration = Duration::from_millis(800);
 
 /// How far the results are revealed at `moment`, from 0 to 1, eased.
@@ -68,8 +70,10 @@ fn text(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, moment: Mom
     editor::render(frame, area, &rows, scroll, palette);
 }
 
-/// Rows of a session text laid out for `area` at `moment`, and the row of
-/// the cursor.
+/**
+ * Rows of a session text laid out for `area` at `moment`, and the row of
+ * the cursor.
+ */
 pub fn text_rows(
     view: &SessionView<'_>,
     area: Rect,
@@ -187,8 +191,10 @@ fn results(
     editor::render(frame, area, &rows, 0, palette);
 }
 
-/// Hides the part of every row of `chart` past `reveal` of its width, for
-/// it to draw itself from left to right.
+/**
+ * Hides the part of every row of `chart` past `reveal` of its width, for
+ * it to draw itself from left to right.
+ */
 fn unveil(chart: &mut [Row], reveal: f64) {
     if reveal >= 1.0 {
         return;
@@ -208,8 +214,10 @@ fn unveil(chart: &mut [Row], reveal: f64) {
     }
 }
 
-/// The characters missed most as a TOML inline table, such as
-/// `{ e = 3, ";" = 1 }`.
+/**
+ * The characters missed most as a TOML inline table, such as
+ * `{ e = 3, ";" = 1 }`.
+ */
 fn missed_table(missed: &[(String, u32)], palette: &Palette) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("{ ", palette.fg(palette.punctuation))];
     for (index, (expected, times)) in missed.iter().enumerate() {

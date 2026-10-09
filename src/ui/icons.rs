@@ -1,6 +1,8 @@
-//! File icons, as a code editor's icon theme puts them in front of file names.
-//! The `unicode` set uses symbols every terminal font has, the `nerd` set the
-//! icons of a Nerd Font; the colours are those of VS Code's Seti icons.
+/*!
+ * File icons, as a code editor's icon theme puts them in front of file names.
+ * The `unicode` set uses symbols every terminal font has, the `nerd` set the
+ * icons of a Nerd Font; the colours are those of VS Code's Seti icons.
+ */
 
 use code_racer_engine::CodeLanguage;
 use ratatui::style::Color;
@@ -62,8 +64,10 @@ impl Kind {
         }
     }
 
-    /// The colour of the icon: Seti's in true colours, the nearest of the
-    /// 16 colours otherwise.
+    /**
+     * The colour of the icon: Seti's in true colours, the nearest of the
+     * 16 colours otherwise.
+     */
     fn color(self, palette: &Palette) -> Color {
         let (rgb, ansi) = match self {
             Self::Config => ((109, 128, 134), Color::DarkGray),

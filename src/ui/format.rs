@@ -1,5 +1,7 @@
-//! How numbers, times and text are written on screen, in the columns
-//! available.
+/*!
+ * How numbers, times and text are written on screen, in the columns
+ * available.
+ */
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -8,8 +10,10 @@ use crate::app::input::TextInput;
 
 const ELLIPSIS: &str = "…";
 
-/// Completion as a whole percentage. It rounds to the nearest percent but
-/// never shows 100 before the end: 99.6% of a text is not done.
+/**
+ * Completion as a whole percentage. It rounds to the nearest percent but
+ * never shows 100 before the end: 99.6% of a text is not done.
+ */
 pub fn percent_done(fraction: f64) -> u32 {
     let percent = (fraction.clamp(0.0, 1.0) * 100.0).round() as u32;
     if fraction < 1.0 { percent.min(99) } else { 100 }
@@ -59,9 +63,11 @@ pub struct InputView {
     pub cursor: usize,
 }
 
-/// What `input` shows in `width` columns. It scrolls as little as keeps
-/// the text before the cursor in view with a column left for the cursor,
-/// `…` standing for the start it hides. The end is cut at the edge.
+/**
+ * What `input` shows in `width` columns. It scrolls as little as keeps
+ * the text before the cursor in view with a column left for the cursor,
+ * `…` standing for the start it hides. The end is cut at the edge.
+ */
 pub fn input_view(input: &TextInput, width: usize) -> InputView {
     let before = input.before_cursor();
     let after = &input.value()[before.len()..];
@@ -104,17 +110,21 @@ fn tail(text: &str, width: usize) -> &str {
     text
 }
 
-/// `text` in a column of exactly `width` columns, cut short of the last one
-/// so that it never touches the next column.
+/**
+ * `text` in a column of exactly `width` columns, cut short of the last one
+ * so that it never touches the next column.
+ */
 pub fn column(text: &str, width: usize) -> String {
     let fitted = truncate(text, width.saturating_sub(1));
     let padding = width.saturating_sub(fitted.width());
     fitted + &" ".repeat(padding)
 }
 
-/// The leading `parts` joined by `separator` that fit in `width` columns.
-/// Trailing parts are dropped whole; the first part is cut only when it
-/// does not fit alone.
+/**
+ * The leading `parts` joined by `separator` that fit in `width` columns.
+ * Trailing parts are dropped whole; the first part is cut only when it
+ * does not fit alone.
+ */
 pub fn leading_parts(parts: &[String], separator: &str, width: usize) -> String {
     let mut joined = String::new();
     for part in parts {

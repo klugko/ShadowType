@@ -1,6 +1,8 @@
-//! Colour palettes: `editor` and `vscode` (VS Code's Dark+) in true colours,
-//! `dark` in the 16 ANSI colours on black, and `mono` without colour, telling
-//! every state apart by bold, dim, underlined or reversed text instead.
+/*!
+ * Colour palettes: `editor` and `vscode` (VS Code's Dark+) in true colours,
+ * `dark` in the 16 ANSI colours on black, and `mono` without colour, telling
+ * every state apart by bold, dim, underlined or reversed text instead.
+ */
 
 use ratatui::style::{Color, Modifier, Style};
 
@@ -39,8 +41,10 @@ impl SyntaxColors {
     }
 }
 
-/// `from` blended into `to` by `amount`, from 0 (all `from`) to 1 (all
-/// `to`), when both are true colours; `to` otherwise.
+/**
+ * `from` blended into `to` by `amount`, from 0 (all `from`) to 1 (all
+ * `to`), when both are true colours; `to` otherwise.
+ */
 pub fn blend(from: Color, to: Color, amount: f64) -> Color {
     let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (from, to) else {
         return to;
@@ -57,20 +61,28 @@ pub fn blend(from: Color, to: Color, amount: f64) -> Color {
 pub struct Palette {
     pub background: Color,
     pub panel: Color,
-    /// Background of the status line segments and of the selected explorer
-    /// entry, which hold only strong text.
+    /**
+     * Background of the status line segments and of the selected explorer
+     * entry, which hold only strong text.
+     */
     pub highlight: Color,
-    /// The line under the cursor. Bold in the ANSI palette, whose only grey is
-    /// the one of the text still to type, which a grey background would hide.
+    /**
+     * The line under the cursor. Bold in the ANSI palette, whose only grey is
+     * the one of the text still to type, which a grey background would hide.
+     */
     pub cursorline: Style,
     pub cursor: Style,
-    /// A character typed wrong. Never reversed like the cursor: next to it,
-    /// a mistake would read as a wider cursor.
+    /**
+     * A character typed wrong. Never reversed like the cursor: next to it,
+     * a mistake would read as a wider cursor.
+     */
     pub mistake: Style,
     /// The text still to type, which must not read as typed text.
     pub pending: Style,
-    /// The selected explorer entry while the explorer has the focus, unlike
-    /// the bold entry it stays while the editor has it.
+    /**
+     * The selected explorer entry while the explorer has the focus, unlike
+     * the bold entry it stays while the editor has it.
+     */
     pub selection: Style,
     pub border: Color,
     pub text: Color,
@@ -93,11 +105,15 @@ pub struct Palette {
     pub on_accent: Color,
     /// Code once typed, brighter than the code still to type.
     pub lit: SyntaxColors,
-    /// Code still to type, in the colours of its syntax dimmed; `None`
-    /// where only grey tells it apart, as on 16 colours.
+    /**
+     * Code still to type, in the colours of its syntax dimmed; `None`
+     * where only grey tells it apart, as on 16 colours.
+     */
     pub ghost: Option<SyntaxColors>,
-    /// What freshly typed text glows with before it dries, where colours
-    /// can blend.
+    /**
+     * What freshly typed text glows with before it dries, where colours
+     * can blend.
+     */
     pub glow: Option<Color>,
     pub status: Style,
     /// The segments the status line sets apart, such as the name of the file.

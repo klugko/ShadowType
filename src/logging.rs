@@ -15,14 +15,18 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-/// Environment variable holding the log filter, such as `debug` or
-/// `code_racer=trace`. Defaults to `info`.
+/**
+ * Environment variable holding the log filter, such as `debug` or
+ * `code_racer=trace`. Defaults to `info`.
+ */
 pub const FILTER_VARIABLE: &str = "CODE_RACER_LOG";
 
-/// Sends every `tracing` event of the process to the end of the file at `path`.
-///
-/// Fails, without panicking, when the file cannot be opened or a logger is
-/// already installed. An invalid filter is reported in the log file itself.
+/**
+ * Sends every `tracing` event of the process to the end of the file at `path`.
+ *
+ * Fails, without panicking, when the file cannot be opened or a logger is
+ * already installed. An invalid filter is reported in the log file itself.
+ */
 pub fn init(path: &Path) -> anyhow::Result<()> {
     let file = open_for_append(path)?;
     let (logger, rejected) = file_logger(file, &env::var(FILTER_VARIABLE).unwrap_or_default());
@@ -35,8 +39,10 @@ pub fn init(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A logger that writes the events selected by `directives` to `file` as
-/// plain text, with the reason the directives were rejected, if they were.
+/**
+ * A logger that writes the events selected by `directives` to `file` as
+ * plain text, with the reason the directives were rejected, if they were.
+ */
 fn file_logger(
     file: File,
     directives: &str,
@@ -65,9 +71,11 @@ fn open_for_append(path: &Path) -> anyhow::Result<File> {
         .with_context(|| format!("cannot open the log file {}", path.display()))
 }
 
-/// The filter described by `directives`, or the default one with the reason
-/// it was rejected. `EnvFilter`'s lossy parsing would print that reason on the
-/// terminal, which belongs to the interface.
+/**
+ * The filter described by `directives`, or the default one with the reason
+ * it was rejected. `EnvFilter`'s lossy parsing would print that reason on the
+ * terminal, which belongs to the interface.
+ */
 fn parse_filter(directives: &str) -> (EnvFilter, Option<ParseError>) {
     let builder = EnvFilter::builder().with_default_directive(LevelFilter::INFO.into());
     match builder.parse(directives) {
@@ -81,8 +89,10 @@ mod tests {
     use super::*;
     use crate::persist::scratch::TempDir;
 
-    /// The logger is installed for this thread only: a global one would also
-    /// collect the events of the other tests running in this binary.
+    /**
+     * The logger is installed for this thread only: a global one would also
+     * collect the events of the other tests running in this binary.
+     */
     #[test]
     fn events_are_appended_to_the_file_as_plain_text() {
         let dir = TempDir::new();

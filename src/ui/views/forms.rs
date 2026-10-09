@@ -38,8 +38,10 @@ enum Item<'a> {
 }
 
 impl<'a> Item<'a> {
-    /// A form line of `app`, being typed when it takes `text` and that text
-    /// is being edited.
+    /**
+     * A form line of `app`, being typed when it takes `text` and that text
+     * is being edited.
+     */
     fn field(app: &'a App, row: form::Row, text: Option<TextField>, selected: bool) -> Self {
         Self::Field {
             row,
@@ -105,8 +107,10 @@ pub fn settings(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> 
     draw(frame, area, items, palette)
 }
 
-/// Returns where the terminal cursor goes while a value is being typed and
-/// in view.
+/**
+ * Returns where the terminal cursor goes while a value is being typed and
+ * in view.
+ */
 fn draw(
     frame: &mut Frame,
     area: Rect,
@@ -187,8 +191,10 @@ impl Columns {
     }
 }
 
-/// The row of a form line and, while its value is being typed, the column
-/// of the typing cursor in it. The hint follows only when it fits whole.
+/**
+ * The row of a form line and, while its value is being typed, the column
+ * of the typing cursor in it. The hint follows only when it fits whole.
+ */
 fn field_row(
     row: &form::Row,
     columns: Columns,
@@ -212,8 +218,10 @@ fn field_row(
     (Row::new(spans).current(selected), cursor)
 }
 
-/// `text` as a comment after `spans`, if any and if it fits whole in
-/// `width` columns: a cut example could read as another valid value.
+/**
+ * `text` as a comment after `spans`, if any and if it fits whole in
+ * `width` columns: a cut example could read as another valid value.
+ */
 fn comment_after(
     spans: &[Span<'_>],
     text: &str,
@@ -246,8 +254,10 @@ fn setting(
     spans
 }
 
-/// The line of a value being typed, scrolled to keep its cursor in view
-/// with both quotes, and the column of the cursor.
+/**
+ * The line of a value being typed, scrolled to keep its cursor in view
+ * with both quotes, and the column of the cursor.
+ */
 fn typed_setting(
     key: &str,
     input: &TextInput,
@@ -262,8 +272,10 @@ fn typed_setting(
     (setting(key, value, columns, palette), cursor)
 }
 
-/// The comment after a form line: how to end the typing, the key of the
-/// selected action, or what the line sets.
+/**
+ * The comment after a form line: how to end the typing, the key of the
+ * selected action, or what the line sets.
+ */
 fn hint(row: &form::Row, selected: bool, editing: bool) -> &str {
     match (&row.value, editing) {
         (_, true) => "Enter saves, Esc cancels",

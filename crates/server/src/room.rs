@@ -1,8 +1,10 @@
-//! A room and its races as a pure state machine.
-//!
-//! Nothing here performs I/O or reads the clock: every operation receives the
-//! current [`Instant`], which keeps the rules deterministic and testable. The
-//! hub owns the rooms and turns their state into messages.
+/*!
+ * A room and its races as a pure state machine.
+ *
+ * Nothing here performs I/O or reads the clock: every operation receives the
+ * current [`Instant`], which keeps the rules deterministic and testable. The
+ * hub owns the rooms and turns their state into messages.
+ */
 
 use std::time::{Duration, Instant};
 
@@ -14,9 +16,11 @@ use code_racer_protocol::{
 
 /// Fastest typing the server believes, in characters per second (about 360 WPM).
 const MAX_CHARS_PER_SECOND: f64 = 30.0;
-/// Characters a report may run ahead of that pace, for short bursts of fast
-/// typing. No allowance is needed for network delays: the server times a race
-/// from its own start, which comes before any client can type.
+/**
+ * Characters a report may run ahead of that pace, for short bursts of fast
+ * typing. No allowance is needed for network delays: the server times a race
+ * from its own start, which comes before any client can type.
+ */
 const SPEED_BURST_CHARS: f64 = 5.0;
 
 #[derive(Debug, Clone)]
@@ -157,10 +161,12 @@ impl Room {
         self.text
     }
 
-    /// Adds a player to the lobby. Joining a room one is already in changes
-    /// nothing, while a player who left after a race was announced stays
-    /// listed offline and may only come back once the room is in the lobby
-    /// again.
+    /**
+     * Adds a player to the lobby. Joining a room one is already in changes
+     * nothing, while a player who left after a race was announced stays
+     * listed offline and may only come back once the room is in the lobby
+     * again.
+     */
     pub fn join(&mut self, id: PlayerId, name: Username, now: Instant) -> Result<(), ServerError> {
         let already_in = self
             .members
@@ -181,9 +187,11 @@ impl Room {
         Ok(())
     }
 
-    /// Removes a player from the lobby. Once a race is announced, they stay
-    /// listed as disconnected until the room returns to the lobby, so that
-    /// the standings and the results stay complete.
+    /**
+     * Removes a player from the lobby. Once a race is announced, they stay
+     * listed as disconnected until the room returns to the lobby, so that
+     * the standings and the results stay complete.
+     */
     pub fn leave(&mut self, id: PlayerId, now: Instant) {
         let Some(index) = self.position(id) else {
             return;
@@ -248,12 +256,14 @@ impl Room {
         Ok(())
     }
 
-    /// Records a player's typing counters and derives their speed, accuracy
-    /// and finishing time from the server clock.
-    ///
-    /// Reports of players who already finished are ignored, and so are those
-    /// arriving after the race ended, which were on their way when it did.
-    /// Implausible reports are rejected and leave the room unchanged.
+    /**
+     * Records a player's typing counters and derives their speed, accuracy
+     * and finishing time from the server clock.
+     *
+     * Reports of players who already finished are ignored, and so are those
+     * arriving after the race ended, which were on their way when it did.
+     * Implausible reports are rejected and leave the room unchanged.
+     */
     pub fn report_progress(
         &mut self,
         by: PlayerId,
@@ -287,8 +297,10 @@ impl Room {
         Ok(())
     }
 
-    /// Brings everyone back to the lobby after a race, forgetting the players
-    /// who left during it.
+    /**
+     * Brings everyone back to the lobby after a race, forgetting the players
+     * who left during it.
+     */
     pub fn return_to_lobby(&mut self, by: PlayerId, now: Instant) -> Result<(), ServerError> {
         self.require_host(by, "return to the lobby")?;
         match self.stage {
@@ -313,9 +325,11 @@ impl Room {
         Ok(())
     }
 
-    /// Lets time move the race along: the countdown ends, then the race ends
-    /// once every connected player finished, nobody is left or the timeout
-    /// passed. Returns whether the phase changed.
+    /**
+     * Lets time move the race along: the countdown ends, then the race ends
+     * once every connected player finished, nobody is left or the timeout
+     * passed. Returns whether the phase changed.
+     */
     pub fn advance(&mut self, now: Instant, race_timeout: Duration) -> bool {
         let started = self.start_race_if_due(now);
         let finished = self.finish_race_if_due(now, race_timeout);
@@ -422,9 +436,11 @@ impl Room {
     }
 }
 
-/// Checks a report against the previous one and the race text. Auto-filled
-/// indentation needs no keystroke, so it is exempt from the keystroke and
-/// speed checks but must match indentation the text actually has.
+/**
+ * Checks a report against the previous one and the race text. Auto-filled
+ * indentation needs no keystroke, so it is exempt from the keystroke and
+ * speed checks but must match indentation the text actually has.
+ */
 fn check_progress(
     previous: Progress,
     next: Progress,
@@ -688,8 +704,10 @@ mod tests {
         );
     }
 
-    /// The valid name with the longest JSON: as many bytes as allowed, and a
-    /// quote, which JSON escapes, at the start of each of its characters.
+    /**
+     * The valid name with the longest JSON: as many bytes as allowed, and a
+     * quote, which JSON escapes, at the start of each of its characters.
+     */
     fn widest_name() -> Username {
         let marks = (Username::MAX_BYTES - Username::MAX_LENGTH) / '\u{301}'.len_utf8();
         let quotes = "\"".repeat(Username::MAX_LENGTH - 1);

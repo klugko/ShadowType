@@ -30,8 +30,10 @@ const TIMED_INITIAL_WORDS: usize = 80;
 const TIMED_REFILL_WORDS: usize = 40;
 const TIMED_REFILL_BELOW: usize = 120;
 const MAX_FILE_GRAPHEMES: usize = 3_000;
-/// Bytes read from a file at most: plenty for [`MAX_FILE_GRAPHEMES`], and
-/// a huge file or an endless device cannot freeze the interface.
+/**
+ * Bytes read from a file at most: plenty for [`MAX_FILE_GRAPHEMES`], and
+ * a huge file or an endless device cannot freeze the interface.
+ */
 const MAX_FILE_BYTES: usize = 64 * 1024;
 
 /// A line of `practice.toml`.
@@ -135,11 +137,13 @@ fn file_name(path: &Path) -> String {
         .to_string()
 }
 
-/// The first [`MAX_FILE_BYTES`] of a regular file, cut after a line break
-/// when the file is longer.
-///
-/// The type is checked before opening: opening a FIFO waits for a writer,
-/// and reading a terminal or `/dev/zero` never ends.
+/**
+ * The first [`MAX_FILE_BYTES`] of a regular file, cut after a line break
+ * when the file is longer.
+ *
+ * The type is checked before opening: opening a FIFO waits for a writer,
+ * and reading a terminal or `/dev/zero` never ends.
+ */
 fn read_start(path: &Path, display: &str) -> Result<Vec<u8>, FileError> {
     let unreadable = |source| FileError::Unreadable {
         path: display.to_owned(),
@@ -162,9 +166,11 @@ fn read_start(path: &Path, display: &str) -> Result<Vec<u8>, FileError> {
     Ok(bytes)
 }
 
-/// The text in `bytes`, `None` when they are not text. A character cut in
-/// two by [`read_start`] at the end is dropped rather than making a valid
-/// file look binary.
+/**
+ * The text in `bytes`, `None` when they are not text. A character cut in
+ * two by [`read_start`] at the end is dropped rather than making a valid
+ * file look binary.
+ */
 fn decode(bytes: &[u8]) -> Option<&str> {
     let text = match std::str::from_utf8(bytes) {
         Ok(text) => text,
@@ -176,8 +182,10 @@ fn decode(bytes: &[u8]) -> Option<&str> {
     (!text.contains('\0')).then_some(text)
 }
 
-/// The first `limit` characters of `text`, cut after the last line break
-/// among them when the text is longer.
+/**
+ * The first `limit` characters of `text`, cut after the last line break
+ * among them when the text is longer.
+ */
 fn truncate_at_line(text: &str, limit: usize) -> &str {
     let Some((end, _)) = text.grapheme_indices(true).nth(limit) else {
         return text;
@@ -198,8 +206,10 @@ impl Plan {
         )
     }
 
-    /// File name shown in the editor for this session, the name of the
-    /// file prose is disguised as in a look other than notes.
+    /**
+     * File name shown in the editor for this session, the name of the
+     * file prose is disguised as in a look other than notes.
+     */
     pub fn title(&self, disguise: Disguise<'_>) -> String {
         match self {
             Self::Text(TextSource::Code { language }) => code_file_name(*language),
@@ -230,8 +240,10 @@ impl Plan {
         parts
     }
 
-    /// Whether the text is prose, which a look can disguise, rather than
-    /// code or a file of the player's.
+    /**
+     * Whether the text is prose, which a look can disguise, rather than
+     * code or a file of the player's.
+     */
     pub fn is_prose(&self) -> bool {
         matches!(
             self,
@@ -381,8 +393,10 @@ impl SoloRun {
         &self.ink
     }
 
-    /// Hands `event` to the session, refilling a timed text that runs low.
-    /// Returns whether the session took the key.
+    /**
+     * Hands `event` to the session, refilling a timed text that runs low.
+     * Returns whether the session took the key.
+     */
     pub fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
         let taken = self.ink.apply(event, &mut self.session, now);
         if taken {
@@ -400,8 +414,10 @@ impl SoloRun {
         self.session.status() == Status::Running
     }
 
-    /// Computes the result once the session is over, compared with the
-    /// best of `history`, and returns the record to keep, only once.
+    /**
+     * Computes the result once the session is over, compared with the
+     * best of `history`, and returns the record to keep, only once.
+     */
     pub fn conclude(&mut self, history: &History, now: Instant) -> Option<Record> {
         if self.result.is_some() || !self.session.is_finished() {
             return None;

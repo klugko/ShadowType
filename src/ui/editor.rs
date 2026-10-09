@@ -1,5 +1,7 @@
-//! A buffer drawn like an editor window: line numbers, a highlighted
-//! cursor line and `~` markers past the end of the file.
+/*!
+ * A buffer drawn like an editor window: line numbers, a highlighted
+ * cursor line and `~` markers past the end of the file.
+ */
 
 use ratatui::{
     Frame,
@@ -19,8 +21,10 @@ pub struct Row {
     pub number: Option<usize>,
     pub spans: Vec<Span<'static>>,
     pub current: bool,
-    /// Keys shown in the row that a click presses: their first column in
-    /// the text, their width and what they press.
+    /**
+     * Keys shown in the row that a click presses: their first column in
+     * the text, their width and what they press.
+     */
     pub keys: Vec<(u16, u16, Target)>,
 }
 
@@ -95,8 +99,10 @@ pub fn text_width(area_width: u16, highest_line: usize) -> u16 {
     area_width.saturating_sub(gutter_width(highest_line)).max(1)
 }
 
-/// First row to show so that `row` stays visible with a few rows of context
-/// above it, like Vim's `scrolloff`, without scrolling past the end.
+/**
+ * First row to show so that `row` stays visible with a few rows of context
+ * above it, like Vim's `scrolloff`, without scrolling past the end.
+ */
 pub fn scroll_for(row: usize, height: u16, total: usize) -> usize {
     let height = usize::from(height).max(1);
     let context = (height / 3).min(2);

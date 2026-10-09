@@ -1,5 +1,7 @@
-//! Rendering. The layout mimics a code editor: explorer on the left, tab
-//! line and buffer on the right, status line and command line at the bottom.
+/*!
+ * Rendering. The layout mimics a code editor: explorer on the left, tab
+ * line and buffer on the right, status line and command line at the bottom.
+ */
 
 mod chart;
 mod chrome;
@@ -70,8 +72,10 @@ impl Moment {
 pub const MIN_WIDTH: u16 = 80;
 pub const MIN_HEIGHT: u16 = 20;
 const SIDEBAR_WIDTH: u16 = 24;
-/// How often the screen is redrawn while text moves on it: ink drying, the
-/// cursor breathing.
+/**
+ * How often the screen is redrawn while text moves on it: ink drying, the
+ * cursor breathing.
+ */
 const TEXT_FRAME: Duration = Duration::from_millis(40);
 /// How often the screen is redrawn while only the mascot moves.
 const MASCOT_FRAME: Duration = Duration::from_millis(100);
@@ -119,9 +123,11 @@ fn draw_screen(frame: &mut Frame, app: &App, now: Instant) {
     }
 }
 
-/// How soon the screen has to be drawn again for what moves on it to move,
-/// `None` while nothing moves: animations are off, or the text is still and
-/// the mascot asleep or out of sight.
+/**
+ * How soon the screen has to be drawn again for what moves on it to move,
+ * `None` while nothing moves: animations are off, or the text is still and
+ * the mascot asleep or out of sight.
+ */
 pub fn frame_period(app: &App, now: Instant) -> Option<Duration> {
     if !app.config.animations {
         return None;

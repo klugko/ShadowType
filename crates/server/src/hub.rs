@@ -1,8 +1,10 @@
-//! The hub is the single owner of every room and connected player.
-//!
-//! It runs as one task fed with [`Command`]s, so no state is shared between
-//! connections. [`Hub`] holds the logic and is driven synchronously with
-//! explicit instants; [`run`] is the thin async loop around it.
+/*!
+ * The hub is the single owner of every room and connected player.
+ *
+ * It runs as one task fed with [`Command`]s, so no state is shared between
+ * connections. [`Hub`] holds the logic and is driven synchronously with
+ * explicit instants; [`run`] is the thin async loop around it.
+ */
 
 use std::{
     collections::{HashMap, HashSet},
@@ -334,8 +336,10 @@ impl Hub {
         }
     }
 
-    /// The room of a player, first brought up to date with the clock so that
-    /// no request acts on a countdown or a race that is already over.
+    /**
+     * The room of a player, first brought up to date with the clock so that
+     * no request acts on a countdown or a race that is already over.
+     */
     fn current_room(
         &mut self,
         id: PlayerId,
@@ -395,8 +399,10 @@ pub async fn run(mut hub: Hub, mut commands: mpsc::Receiver<Command>) {
     }
 }
 
-/// Queues a message for a player. Returns false when their connection is gone
-/// or so far behind that its outbox is full.
+/**
+ * Queues a message for a player. Returns false when their connection is gone
+ * or so far behind that its outbox is full.
+ */
 fn deliver(players: &HashMap<PlayerId, Player>, id: PlayerId, message: ServerMessage) -> bool {
     let Some(player) = players.get(&id) else {
         return true;

@@ -1,5 +1,7 @@
-//! Raw-mode terminal that is always restored: on exit, on error, on a
-//! signal and when the interface panics.
+/*!
+ * Raw-mode terminal that is always restored: on exit, on error, on a
+ * signal and when the interface panics.
+ */
 
 use std::{
     io::{self, Stdout},
@@ -18,10 +20,12 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 pub type Backend = CrosstermBackend<Stdout>;
 
-/// Whether the terminal is set up for the interface and still has to be
-/// restored. Restoring twice would not be harmless: leaving the alternate
-/// screen again moves the cursor back over what was printed meanwhile, such
-/// as a panic report.
+/**
+ * Whether the terminal is set up for the interface and still has to be
+ * restored. Restoring twice would not be harmless: leaving the alternate
+ * screen again moves the cursor back over what was printed meanwhile, such
+ * as a panic report.
+ */
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Whether the terminal reports the mouse, which restoring turns off.
 static MOUSE: AtomicBool = AtomicBool::new(false);
@@ -56,8 +60,10 @@ impl TerminalGuard {
         &mut self.terminal
     }
 
-    /// Asks the terminal to report the mouse, or to keep it for selecting
-    /// text. Terminals without mouse reports run the interface all the same.
+    /**
+     * Asks the terminal to report the mouse, or to keep it for selecting
+     * text. Terminals without mouse reports run the interface all the same.
+     */
     pub fn set_mouse(&mut self, captured: bool) {
         if MOUSE.load(Ordering::SeqCst) == captured {
             return;
@@ -79,24 +85,30 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Bracketed paste lets the interface refuse pasted text while typing, and
-/// the bar cursor looks like an editor's. Consoles without them, such as
-/// the legacy Windows console, still run the interface.
+/**
+ * Bracketed paste lets the interface refuse pasted text while typing, and
+ * the bar cursor looks like an editor's. Consoles without them, such as
+ * the legacy Windows console, still run the interface.
+ */
 fn enable_optional_features() {
     let _ = execute!(io::stdout(), EnableBracketedPaste);
     let _ = execute!(io::stdout(), SetCursorStyle::SteadyBar);
 }
 
-/// Leaves raw mode and the alternate screen, once. Every step runs even when
-/// another failed, and failures are ignored on purpose: this runs while
-/// exiting or panicking, when nothing better can be done.
+/**
+ * Leaves raw mode and the alternate screen, once. Every step runs even when
+ * another failed, and failures are ignored on purpose: this runs while
+ * exiting or panicking, when nothing better can be done.
+ */
 fn restore() {
     if !ACTIVE.swap(false, Ordering::SeqCst) {
         return;
     }
     let mut stdout = io::stdout();
-    // Before raw mode goes: on Windows, it gives the console back the mode
-    // it had when the capture began, which raw mode would undo.
+    /*
+     * Before raw mode goes: on Windows, it gives the console back the mode
+     * it had when the capture began, which raw mode would undo.
+     */
     if MOUSE.swap(false, Ordering::SeqCst) {
         let _ = execute!(stdout, DisableMouseCapture);
     }
@@ -108,9 +120,11 @@ fn restore() {
     let _ = execute!(stdout, Show);
 }
 
-/// Resizes of a Windows console reach the program only when it asks for
-/// window input, which crossterm does for mouse capture alone. Asking is
-/// best effort: without it, a resize is noticed at the next redraw.
+/**
+ * Resizes of a Windows console reach the program only when it asks for
+ * window input, which crossterm does for mouse capture alone. Asking is
+ * best effort: without it, a resize is noticed at the next redraw.
+ */
 #[cfg(windows)]
 mod window_input {
     use std::{io, sync::OnceLock};
@@ -129,16 +143,20 @@ mod window_input {
         }
     }
 
-    /// Gives the console back the window input setting it had, leaving the
-    /// rest of its mode to the code that changed it.
+    /**
+     * Gives the console back the window input setting it had, leaving the
+     * rest of its mode to the code that changed it.
+     */
     pub fn restore() {
         if HAD_WINDOW_INPUT.get() == Some(&false) {
             let _ = update(|mode| mode & !WINDOW_INPUT);
         }
     }
 
-    /// Changes the input mode of the console with `change`; returns whether
-    /// it had window input before.
+    /**
+     * Changes the input mode of the console with `change`; returns whether
+     * it had window input before.
+     */
     fn update(change: impl FnOnce(u32) -> u32) -> io::Result<bool> {
         let console = ConsoleMode::from(Handle::current_in_handle()?);
         let mode = console.mode()?;
@@ -155,10 +173,12 @@ mod window_input {
     pub fn restore() {}
 }
 
-/// A panic on the interface thread ends the program: the terminal is
-/// restored first so that the report is readable. A panic on another
-/// thread, such as in the network task, is caught by the runtime and the
-/// interface goes on, so it is logged instead of printed over the screen.
+/**
+ * A panic on the interface thread ends the program: the terminal is
+ * restored first so that the report is readable. A panic on another
+ * thread, such as in the network task, is caught by the runtime and the
+ * interface goes on, so it is logged instead of printed over the screen.
+ */
 fn install_panic_hook() {
     let interface = thread::current().id();
     let previous = panic::take_hook();

@@ -1,5 +1,7 @@
-//! The editor frame around the buffer: explorer, tab line, status line and
-//! command line.
+/*!
+ * The editor frame around the buffer: explorer, tab line, status line and
+ * command line.
+ */
 
 use std::time::{Duration, Instant};
 
@@ -27,8 +29,10 @@ use crate::{
 
 const MEANINGFUL_SPEED_AFTER: Duration = Duration::from_secs(1);
 const MAX_MESSAGE_ROWS: usize = 4;
-/// Columns below which the context of the status line is left out rather
-/// than cut to a stub, its padding included.
+/**
+ * Columns below which the context of the status line is left out rather
+ * than cut to a stub, its padding included.
+ */
 const MIN_CONTEXT_WIDTH: usize = 10;
 const CONTEXT_SEPARATOR: &str = " · ";
 const PROMPT: &str = ":";
@@ -71,8 +75,10 @@ pub fn sidebar(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, mome
     }
 }
 
-/// Whether the mascot is wanted and fits under the `lines` lines of the
-/// explorer, a blank line between them.
+/**
+ * Whether the mascot is wanted and fits under the `lines` lines of the
+ * explorer, a blank line between them.
+ */
 fn has_room_for_mascot(app: &App, inner: Rect, lines: usize) -> bool {
     app.config.mascot
         && !app.config.discreet
@@ -126,8 +132,10 @@ fn explorer_lines(app: &App, width: u16, palette: &Palette) -> Vec<Line<'static>
     lines
 }
 
-/// The dot on the right of an entry holding a text in progress mirrors how an
-/// editor marks unsaved files.
+/**
+ * The dot on the right of an entry holding a text in progress mirrors how an
+ * editor marks unsaved files.
+ */
 fn explorer_entry(app: &App, buffer: Buffer, width: u16, palette: &Palette) -> Line<'static> {
     let name = app.buffer_name(buffer);
     let selected = app.buffer == buffer;
@@ -182,8 +190,10 @@ fn folder(name: &str, app: &App, palette: &Palette) -> Line<'static> {
     ))
 }
 
-/// The file type of a buffer named `name`, as the status line shows it,
-/// and the colour of the name in the explorer, both from its extension.
+/**
+ * The file type of a buffer named `name`, as the status line shows it,
+ * and the colour of the name in the explorer, both from its extension.
+ */
 fn file_kind(name: &str, palette: &Palette) -> (&'static str, Color) {
     let extension = name.rsplit_once('.').map(|(_, extension)| extension);
     match extension {
@@ -310,8 +320,10 @@ pub fn tabline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-/// The statistics on the right always show in full: the context and then the
-/// buffer name on the left make room for them.
+/**
+ * The statistics on the right always show in full: the context and then the
+ * buffer name on the left make room for them.
+ */
 pub fn statusline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, now: Instant) {
     let right = right_segments(app, palette, now);
     let room = usize::from(area.width).saturating_sub(spans_width(&right));
@@ -425,9 +437,11 @@ fn right_segments(app: &App, palette: &Palette, now: Instant) -> Vec<Span<'stati
     }
 }
 
-/// The 1-based line and column of the typing cursor in the file the text
-/// poses as: the lines a look puts above prose count, and a soft-wrapped line
-/// is one line.
+/**
+ * The 1-based line and column of the typing cursor in the file the text
+ * poses as: the lines a look puts above prose count, and a soft-wrapped line
+ * is one line.
+ */
 fn cursor_position(view: &SessionView<'_>, palette: &Palette) -> (usize, usize) {
     let session = view.session;
     let typed = &session.target()[..session.cursor()];
@@ -501,8 +515,10 @@ pub fn cmdline(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> O
     None
 }
 
-/// As many rows as the message on screen needs, so that a long one, such as a
-/// warning with the path of a backup, shows whole.
+/**
+ * As many rows as the message on screen needs, so that a long one, such as a
+ * warning with the path of a backup, shows whole.
+ */
 pub fn cmdline_height(app: &App, width: u16) -> u16 {
     let rows = match (&app.prompt, app.message()) {
         (None, Some(message)) => message_rows(&message.text, width).len(),

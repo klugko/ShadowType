@@ -1,7 +1,9 @@
-//! Word lists, quotes and code snippets bundled into the binary.
-//!
-//! Word lists hold one word per line. Quotes and snippets are separated by `%`
-//! lines, as in fortune files, and a quote may end with a `-- ` attribution line.
+/*!
+ * Word lists, quotes and code snippets bundled into the binary.
+ *
+ * Word lists hold one word per line. Quotes and snippets are separated by `%`
+ * lines, as in fortune files, and a quote may end with a `-- ` attribution line.
+ */
 
 use std::sync::LazyLock;
 

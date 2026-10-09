@@ -1,12 +1,16 @@
-//! The mood of the mascot that lives under the explorer, from what the
-//! player is doing. Drawing it is left to the interface.
+/*!
+ * The mood of the mascot that lives under the explorer, from what the
+ * player is doing. Drawing it is left to the interface.
+ */
 
 use std::time::{Duration, Instant};
 
 use super::{Activity, App};
 
-/// How long without a key before the mascot falls asleep. Asleep it stops
-/// moving, so that an idle editor uses no processor time.
+/**
+ * How long without a key before the mascot falls asleep. Asleep it stops
+ * moving, so that an idle editor uses no processor time.
+ */
 pub const NAP_AFTER: Duration = Duration::from_secs(45);
 /// How long the mascot looks startled after a mistake.
 const STARTLE: Duration = Duration::from_millis(900);

@@ -13,8 +13,10 @@ use crate::{
 /// Word counts accepted for a race.
 pub const RACE_WORD_COUNTS: RangeInclusive<u16> = 5..=200;
 
-/// Most players a room can hold, so that a view listing all of them with the
-/// longest names still fits in [`MAX_MESSAGE_BYTES`](crate::MAX_MESSAGE_BYTES).
+/**
+ * Most players a room can hold, so that a view listing all of them with the
+ * longest names still fits in [`MAX_MESSAGE_BYTES`](crate::MAX_MESSAGE_BYTES).
+ */
 pub const MAX_ROOM_PLAYERS: u8 = 32;
 
 pub fn is_raceable(text: &TextSource) -> bool {
@@ -54,9 +56,11 @@ pub struct PlayerView {
     pub id: PlayerId,
     pub name: Username,
     pub ready: bool,
-    /// False once the player left or lost their connection after a race was
-    /// announced. They stay listed, results included, until the room
-    /// returns to the lobby.
+    /**
+     * False once the player left or lost their connection after a race was
+     * announced. They stay listed, results included, until the room
+     * returns to the lobby.
+     */
     pub connected: bool,
     pub progress: PlayerProgress,
 }
@@ -78,8 +82,10 @@ impl PlayerProgress {
         self.finish_ms.is_some()
     }
 
-    /// Share of the text typed correctly, between 0 and 1, by the
-    /// [`completion`] rule the player's own session shows.
+    /**
+     * Share of the text typed correctly, between 0 and 1, by the
+     * [`completion`] rule the player's own session shows.
+     */
     pub fn fraction(&self, text_length: u32) -> f64 {
         completion(count(self.correct), count(text_length))
     }
@@ -98,10 +104,12 @@ impl RoomView {
         self.players.iter().all(|player| player.ready)
     }
 
-    /// Players from first to last place.
-    ///
-    /// Finishers come first, fastest first. Everyone else is ranked by how
-    /// much of the text they typed correctly; ties keep the joining order.
+    /**
+     * Players from first to last place.
+     *
+     * Finishers come first, fastest first. Everyone else is ranked by how
+     * much of the text they typed correctly; ties keep the joining order.
+     */
     pub fn standings(&self) -> Vec<&PlayerView> {
         let mut standings: Vec<&PlayerView> = self.players.iter().collect();
         standings.sort_by_key(|player| {

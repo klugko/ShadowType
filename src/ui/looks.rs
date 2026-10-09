@@ -1,6 +1,8 @@
-//! What prose looks like on screen: the kind of file it is typed in. A look
-//! dresses the text with what such a file holds around it, before each row
-//! and above and below, none of which is typed.
+/*!
+ * What prose looks like on screen: the kind of file it is typed in. A look
+ * dresses the text with what such a file holds around it, before each row
+ * and above and below, none of which is typed.
+ */
 
 use std::time::{Duration, Instant};
 
@@ -174,8 +176,10 @@ fn glowing(palette: &Palette, color: Color, since: Option<Instant>, moment: Mome
     blend(glow, color, age.as_secs_f64() / STAMP_GLOW.as_secs_f64())
 }
 
-/// Mostly information, now and then a debug line or a warning, always the
-/// same for a given row.
+/**
+ * Mostly information, now and then a debug line or a warning, always the
+ * same for a given row.
+ */
 fn log_level(index: usize) -> &'static str {
     const LEVELS: [&str; 10] = [
         "INFO", "INFO", "DEBUG", "INFO", "INFO", "WARN", "INFO", "DEBUG", "INFO", "INFO",
@@ -295,8 +299,10 @@ fn author(name: &str) -> String {
     }
 }
 
-/// The local part of an email address for `name`: its letters without
-/// their accents, a dot for each space.
+/**
+ * The local part of an email address for `name`: its letters without
+ * their accents, a dot for each space.
+ */
 fn address(name: &str) -> String {
     let address: String = name
         .to_lowercase()

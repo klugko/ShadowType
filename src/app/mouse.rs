@@ -1,6 +1,8 @@
-//! The mouse: a click does what the keys of the thing clicked do, and the
-//! wheel scrolls. What lies where is what the screen showed last, as the
-//! interface reports it in [`Hits`].
+/*!
+ * The mouse: a click does what the keys of the thing clicked do, and the
+ * wheel scrolls. What lies where is what the screen showed last, as the
+ * interface reports it in [`Hits`].
+ */
 
 use std::time::Instant;
 
@@ -24,8 +26,10 @@ pub enum Target {
     PaletteEntry(usize),
     /// The rest of the command palette, which a click leaves open.
     Overlay,
-    /// A key shown on screen, such as `r  new text` under the results,
-    /// pressed `times` times.
+    /**
+     * A key shown on screen, such as `r  new text` under the results,
+     * pressed `times` times.
+     */
     Key {
         code: KeyCode,
         times: u8,
@@ -36,8 +40,10 @@ pub enum Target {
     Mode,
 }
 
-/// Where each target lies on screen, as last drawn. A region added later
-/// lies over the ones added before it.
+/**
+ * Where each target lies on screen, as last drawn. A region added later
+ * lies over the ones added before it.
+ */
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Hits {
     regions: Vec<(Rect, Target)>,
@@ -62,9 +68,11 @@ impl Hits {
 }
 
 impl App {
-    /// Handles a mouse event on the screen mapped by `hits`. Returns
-    /// whether it changed anything: moves and releases do not, so that
-    /// moving the mouse never redraws.
+    /**
+     * Handles a mouse event on the screen mapped by `hits`. Returns
+     * whether it changed anything: moves and releases do not, so that
+     * moving the mouse never redraws.
+     */
     pub fn handle_mouse(&mut self, mouse: MouseEvent, hits: &Hits, now: Instant) -> bool {
         if !self.config.mouse {
             return false;
@@ -127,8 +135,10 @@ impl App {
         }
     }
 
-    /// Selects the line `index` of the form on screen, and acts on it when
-    /// it is selected already, or when it is an action such as `▶ start`.
+    /**
+     * Selects the line `index` of the form on screen, and acts on it when
+     * it is selected already, or when it is an action such as `▶ start`.
+     */
     fn click_form_line(&mut self, index: usize, now: Instant) {
         let Some((len, action)) = self.form_line(index) else {
             return;
@@ -144,8 +154,10 @@ impl App {
         }
     }
 
-    /// The number of lines of the form on screen, and whether its line
-    /// `index` is an action, when there is such a line.
+    /**
+     * The number of lines of the form on screen, and whether its line
+     * `index` is an action, when there is such a line.
+     */
     fn form_line(&self, index: usize) -> Option<(usize, bool)> {
         match self.buffer {
             Buffer::Practice => {

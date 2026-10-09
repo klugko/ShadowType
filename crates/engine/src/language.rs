@@ -99,9 +99,11 @@ pub struct UnknownLanguage {
     expected: String,
 }
 
-/// Names, display, parsing and serde all go through the `names` table of a
-/// language enum, so the command line, the configuration file and the wire
-/// accept exactly the same spellings.
+/**
+ * Names, display, parsing and serde all go through the `names` table of a
+ * language enum, so the command line, the configuration file and the wire
+ * accept exactly the same spellings.
+ */
 macro_rules! impl_language_traits {
     ($language:ty) => {
         impl $language {

@@ -1,6 +1,8 @@
-//! The text being typed: ghost text ahead of the cursor, real text behind it.
-//! Code shows its syntax from the start, dimmed until typed; prose is dressed
-//! as the kind of file its look makes it.
+/*!
+ * The text being typed: ghost text ahead of the cursor, real text behind it.
+ * Code shows its syntax from the start, dimmed until typed; prose is dressed
+ * as the kind of file its look makes it.
+ */
 
 use std::{f64::consts::TAU, time::Duration};
 
@@ -39,9 +41,11 @@ pub struct TypingLayout {
     pub cursor_row: usize,
 }
 
-/// Prose is numbered row by row like a soft-wrapped file, with the lines its
-/// look puts around it; code keeps its own line numbers. The cursor block is
-/// drawn only while `active`.
+/**
+ * Prose is numbered row by row like a soft-wrapped file, with the lines its
+ * look puts around it; code keeps its own line numbers. The cursor block is
+ * drawn only while `active`.
+ */
 pub fn layout(
     view: &SessionView<'_>,
     width: u16,
@@ -89,8 +93,10 @@ pub fn layout(
     TypingLayout { rows, cursor_row }
 }
 
-/// Whether the text of `view` moves at `moment`: fresh ink drying, the
-/// cursor trailing, or a running text, whose cursor breathes.
+/**
+ * Whether the text of `view` moves at `moment`: fresh ink drying, the
+ * cursor trailing, or a running text, whose cursor breathes.
+ */
 pub fn is_moving(view: &SessionView<'_>, moment: Moment) -> bool {
     let Some(ink) = view.ink.filter(|_| moment.animate) else {
         return false;
@@ -143,8 +149,10 @@ struct Painter<'a> {
 }
 
 impl Painter<'_> {
-    /// The row of the text `line`, its `index`th, under the cursor when
-    /// `current`, the end of the text when `last`.
+    /**
+     * The row of the text `line`, its `index`th, under the cursor when
+     * `current`, the end of the text when `last`.
+     */
     fn row(&self, index: usize, line: &VisualLine, current: bool, last: bool) -> Row {
         let target = self.view.session.target();
         let state = row_state(self.view, index, line);
@@ -221,8 +229,10 @@ impl Painter<'_> {
         (glyph.to_owned(), style)
     }
 
-    /// How much of the cursor's trail lies on the character at `index`, 0
-    /// when no trail is drawn.
+    /**
+     * How much of the cursor's trail lies on the character at `index`, 0
+     * when no trail is drawn.
+     */
     fn trail_at(&self, index: usize) -> f64 {
         match self.view.ink {
             Some(ink) if self.moment.trail && self.palette.blends() => {
@@ -232,8 +242,10 @@ impl Painter<'_> {
         }
     }
 
-    /// `style` over the trail of the cursor at `index`, if it passed there
-    /// lately: a streak of its colour fading into `background`.
+    /**
+     * `style` over the trail of the cursor at `index`, if it passed there
+     * lately: a streak of its colour fading into `background`.
+     */
     fn trailing(&self, index: usize, style: Style, background: Color) -> Style {
         if self.cursor == Some(index) {
             return style;
@@ -270,8 +282,10 @@ impl Painter<'_> {
     }
 }
 
-/// The cursor, breathing when the player pauses in a running text, in
-/// themes where colours blend.
+/**
+ * The cursor, breathing when the player pauses in a running text, in
+ * themes where colours blend.
+ */
 fn cursor_style(view: &SessionView<'_>, palette: &Palette, moment: Moment) -> Style {
     let still = palette.cursor;
     let (Some(ink), true, true) = (view.ink, moment.animate, palette.blends()) else {
@@ -303,8 +317,10 @@ fn guide_style(palette: &Palette) -> Style {
     }
 }
 
-/// How deep each bracket of code is nested, `None` for other characters.
-/// Brackets in strings and comments are not punctuation, so they do not count.
+/**
+ * How deep each bracket of code is nested, `None` for other characters.
+ * Brackets in strings and comments are not punctuation, so they do not count.
+ */
 fn bracket_depths(target: &[String], tokens: &[Token]) -> Vec<Option<usize>> {
     let mut depth: usize = 0;
     target
@@ -329,8 +345,10 @@ fn bracket_depths(target: &[String], tokens: &[Token]) -> Vec<Option<usize>> {
         .collect()
 }
 
-/// The width of one level of indentation in code: the smallest indentation
-/// of its lines, or [`DEFAULT_INDENT`] when none is indented.
+/**
+ * The width of one level of indentation in code: the smallest indentation
+ * of its lines, or [`DEFAULT_INDENT`] when none is indented.
+ */
 fn indent_unit(target: &[String], lines: &[VisualLine]) -> usize {
     lines
         .iter()

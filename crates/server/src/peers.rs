@@ -1,5 +1,7 @@
-//! Connections held by each peer address, so that one machine cannot take
-//! every connection slot of the server.
+/*!
+ * Connections held by each peer address, so that one machine cannot take
+ * every connection slot of the server.
+ */
 
 use std::{
     collections::HashMap,
@@ -55,8 +57,10 @@ impl PeerSlots {
         }
     }
 
-    /// The counts stay consistent even if a thread panicked while holding
-    /// the lock: every update is a single step.
+    /**
+     * The counts stay consistent even if a thread panicked while holding
+     * the lock: every update is a single step.
+     */
     fn lock(&self) -> MutexGuard<'_, HashMap<IpAddr, usize>> {
         self.open.lock().unwrap_or_else(PoisonError::into_inner)
     }

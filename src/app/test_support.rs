@@ -1,8 +1,10 @@
-//! Typing helpers shared by the tests of the app and of its views.
-//!
-//! Each keystroke is checked as it is typed: a key the text refuses or
-//! judges wrong fails the test at once, where a loop typing "until the
-//! text is done" would spin forever.
+/*!
+ * Typing helpers shared by the tests of the app and of its views.
+ *
+ * Each keystroke is checked as it is typed: a key the text refuses or
+ * judges wrong fails the test at once, where a loop typing "until the
+ * text is done" would spin forever.
+ */
 
 use std::time::Instant;
 
@@ -15,8 +17,10 @@ pub(crate) fn session(app: &App) -> &TypingSession {
     app.session_view().expect("a session").session
 }
 
-/// Types the character the text expects next, at `at`, and checks that it
-/// was taken and judged right.
+/**
+ * Types the character the text expects next, at `at`, and checks that it
+ * was taken and judged right.
+ */
 pub(crate) fn type_next(app: &mut App, at: Instant) {
     let before = session(app).cursor();
     let next = session(app)

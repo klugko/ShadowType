@@ -1,5 +1,7 @@
-//! Layout of the `history.log` buffer: what each of its lines shows. The
-//! view draws these lines, and the keys that scroll it stop on the last one.
+/*!
+ * Layout of the `history.log` buffer: what each of its lines shows. The
+ * view draws these lines, and the keys that scroll it stop on the last one.
+ */
 
 /// Sessions shown in the progression chart, the most recent ones.
 pub const CHART_SESSIONS: usize = 60;
@@ -44,8 +46,10 @@ pub enum Line {
     Session(usize),
 }
 
-/// The lines of the buffer for `sessions` sessions; the chart needs two of
-/// them to draw a line.
+/**
+ * The lines of the buffer for `sessions` sessions; the chart needs two of
+ * them to draw a line.
+ */
 pub fn lines(sessions: usize) -> Vec<Line> {
     if sessions == 0 {
         return vec![Line::Title, Line::Blank, Line::NoSessions];

@@ -1,6 +1,8 @@
-//! Results of finished sessions, stored in `history.json` as a JSON array of
-//! records, oldest first. Files written by code-racer 0.1 are understood and
-//! migrated on the next save.
+/*!
+ * Results of finished sessions, stored in `history.json` as a JSON array of
+ * records, oldest first. Files written by code-racer 0.1 are understood and
+ * migrated on the next save.
+ */
 
 use std::{
     collections::BTreeSet,
@@ -25,11 +27,15 @@ pub const RECENT_SESSIONS: usize = 10;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Record {
     pub date: DateTime<Local>,
-    /// What was practised: `words 50`, `time 30`, `quote`, `code`, `file` or
-    /// `race`.
+    /**
+     * What was practised: `words 50`, `time 30`, `quote`, `code`, `file` or
+     * `race`.
+     */
     pub mode: String,
-    /// The natural language of the text, or the programming language of a
-    /// `code` session (`rust`), a `file` (`text` when unknown) or a race on code.
+    /**
+     * The natural language of the text, or the programming language of a
+     * `code` session (`rust`), a `file` (`text` when unknown) or a race on code.
+     */
     pub language: String,
     /// Length of the session, in seconds.
     pub duration: f64,
@@ -84,12 +90,14 @@ pub struct History {
 }
 
 impl History {
-    /// Reads the history saved at `path`, which later additions are written to.
-    ///
-    /// A missing file gives an empty history. An invalid one is moved aside,
-    /// explained in the warning, and replaced by an empty history. A file
-    /// that can be neither used nor moved aside gives an empty history that
-    /// stays in memory, so that the file is never overwritten.
+    /**
+     * Reads the history saved at `path`, which later additions are written to.
+     *
+     * A missing file gives an empty history. An invalid one is moved aside,
+     * explained in the warning, and replaced by an empty history. A file
+     * that can be neither used nor moved aside gives an empty history that
+     * stays in memory, so that the file is never overwritten.
+     */
     pub fn load(path: &Path) -> Loaded<Self> {
         persist::read_or_recover(path, "starting a new history", parse_records).map(|found| {
             match found {
@@ -122,11 +130,13 @@ impl History {
         &self.records
     }
 
-    /// Appends a record and saves it, along with the records saved meanwhile
-    /// by other running instances, which then show up here too.
-    ///
-    /// On a write error the record stays in memory, is saved with the next
-    /// one, and the error is returned.
+    /**
+     * Appends a record and saves it, along with the records saved meanwhile
+     * by other running instances, which then show up here too.
+     *
+     * On a write error the record stays in memory, is saved with the next
+     * one, and the error is returned.
+     */
     pub fn add(&mut self, record: Record) -> io::Result<()> {
         self.records.push(record.sanitized());
         self.unsaved = (self.unsaved + 1).min(MAX_RECORDS);
@@ -163,9 +173,11 @@ impl History {
         (records.len(), Duration::from_secs_f64(seconds.max(0.0)))
     }
 
-    /// How many days in a row, up to `today`, have at least one session.
-    /// A streak still counts on a day not practised yet when the day
-    /// before was.
+    /**
+     * How many days in a row, up to `today`, have at least one session.
+     * A streak still counts on a day not practised yet when the day
+     * before was.
+     */
     pub fn streak(&self, today: NaiveDate) -> usize {
         let days: BTreeSet<NaiveDate> = self
             .records
@@ -202,10 +214,12 @@ impl History {
     }
 }
 
-/// Appends `records` to the file and returns everything it then holds.
-///
-/// The file is read again under the lock, rather than rewritten from memory,
-/// so that the results another instance saved since start-up are kept.
+/**
+ * Appends `records` to the file and returns everything it then holds.
+ *
+ * The file is read again under the lock, rather than rewritten from memory,
+ * so that the results another instance saved since start-up are kept.
+ */
 fn append_to_file(path: &Path, records: &[Record]) -> io::Result<Vec<Record>> {
     let _lock = persist::lock(path)?;
     let mut saved = match persist::read_existing(path)? {
@@ -222,9 +236,11 @@ fn append_to_file(path: &Path, records: &[Record]) -> io::Result<Vec<Record>> {
 }
 
 impl Record {
-    /// JSON cannot store NaN or infinities, which would make the whole file
-    /// unreadable, and negative amounts are meaningless: both become zero, so
-    /// that no summary can come out as NaN.
+    /**
+     * JSON cannot store NaN or infinities, which would make the whole file
+     * unreadable, and negative amounts are meaningless: both become zero, so
+     * that no summary can come out as NaN.
+     */
     fn sanitized(self) -> Self {
         Self {
             duration: non_negative(self.duration),
@@ -329,8 +345,10 @@ impl From<StoredRecord> for Record {
     }
 }
 
-/// Development builds of 0.2 migrated code sessions to `code <language>`,
-/// which never matches the `code` key that sessions are recorded under.
+/**
+ * Development builds of 0.2 migrated code sessions to `code <language>`,
+ * which never matches the `code` key that sessions are recorded under.
+ */
 fn current_mode(mode: String) -> String {
     if mode.starts_with("code ") {
         Record::CODE_MODE.to_owned()

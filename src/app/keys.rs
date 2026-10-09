@@ -19,10 +19,12 @@ use code_racer_protocol::Phase;
 const PAGE: usize = 10;
 
 impl App {
-    /// Handles a key press or repeat. Releases are ignored: Windows reports
-    /// one after every press, which would act twice. Ctrl+C always quits;
-    /// any other key is ignored during the quiet period that follows the
-    /// end of typing.
+    /**
+     * Handles a key press or repeat. Releases are ignored: Windows reports
+     * one after every press, which would act twice. Ctrl+C always quits;
+     * any other key is ignored during the quiet period that follows the
+     * end of typing.
+     */
     pub fn handle_key(&mut self, key: KeyEvent, now: Instant) {
         if key.kind == KeyEventKind::Release {
             return;
@@ -215,8 +217,10 @@ impl App {
         }
     }
 
-    /// Begins typing the value of a line that takes `text`, when `intent`
-    /// edits or activates it. Returns whether it did.
+    /**
+     * Begins typing the value of a line that takes `text`, when `intent`
+     * edits or activates it. Returns whether it did.
+     */
     fn edit_text_line(&mut self, intent: ValueIntent, text: Option<TextField>) -> bool {
         let editing = matches!(intent, ValueIntent::Activate | ValueIntent::Edit);
         match text.filter(|_| editing) {
@@ -228,8 +232,10 @@ impl App {
         }
     }
 
-    /// Moves the selected value as `intent` says, Enter moving it forward,
-    /// and saves it.
+    /**
+     * Moves the selected value as `intent` says, Enter moving it forward,
+     * and saves it.
+     */
     fn change_value(&mut self, intent: ValueIntent, change: impl Fn(&mut Config, Step)) {
         let step = match intent {
             ValueIntent::Change(step) => step,
@@ -260,8 +266,10 @@ impl App {
         true
     }
 
-    /// A held key makes its request only once: the server limits how many
-    /// messages a player sends.
+    /**
+     * A held key makes its request only once: the server limits how many
+     * messages a player sends.
+     */
     fn room_key(&mut self, key: KeyEvent, phase: Option<Phase>, now: Instant) -> bool {
         let request = match (phase, key.code) {
             (_, KeyCode::Esc) => {
@@ -404,8 +412,10 @@ fn value_intent(key: KeyEvent) -> Option<ValueIntent> {
     }
 }
 
-/// Scrolls between the first line and `last`, the scroll that shows the
-/// last line of the buffer at the bottom of the editor.
+/**
+ * Scrolls between the first line and `last`, the scroll that shows the
+ * last line of the buffer at the bottom of the editor.
+ */
 fn scroll_key(key: KeyEvent, scroll: &mut usize, last: usize) -> bool {
     let target = match (control_letter(key), key.code) {
         (Some('d'), _) | (_, KeyCode::PageDown) => scroll.saturating_add(PAGE),

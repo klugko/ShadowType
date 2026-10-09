@@ -1,5 +1,7 @@
-//! The command palette, drawn over the editor like a code editor's: a line
-//! to type in, and the commands that match what is typed under it.
+/*!
+ * The command palette, drawn over the editor like a code editor's: a line
+ * to type in, and the commands that match what is typed under it.
+ */
 
 use ratatui::{
     Frame,
@@ -24,8 +26,10 @@ const MAX_WIDTH: u16 = 76;
 const MAX_LISTED: u16 = 12;
 const PROMPT: &str = "> ";
 
-/// Draws the palette at the top of `area`; returns where the terminal
-/// cursor goes, after what is typed.
+/**
+ * Draws the palette at the top of `area`; returns where the terminal
+ * cursor goes, after what is typed.
+ */
 pub fn palette(
     frame: &mut Frame,
     area: Rect,

@@ -21,8 +21,10 @@ use crate::{
 const LEAVE_CONFIRMATION: Duration = Duration::from_secs(2);
 
 impl App {
-    /// Opens what the command line asked for, after asking for the name
-    /// other racers will see on first launch.
+    /**
+     * Opens what the command line asked for, after asking for the name
+     * other racers will see on first launch.
+     */
     pub(super) fn launch(&mut self, launch: Launch) {
         if self.config.username().is_none() {
             self.ask_username(launch);
@@ -115,8 +117,10 @@ impl App {
         }
     }
 
-    /// Joins room `code`, which the room line of `race.toml` then shows once
-    /// the connection is under way.
+    /**
+     * Joins room `code`, which the room line of `race.toml` then shows once
+     * the connection is under way.
+     */
     fn join_room(&mut self, code: RoomCode) {
         let line = code.to_string();
         if self.connect(Intent::Join(code)) {
@@ -124,8 +128,10 @@ impl App {
         }
     }
 
-    /// Connects to the race server for `intent`. Returns whether the
-    /// connection is under way, rather than refused or waiting for a name.
+    /**
+     * Connects to the race server for `intent`. Returns whether the
+     * connection is under way, rather than refused or waiting for a name.
+     */
     fn connect(&mut self, intent: Intent) -> bool {
         if self.refuse_while_in_room() {
             return false;
@@ -150,8 +156,10 @@ impl App {
         true
     }
 
-    /// Whether the player is in a room, which starting anything else would
-    /// leave: that is refused, as leaving takes Esc, twice during a race.
+    /**
+     * Whether the player is in a room, which starting anything else would
+     * leave: that is refused, as leaving takes Esc, twice during a race.
+     */
     fn refuse_while_in_room(&mut self) -> bool {
         let Some(client) = self.race() else {
             return false;
@@ -164,8 +172,10 @@ impl App {
         true
     }
 
-    /// Asks the room for `request`, telling the player why when it cannot be
-    /// made.
+    /**
+     * Asks the room for `request`, telling the player why when it cannot be
+     * made.
+     */
     pub(super) fn request_room(&mut self, request: RoomRequest, now: Instant) {
         let Some(Activity::Race(client)) = &mut self.activity else {
             return;
@@ -177,9 +187,11 @@ impl App {
         }
     }
 
-    /// Abandons the solo session or leaves the room. While there is
-    /// something to lose, it takes a second Esc: in an editor Esc is a
-    /// reflex, and one press would throw it away.
+    /**
+     * Abandons the solo session or leaves the room. While there is
+     * something to lose, it takes a second Esc: in an editor Esc is a
+     * reflex, and one press would throw it away.
+     */
     pub(super) fn leave_session(&mut self, now: Instant) {
         let (asked, done) = match &self.activity {
             Some(Activity::Solo(_)) => (
@@ -200,8 +212,10 @@ impl App {
         }
     }
 
-    /// Whether leaving is confirmed: at once when there is nothing to lose,
-    /// otherwise by a second Esc within [`LEAVE_CONFIRMATION`] of the first.
+    /**
+     * Whether leaving is confirmed: at once when there is nothing to lose,
+     * otherwise by a second Esc within [`LEAVE_CONFIRMATION`] of the first.
+     */
     fn confirm_leave(&mut self, now: Instant) -> bool {
         let confirmed = !self.leaving_loses_something()
             || self
@@ -211,8 +225,10 @@ impl App {
         confirmed
     }
 
-    /// Whether leaving would lose a solo text in progress, or a race from
-    /// its countdown to its results, where the host may start another one.
+    /**
+     * Whether leaving would lose a solo text in progress, or a race from
+     * its countdown to its results, where the host may start another one.
+     */
     fn leaving_loses_something(&self) -> bool {
         match &self.activity {
             Some(Activity::Solo(run)) => run.is_in_progress(),
@@ -233,9 +249,11 @@ impl App {
         }
     }
 
-    /// Ends the running activity, leaving the room the player is in. Returns
-    /// the connection to that room, which sends the goodbye, then closes,
-    /// once dropped.
+    /**
+     * Ends the running activity, leaving the room the player is in. Returns
+     * the connection to that room, which sends the goodbye, then closes,
+     * once dropped.
+     */
     fn end_activity(&mut self) -> Option<Connection> {
         match self.activity.take() {
             Some(Activity::Race(client)) => Some(client.leave()),
@@ -243,9 +261,11 @@ impl App {
         }
     }
 
-    /// Ends the run, leaving the room the player is in. Returns the
-    /// connection to that room, which the program should give time to send
-    /// the goodbye before it exits.
+    /**
+     * Ends the run, leaving the room the player is in. Returns the
+     * connection to that room, which the program should give time to send
+     * the goodbye before it exits.
+     */
     pub fn finish(mut self) -> Option<Connection> {
         self.end_activity()
     }
@@ -257,9 +277,11 @@ impl App {
         }
     }
 
-    /// Hands `event` to the text being typed, solo or in a race, and keeps
-    /// the record of a solo session it ended. Returns whether the text took
-    /// the key.
+    /**
+     * Hands `event` to the text being typed, solo or in a race, and keeps
+     * the record of a solo session it ended. Returns whether the text took
+     * the key.
+     */
     pub(super) fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
         let taken = self
             .activity
@@ -302,8 +324,10 @@ impl App {
         }
     }
 
-    /// Switches the solo settings to `mode`, adjusted by `change`, saves
-    /// them and starts a session with them.
+    /**
+     * Switches the solo settings to `mode`, adjusted by `change`, saves
+     * them and starts a session with them.
+     */
     fn practise(&mut self, mode: Mode, change: impl Fn(&mut Practice)) {
         if self.refuse_while_in_room() {
             return;

@@ -1,6 +1,8 @@
-//! Everything about typing that does not depend on a terminal or a network:
-//! the texts to type, the session that compares keystrokes against them and
-//! the statistics derived from it.
+/*!
+ * Everything about typing that does not depend on a terminal or a network:
+ * the texts to type, the session that compares keystrokes against them and
+ * the statistics derived from it.
+ */
 
 pub mod corpus;
 pub mod indentation;

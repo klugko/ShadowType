@@ -134,10 +134,12 @@ pub fn complete(input: &str, index: usize) -> Option<&'static str> {
     (!candidates.is_empty()).then(|| candidates[index % candidates.len()])
 }
 
-/// The file named by `argument` as a shell would read it: without the
-/// quotes around it, such as those of a path copied from a file manager,
-/// and from the `home` directory when it starts with `~` alone, as in
-/// `~/projects/lib.rs`. `~user` forms are left alone.
+/**
+ * The file named by `argument` as a shell would read it: without the
+ * quotes around it, such as those of a path copied from a file manager,
+ * and from the `home` directory when it starts with `~` alone, as in
+ * `~/projects/lib.rs`. `~user` forms are left alone.
+ */
 fn file_argument(argument: &str, home: Option<&Path>) -> PathBuf {
     let path = unquoted(argument);
     let Some(rest) = path.strip_prefix('~') else {

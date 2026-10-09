@@ -300,8 +300,10 @@ fn typing_screen_shows_insert_mode_and_live_statistics() {
     }
 }
 
-/// The styles of a character typed right, one typed wrong, the cursor and a
-/// character still to type, in that order on the cursor line, in `theme`.
+/**
+ * The styles of a character typed right, one typed wrong, the cursor and a
+ * character still to type, in that order on the cursor line, in `theme`.
+ */
 fn typing_cells(theme: Theme) -> [Style; 4] {
     let mut app = app();
     app.config.theme = theme;
@@ -1058,8 +1060,10 @@ fn type_prefix(app: &mut App, count: usize) {
     }
 }
 
-/// Types the whole text correctly, its first character now and the others
-/// `duration` later. Returns when the text ended.
+/**
+ * Types the whole text correctly, its first character now and the others
+ * `duration` later. Returns when the text ended.
+ */
 fn type_whole_text(app: &mut App, duration: Duration) -> Instant {
     let start = Instant::now();
     type_next(app, start);
@@ -1291,8 +1295,10 @@ fn shots(name: &str, app: &mut App) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Prints every screen; run with `cargo test preview_screens -- --ignored --nocapture`
-/// to review the interface without a terminal.
+/**
+ * Prints every screen; run with `cargo test preview_screens -- --ignored --nocapture`
+ * to review the interface without a terminal.
+ */
 #[tokio::test]
 #[ignore = "visual preview, not an assertion"]
 async fn preview_screens() {

@@ -1,9 +1,11 @@
-//! The settings saved in `config.toml`, kept apart from the settings in use.
-//!
-//! Command-line flags such as `--theme mono` apply to one run and never reach
-//! the file unless the user chooses the same setting in the app. The file can
-//! change while the app runs, edited by hand or saved by another instance, so a
-//! save applies only what the user chose onto what the file holds at that moment.
+/*!
+ * The settings saved in `config.toml`, kept apart from the settings in use.
+ *
+ * Command-line flags such as `--theme mono` apply to one run and never reach
+ * the file unless the user chooses the same setting in the app. The file can
+ * change while the app runs, edited by hand or saved by another instance, so a
+ * save applies only what the user chose onto what the file holds at that moment.
+ */
 
 use std::path::{Path, PathBuf};
 
@@ -11,12 +13,16 @@ use crate::config::{self, Config};
 
 #[derive(Debug)]
 pub struct SavedConfig {
-    /// Where the settings are saved, `None` when they must not be: there is
-    /// no configuration directory, or the file could not be read and would
-    /// be lost.
+    /**
+     * Where the settings are saved, `None` when they must not be: there is
+     * no configuration directory, or the file could not be read and would
+     * be lost.
+     */
     path: Option<PathBuf>,
-    /// The settings in use when the file was last brought up to date: the
-    /// ones in use that differ from them are what the user changed since.
+    /**
+     * The settings in use when the file was last brought up to date: the
+     * ones in use that differ from them are what the user changed since.
+     */
     reference: Config,
 }
 
@@ -37,14 +43,16 @@ impl SavedConfig {
         change(&mut self.reference);
     }
 
-    /// Applies `choice`, made by the user in the app, to the settings in
-    /// use, then saves it with the other settings changed since the last
-    /// save, and only those.
-    ///
-    /// `choice` is applied to the file as well, so that a setting the user
-    /// sets to the value a flag of this run already gave it is saved too. A
-    /// relative choice, such as the next theme, is then overridden there by
-    /// its result in the settings in use, which differs from the reference.
+    /**
+     * Applies `choice`, made by the user in the app, to the settings in
+     * use, then saves it with the other settings changed since the last
+     * save, and only those.
+     *
+     * `choice` is applied to the file as well, so that a setting the user
+     * sets to the value a flag of this run already gave it is saved too. A
+     * relative choice, such as the next theme, is then overridden there by
+     * its result in the settings in use, which differs from the reference.
+     */
     pub fn choose(
         &mut self,
         in_use: &mut Config,

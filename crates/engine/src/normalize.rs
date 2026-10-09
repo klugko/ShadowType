@@ -5,30 +5,34 @@ use unicode_segmentation::UnicodeSegmentation;
 
 const TAB_WIDTH: usize = 4;
 
-/// Every line ending other than `\r\n`: line feed, lone carriage return,
-/// next line, and the Unicode line and paragraph separators.
+/**
+ * Every line ending other than `\r\n`: line feed, lone carriage return,
+ * next line, and the Unicode line and paragraph separators.
+ */
 const LINE_BREAKS: [char; 5] = ['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'];
 
 /// The variation selector that shows the symbol before it as an emoji.
 const EMOJI_PRESENTATION: char = '\u{fe0f}';
 
-/// Normalises arbitrary text into something that can be typed on a keyboard.
-///
-/// - Every line ending becomes `\n`.
-/// - Tabs become spaces up to the next multiple of four columns.
-/// - Characters become what a keyboard types, as [`keyboard_form`] says:
-///   no-break and other spaces become a space, curly quotes and guillemets
-///   `'` or `"`, dashes `-`, box drawing `-`, `|` or `+`, and common symbols
-///   an ASCII spelling such as `...`, `->`, `<=` or `(c)`.
-/// - Characters no key produces are dropped: byte order marks, zero-width
-///   and bidirectional formatting characters, the soft hyphen, control
-///   characters, and the symbols without a spelling that [`has_no_key`]
-///   lists. Letters and marks of every script, Latin-1 and currency symbols
-///   and emoji stay, with the zero-width joiner and variation selectors
-///   that emoji are made of.
-/// - Trailing whitespace is removed from every line, leading and trailing
-///   blank lines are dropped, and the result is converted to Unicode NFC so
-///   that composed and decomposed accents compare equal.
+/**
+ * Normalises arbitrary text into something that can be typed on a keyboard.
+ *
+ * - Every line ending becomes `\n`.
+ * - Tabs become spaces up to the next multiple of four columns.
+ * - Characters become what a keyboard types, as [`keyboard_form`] says:
+ *   no-break and other spaces become a space, curly quotes and guillemets
+ *   `'` or `"`, dashes `-`, box drawing `-`, `|` or `+`, and common symbols
+ *   an ASCII spelling such as `...`, `->`, `<=` or `(c)`.
+ * - Characters no key produces are dropped: byte order marks, zero-width
+ *   and bidirectional formatting characters, the soft hyphen, control
+ *   characters, and the symbols without a spelling that [`has_no_key`]
+ *   lists. Letters and marks of every script, Latin-1 and currency symbols
+ *   and emoji stay, with the zero-width joiner and variation selectors
+ *   that emoji are made of.
+ * - Trailing whitespace is removed from every line, leading and trailing
+ *   blank lines are dropped, and the result is converted to Unicode NFC so
+ *   that composed and decomposed accents compare equal.
+ */
 pub fn normalize(text: &str) -> String {
     let lines: Vec<String> = text
         .split("\r\n")
@@ -65,10 +69,12 @@ impl KeyboardForm {
     }
 }
 
-/// The one table that folds a character into what a keyboard types. Texts
-/// go through it when they are normalised, and typed characters before
-/// they are compared with the text, so that a typed `’` or no-break space
-/// matches the `'` or space of the text. Tabs and line feeds stay.
+/**
+ * The one table that folds a character into what a keyboard types. Texts
+ * go through it when they are normalised, and typed characters before
+ * they are compared with the text, so that a typed `’` or no-break space
+ * matches the `'` or space of the text. Tabs and line feeds stay.
+ */
 pub(crate) fn keyboard_form(ch: char) -> KeyboardForm {
     match ch {
         '\t' | '\n' => KeyboardForm::Char(ch),
@@ -106,8 +112,10 @@ fn push_typeable(line: &mut String, ch: char) {
     }
 }
 
-/// The character a keyboard types in place of `ch`, when `ch` is a
-/// typographic, compatibility or drawing variant of it.
+/**
+ * The character a keyboard types in place of `ch`, when `ch` is a
+ * typographic, compatibility or drawing variant of it.
+ */
 fn plain_equivalent(ch: char) -> Option<char> {
     let plain = match ch {
         '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}' | '\u{2032}' | '\u{2039}'
@@ -139,8 +147,10 @@ fn box_drawing_stroke(ch: char) -> char {
     }
 }
 
-/// The ASCII character that a fullwidth form, as CJK input methods type
-/// it, stands for.
+/**
+ * The ASCII character that a fullwidth form, as CJK input methods type
+ * it, stands for.
+ */
 fn fullwidth_ascii(ch: char) -> Option<char> {
     const OFFSET: u32 = '\u{ff01}' as u32 - '!' as u32;
     char::from_u32(u32::from(ch) - OFFSET)
@@ -194,12 +204,14 @@ fn is_invisible(ch: char) -> bool {
     )
 }
 
-/// Symbols that no keyboard layout or input method types and that have no
-/// ASCII spelling: the replacement characters left by lossy decoding,
-/// private-use icons such as those of patched fonts, and the technical and
-/// pictographic blocks from Arrows to Miscellaneous Symbols and Arrows.
-/// Circled and parenthesised numbers and letters stay, as input methods
-/// type them, and so do emoji.
+/**
+ * Symbols that no keyboard layout or input method types and that have no
+ * ASCII spelling: the replacement characters left by lossy decoding,
+ * private-use icons such as those of patched fonts, and the technical and
+ * pictographic blocks from Arrows to Miscellaneous Symbols and Arrows.
+ * Circled and parenthesised numbers and letters stay, as input methods
+ * type them, and so do emoji.
+ */
 fn has_no_key(ch: char) -> bool {
     match ch {
         '\u{fffc}' | '\u{fffd}' | '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{10ffff}' => true,
@@ -209,8 +221,10 @@ fn has_no_key(ch: char) -> bool {
     }
 }
 
-/// Symbols of the blocks [`has_no_key`] covers that are shown as emoji
-/// without a presentation selector, as emoji pickers type them.
+/**
+ * Symbols of the blocks [`has_no_key`] covers that are shown as emoji
+ * without a presentation selector, as emoji pickers type them.
+ */
 fn is_emoji(ch: char) -> bool {
     matches!(
         ch,
@@ -250,8 +264,10 @@ fn is_emoji(ch: char) -> bool {
     )
 }
 
-/// Replaces each tab with the spaces that reach the next tab stop, counting
-/// columns in characters as the player sees them.
+/**
+ * Replaces each tab with the spaces that reach the next tab stop, counting
+ * columns in characters as the player sees them.
+ */
 fn expand_tabs(line: &str) -> String {
     let mut expanded = String::with_capacity(line.len());
     let mut column = 0;

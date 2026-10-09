@@ -15,11 +15,13 @@ use crate::{
     stats::{Sample, Stats, Tally, completion, sample_ends, words_per_minute},
 };
 
-/// Longest run of characters, counted from the first uncorrected mistake and
-/// including it, that can be typed before further input is refused. Mistakes
-/// have to be fixed for a session to complete, so this keeps a typo from
-/// silently ruining the rest of the line. Indentation filled in
-/// automatically is not typed, so it does not count.
+/**
+ * Longest run of characters, counted from the first uncorrected mistake and
+ * including it, that can be typed before further input is refused. Mistakes
+ * have to be fixed for a session to complete, so this keeps a typo from
+ * silently ruining the rest of the line. Indentation filled in
+ * automatically is not typed, so it does not count.
+ */
 pub const ERROR_RUN_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -68,8 +70,10 @@ impl Entry {
         self.text.chars().all(char::is_whitespace)
     }
 
-    /// Whether erasing this entry removes a line break: a typed newline, or
-    /// auto-filled indentation that goes away with the newline before it.
+    /**
+     * Whether erasing this entry removes a line break: a typed newline, or
+     * auto-filled indentation that goes away with the newline before it.
+     */
     fn ends_line(&self) -> bool {
         self.auto || self.text == "\n"
     }
@@ -81,8 +85,10 @@ struct Keystroke {
     correct: bool,
 }
 
-/// How many characters were correctly typed right after an input, on the
-/// basis of [`Tally::correctly_typed`].
+/**
+ * How many characters were correctly typed right after an input, on the
+ * basis of [`Tally::correctly_typed`].
+ */
 #[derive(Debug, Clone, Copy)]
 struct Checkpoint {
     at: Duration,
@@ -98,24 +104,28 @@ enum Judgement {
     Wrong,
 }
 
-/// Tracks what a player types against a target text.
-///
-/// Texts are compared grapheme by grapheme after Unicode NFC normalisation, so
-/// `é` matches whether it was typed precomposed or as `e` followed by a
-/// combining accent, and an emoji made of several code points is a single
-/// character.
-///
-/// A keystroke that only begins the expected character, such as `e` for `é`,
-/// counts as correct while the accent may still follow, and becomes an error
-/// once the player moves on, erases it or runs out of time. Errors therefore
-/// never decrease, which race servers rely on to validate progress.
+/**
+ * Tracks what a player types against a target text.
+ *
+ * Texts are compared grapheme by grapheme after Unicode NFC normalisation, so
+ * `é` matches whether it was typed precomposed or as `e` followed by a
+ * combining accent, and an emoji made of several code points is a single
+ * character.
+ *
+ * A keystroke that only begins the expected character, such as `e` for `é`,
+ * counts as correct while the accent may still follow, and becomes an error
+ * once the player moves on, erases it or runs out of time. Errors therefore
+ * never decrease, which race servers rely on to validate progress.
+ */
 #[derive(Debug, Clone)]
 pub struct TypingSession {
     target: Vec<String>,
     entries: Vec<Entry>,
     keystrokes: Vec<Keystroke>,
-    /// First keystroke of the last character while it is only the beginning
-    /// of the expected one.
+    /**
+     * First keystroke of the last character while it is only the beginning
+     * of the expected one.
+     */
     pending_since: Option<usize>,
     checkpoints: Vec<Checkpoint>,
     options: SessionOptions,
@@ -149,15 +159,17 @@ impl TypingSession {
         self.started_at.get_or_insert(now);
     }
 
-    /// Types one character. Returns whether the input was accepted.
-    ///
-    /// The character is first folded like [`normalize`](crate::normalize())
-    /// folds texts, so a typed no-break space, `’` or `…` stands for the
-    /// space, `'` or `...` of the text, and characters that display as
-    /// nothing are refused. Combining characters merge into the previous
-    /// character. Input is refused once the session is over, past the end of
-    /// the text, or once [`ERROR_RUN_LIMIT`] characters have been typed from
-    /// the first uncorrected mistake onward.
+    /**
+     * Types one character. Returns whether the input was accepted.
+     *
+     * The character is first folded like [`normalize`](crate::normalize())
+     * folds texts, so a typed no-break space, `’` or `…` stands for the
+     * space, `'` or `...` of the text, and characters that display as
+     * nothing are refused. Combining characters merge into the previous
+     * character. Input is refused once the session is over, past the end of
+     * the text, or once [`ERROR_RUN_LIMIT`] characters have been typed from
+     * the first uncorrected mistake onward.
+     */
     pub fn type_char(&mut self, ch: char, now: Instant) -> bool {
         self.update(now);
         if ch.is_control() && ch != '\n' {
@@ -170,15 +182,19 @@ impl TypingSession {
         accepted
     }
 
-    /// Removes the last typed character, or the whole automatic indentation
-    /// together with the newline that produced it.
+    /**
+     * Removes the last typed character, or the whole automatic indentation
+     * together with the newline that produced it.
+     */
     pub fn backspace(&mut self, now: Instant) -> bool {
         self.erase(now, Self::pop_entry)
     }
 
-    /// Removes the last typed word and the blanks that follow it, like
-    /// Ctrl+Backspace in an editor: a line break is removed on its own, never
-    /// together with the line before it.
+    /**
+     * Removes the last typed word and the blanks that follow it, like
+     * Ctrl+Backspace in an editor: a line break is removed on its own, never
+     * together with the line before it.
+     */
     pub fn delete_word(&mut self, now: Instant) -> bool {
         self.erase(now, Self::pop_word)
     }
@@ -234,9 +250,11 @@ impl TypingSession {
         }
     }
 
-    /// Whether input is refused until the first mistake is corrected: after
-    /// [`ERROR_RUN_LIMIT`] characters typed from it, or at the end of the
-    /// text, which is not complete while a mistake is left.
+    /**
+     * Whether input is refused until the first mistake is corrected: after
+     * [`ERROR_RUN_LIMIT`] characters typed from it, or at the end of the
+     * text, which is not complete while a mistake is left.
+     */
     pub fn is_blocked(&self) -> bool {
         self.first_mistake().is_some_and(|first| {
             self.typed_from(first) >= ERROR_RUN_LIMIT || self.cursor() == self.target.len()
@@ -283,8 +301,10 @@ impl TypingSession {
             .collect()
     }
 
-    /// Share of the time limit used, or [`completion`] of the text, so that
-    /// it reaches 1 only once the session is over.
+    /**
+     * Share of the time limit used, or [`completion`] of the text, so that
+     * it reaches 1 only once the session is over.
+     */
     fn progress(&self, elapsed: Duration) -> f64 {
         match self.options.time_limit {
             Some(limit) if !limit.is_zero() => {
@@ -298,8 +318,10 @@ impl TypingSession {
         self.entries.iter().position(|entry| !entry.correct)
     }
 
-    /// Characters the player typed from `index` on, leaving out the
-    /// indentation filled in for them.
+    /**
+     * Characters the player typed from `index` on, leaving out the
+     * indentation filled in for them.
+     */
     fn typed_from(&self, index: usize) -> usize {
         self.entries[index..]
             .iter()
@@ -801,8 +823,10 @@ mod tests {
         assert_eq!(stats.accuracy, 100.0);
     }
 
-    /// Types `keys` one every `interval_ms` from `start`, `\u{8}` standing for
-    /// Backspace, and returns the instant of the last key.
+    /**
+     * Types `keys` one every `interval_ms` from `start`, `\u{8}` standing for
+     * Backspace, and returns the instant of the last key.
+     */
     fn play(session: &mut TypingSession, keys: &str, start: Instant, interval_ms: u64) -> Instant {
         let mut now = start;
         for (index, key) in (0..).zip(keys.chars()) {

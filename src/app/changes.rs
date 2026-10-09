@@ -1,8 +1,10 @@
-//! Changes to the settings, whichever form, field or command made them, and
-//! saving them.
-//!
-//! A failure to save is an error: it replaces a report of the change made
-//! before it, and a report made after it waits behind it.
+/*!
+ * Changes to the settings, whichever form, field or command made them, and
+ * saving them.
+ *
+ * A failure to save is an error: it replaces a report of the change made
+ * before it, and a report made after it waits behind it.
+ */
 
 use code_racer_engine::{CodeLanguage, Language};
 use code_racer_protocol::{RoomCode, Username};
@@ -74,8 +76,10 @@ impl App {
         self.change_text(|text| text.language = language);
     }
 
-    /// Sets the language of code sessions and code races, without starting
-    /// one: `:code` does.
+    /**
+     * Sets the language of code sessions and code races, without starting
+     * one: `:code` does.
+     */
     pub(super) fn set_code_language(&mut self, language: CodeLanguage) {
         self.info(format!("code language set to {language}"));
         self.change_text(|text| text.code_language = language);
@@ -88,8 +92,10 @@ impl App {
         });
     }
 
-    /// Sets the name other racers see, then opens what waited for it. A
-    /// failure to save it is an error, which the greeting does not replace.
+    /**
+     * Sets the name other racers see, then opens what waited for it. A
+     * failure to save it is an error, which the greeting does not replace.
+     */
     fn set_username(&mut self, value: &str) -> Result<(), String> {
         let name: Username = value.parse().map_err(|error| format!("{error}"))?;
         self.choose(|config| config.username = name.to_string());
@@ -101,8 +107,10 @@ impl App {
         Ok(())
     }
 
-    /// Esc on the name asked before a launch: the launch goes on without
-    /// it, unless it is a race, which needs a name.
+    /**
+     * Esc on the name asked before a launch: the launch goes on without
+     * it, unless it is a race, which needs a name.
+     */
     pub(super) fn skip_username(&mut self) {
         match self.pending.take() {
             Some(Launch::Create(_) | Launch::Join(_)) => {

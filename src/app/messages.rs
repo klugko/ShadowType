@@ -46,14 +46,16 @@ impl Message {
     }
 }
 
-/// The messages waiting for the command line, the first one on screen.
-///
-/// An information is news that a later one makes stale: a new message
-/// replaces it once it has been on screen, or when the same event left it,
-/// so that a failure to save replaces the report of the change. An error
-/// waits until a key dismisses it. Otherwise messages wait their turn, so
-/// that none is lost before it could be read: the warnings of the start-up,
-/// or one that arrives while the `:` line hides the messages.
+/**
+ * The messages waiting for the command line, the first one on screen.
+ *
+ * An information is news that a later one makes stale: a new message
+ * replaces it once it has been on screen, or when the same event left it,
+ * so that a failure to save replaces the report of the change. An error
+ * waits until a key dismisses it. Otherwise messages wait their turn, so
+ * that none is lost before it could be read: the warnings of the start-up,
+ * or one that arrives while the `:` line hides the messages.
+ */
 #[derive(Debug, Default)]
 pub struct Messages {
     waiting: VecDeque<Message>,
@@ -74,9 +76,11 @@ impl Messages {
         self.waiting.len().saturating_sub(1)
     }
 
-    /// Starts handling an event, such as a key or a network message.
-    /// `first_shown` tells whether the screen drawn since the previous event
-    /// showed the first message.
+    /**
+     * Starts handling an event, such as a key or a network message.
+     * `first_shown` tells whether the screen drawn since the previous event
+     * showed the first message.
+     */
     pub fn next_event(&mut self, first_shown: bool) {
         self.first_seen |= first_shown && !self.waiting.is_empty();
         self.last_is_new = false;
@@ -104,9 +108,11 @@ impl Messages {
         }
     }
 
-    /// Whether the last message is an information a new message replaces:
-    /// one the same event left, one already seen, or one waiting behind
-    /// another, which a newer one supersedes before it is ever shown.
+    /**
+     * Whether the last message is an information a new message replaces:
+     * one the same event left, one already seen, or one waiting behind
+     * another, which a newer one supersedes before it is ever shown.
+     */
     fn last_is_stale(&self) -> bool {
         let Some(last) = self.waiting.back() else {
             return false;

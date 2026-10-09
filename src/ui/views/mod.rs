@@ -57,8 +57,10 @@ pub fn render(
     }
 }
 
-/// Whether the buffer on screen moves at `moment`, its text aside: the
-/// results of a solo session coming up.
+/**
+ * Whether the buffer on screen moves at `moment`, its text aside: the
+ * results of a solo session coming up.
+ */
 pub fn is_moving(app: &App, moment: crate::ui::Moment) -> bool {
     app.buffer == Buffer::Session
         && app
@@ -117,8 +119,10 @@ mod doc {
     /// What separates the key of an [`assignment`] from its value.
     const EQUALS: &str = " = ";
 
-    /// `key = value`, the key padded to `width` columns. The value is the
-    /// last span.
+    /**
+     * `key = value`, the key padded to `width` columns. The value is the
+     * last span.
+     */
     pub fn assignment(
         key: &str,
         width: usize,
@@ -151,8 +155,10 @@ mod doc {
     /// What separates two keys of a [`keys`] row.
     const KEY_GAP: &str = "    ";
 
-    /// Keys and their effect, such as `r  toggle ready`. A click on one
-    /// presses its key.
+    /**
+     * Keys and their effect, such as `r  toggle ready`. A click on one
+     * presses its key.
+     */
     pub fn keys(bindings: &[(&str, &str)], palette: &Palette) -> Row {
         let mut spans = Vec::new();
         let mut keys = Vec::new();
@@ -186,8 +192,10 @@ mod doc {
         }
     }
 
-    /// What a click on a key written `label` presses: `Esc Esc` is Esc
-    /// twice.
+    /**
+     * What a click on a key written `label` presses: `Esc Esc` is Esc
+     * twice.
+     */
     fn key_target(label: &str) -> Option<Target> {
         let mut presses = label.split_whitespace();
         let first = presses.next()?;

@@ -2,8 +2,10 @@
 
 use unicode_width::UnicodeWidthStr;
 
-/// Marks that belong to the word before them even when a space separates them,
-/// as in French typography (`vraiment ?`): they never start a row on their own.
+/**
+ * Marks that belong to the word before them even when a space separates them,
+ * as in French typography (`vraiment ?`): they never start a row on their own.
+ */
 const CLOSING_MARKS: [&str; 5] = ["?", "!", ";", ":", "»"];
 
 /// One row on screen: the graphemes `start..end` of the text.
@@ -15,23 +17,25 @@ pub struct VisualLine {
     pub number: Option<usize>,
 }
 
-/// Lays `graphemes` out in rows of at most `width` cells, like an editor with
-/// `wrap` and `linebreak` set.
-///
-/// A word moves to the next row when it does not fit together with the spaces
-/// (or the newline) that follow it, so those stay at the end of its row. Only a
-/// word wider than a whole row is broken; it starts on a fresh row, right after
-/// the indentation when it opens a line. The indentation stays with the first
-/// word of its line unless that would break a word that fits on a row by
-/// itself. A `"\n"` grapheme takes one cell and ends its row. Every grapheme
-/// takes at least one cell so the cursor stays visible on zero-width
-/// characters; one wider than `width` gets a row of its own. A `width` of zero
-/// is treated as one.
-///
-/// The rows cover every grapheme exactly once, in order. The last row always
-/// has a free cell for the cursor after the last grapheme: the text ends on an
-/// empty row of its own after a final newline or a full row, so there is always
-/// at least one row.
+/**
+ * Lays `graphemes` out in rows of at most `width` cells, like an editor with
+ * `wrap` and `linebreak` set.
+ *
+ * A word moves to the next row when it does not fit together with the spaces
+ * (or the newline) that follow it, so those stay at the end of its row. Only a
+ * word wider than a whole row is broken; it starts on a fresh row, right after
+ * the indentation when it opens a line. The indentation stays with the first
+ * word of its line unless that would break a word that fits on a row by
+ * itself. A `"\n"` grapheme takes one cell and ends its row. Every grapheme
+ * takes at least one cell so the cursor stays visible on zero-width
+ * characters; one wider than `width` gets a row of its own. A `width` of zero
+ * is treated as one.
+ *
+ * The rows cover every grapheme exactly once, in order. The last row always
+ * has a free cell for the cursor after the last grapheme: the text ends on an
+ * empty row of its own after a final newline or a full row, so there is always
+ * at least one row.
+ */
 pub fn wrap(graphemes: &[String], width: u16) -> Vec<VisualLine> {
     let mut rows = Rows::new(usize::from(width.max(1)));
     let mut start = 0;
@@ -43,11 +47,13 @@ pub fn wrap(graphemes: &[String], width: u16) -> Vec<VisualLine> {
     rows.finish(graphemes.len())
 }
 
-/// Row and cell column of the grapheme at `index` in `lines`, as produced by
-/// [`wrap`] for the same `graphemes`.
-///
-/// `graphemes.len()` is the position just after the last grapheme, where the
-/// cursor sits once everything is typed; larger indexes are clamped to it.
+/**
+ * Row and cell column of the grapheme at `index` in `lines`, as produced by
+ * [`wrap`] for the same `graphemes`.
+ *
+ * `graphemes.len()` is the position just after the last grapheme, where the
+ * cursor sits once everything is typed; larger indexes are clamped to it.
+ */
 pub fn locate(graphemes: &[String], lines: &[VisualLine], index: usize) -> (usize, usize) {
     let index = index.min(graphemes.len());
     let row = lines
@@ -91,9 +97,11 @@ impl Rows {
         }
     }
 
-    /// Length of the indentation that has to be laid out apart from the word
-    /// after it: zero unless the pair is wider than a row while the word alone
-    /// is not.
+    /**
+     * Length of the indentation that has to be laid out apart from the word
+     * after it: zero unless the pair is wider than a row while the word alone
+     * is not.
+     */
     fn detachable_indentation(&self, chunk: &[String]) -> usize {
         let indentation = count_while(chunk, is_space);
         let word = count_while(&chunk[indentation..], is_word_part);
@@ -144,9 +152,11 @@ impl Rows {
     }
 }
 
-/// End of the unit that wraps as a whole: a word with the indentation before
-/// it, the spaces after it, any closing marks detached from it by a space, and
-/// a newline that ends it.
+/**
+ * End of the unit that wraps as a whole: a word with the indentation before
+ * it, the spaces after it, any closing marks detached from it by a space, and
+ * a newline that ends it.
+ */
 fn chunk_end(graphemes: &[String], start: usize) -> usize {
     let mut end = start;
     loop {

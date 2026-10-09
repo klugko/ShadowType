@@ -1,14 +1,18 @@
-//! Keyboard input: single-line text fields, and the rules that tell typed
-//! characters from shortcuts everywhere in the application.
+/*!
+ * Keyboard input: single-line text fields, and the rules that tell typed
+ * characters from shortcuts everywhere in the application.
+ */
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
 
-/// The character a key types, if any.
-///
-/// Plain keys type, and so do keys held with both Ctrl and Alt: crossterm
-/// reports AltGr that way on Windows, so `@` on a French keyboard arrives as
-/// Ctrl+Alt+`@`. Ctrl or Alt alone makes a shortcut.
+/**
+ * The character a key types, if any.
+ *
+ * Plain keys type, and so do keys held with both Ctrl and Alt: crossterm
+ * reports AltGr that way on Windows, so `@` on a French keyboard arrives as
+ * Ctrl+Alt+`@`. Ctrl or Alt alone makes a shortcut.
+ */
 pub fn typed_char(key: KeyEvent) -> Option<char> {
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -18,8 +22,10 @@ pub fn typed_char(key: KeyEvent) -> Option<char> {
     }
 }
 
-/// The lowercase letter of a Ctrl shortcut such as Ctrl+W, `None` for any
-/// other key, AltGr characters included.
+/**
+ * The lowercase letter of a Ctrl shortcut such as Ctrl+W, `None` for any
+ * other key, AltGr characters included.
+ */
 pub fn control_letter(key: KeyEvent) -> Option<char> {
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -29,8 +35,10 @@ pub fn control_letter(key: KeyEvent) -> Option<char> {
     }
 }
 
-/// Whether a key erases the previous word: Alt+Backspace, or Ctrl+Backspace
-/// on the terminals that tell it from Backspace.
+/**
+ * Whether a key erases the previous word: Alt+Backspace, or Ctrl+Backspace
+ * on the terminals that tell it from Backspace.
+ */
 pub fn erases_word(key: KeyEvent) -> bool {
     key.code == KeyCode::Backspace
         && key
@@ -38,8 +46,10 @@ pub fn erases_word(key: KeyEvent) -> bool {
             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
 }
 
-/// Ctrl+H is the control character of Backspace: some terminals send it for
-/// Backspace, most for Ctrl+Backspace. Either way it erases one character.
+/**
+ * Ctrl+H is the control character of Backspace: some terminals send it for
+ * Backspace, most for Ctrl+Backspace. Either way it erases one character.
+ */
 pub fn normalized(key: KeyEvent) -> KeyEvent {
     if control_letter(key) == Some('h') {
         KeyEvent {

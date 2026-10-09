@@ -1,6 +1,8 @@
-//! The command palette: every action of the application, listed and found
-//! by typing a few letters of it, as in a code editor. It opens with Ctrl+P
-//! or F1 from anywhere.
+/*!
+ * The command palette: every action of the application, listed and found
+ * by typing a few letters of it, as in a code editor. It opens with Ctrl+P
+ * or F1 from anywhere.
+ */
 
 use code_racer_engine::{CodeLanguage, Language};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -68,8 +70,10 @@ impl CommandPalette {
         self.selected = index.min(count.saturating_sub(1));
     }
 
-    /// Moves the selection one entry, without wrapping around, as the
-    /// wheel does.
+    /**
+     * Moves the selection one entry, without wrapping around, as the
+     * wheel does.
+     */
     pub fn scroll(&mut self, down: bool, count: usize) {
         let selected = self.selected(count);
         let selected = if down {
@@ -249,8 +253,10 @@ fn navigation_entries() -> Vec<Entry> {
     ]
 }
 
-/// The entries matching `query`, best first. Every entry matches an
-/// empty query, in its own order.
+/**
+ * The entries matching `query`, best first. Every entry matches an
+ * empty query, in its own order.
+ */
 pub fn matches(entries: Vec<Entry>, query: &str) -> Vec<Match> {
     let mut found: Vec<(i64, Match)> = entries
         .into_iter()
@@ -263,11 +269,13 @@ pub fn matches(entries: Vec<Entry>, query: &str) -> Vec<Match> {
     found.into_iter().map(|(_, found)| found).collect()
 }
 
-/// How well `query` matches `title`, and the positions of the characters
-/// it matched. Its letters match in order and in any case, each one at the
-/// start of a word or further in the word of the letter before it, so that
-/// `cod` finds `Code` but not the `c`, `o` and `d` of `seconds`. Letters
-/// that follow each other or start a word score higher.
+/**
+ * How well `query` matches `title`, and the positions of the characters
+ * it matched. Its letters match in order and in any case, each one at the
+ * start of a word or further in the word of the letter before it, so that
+ * `cod` finds `Code` but not the `c`, `o` and `d` of `seconds`. Letters
+ * that follow each other or start a word score higher.
+ */
 fn fuzzy(title: &str, query: &str) -> Option<(i64, Vec<usize>)> {
     let query: Vec<char> = query
         .chars()
@@ -384,8 +392,10 @@ impl App {
         }
     }
 
-    /// Runs the entry `index` of the matches, or the selected one, and
-    /// closes the palette.
+    /**
+     * Runs the entry `index` of the matches, or the selected one, and
+     * closes the palette.
+     */
     pub(super) fn run_palette_entry(&mut self, index: Option<usize>) {
         let matches = self.palette_matches();
         let Some(palette) = self.palette.take() else {

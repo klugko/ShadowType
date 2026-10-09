@@ -1,6 +1,8 @@
-//! The event loop: keyboard, network and clock events drive the application,
-//! and the screen is redrawn only after something changed, or while
-//! something moves on it.
+/*!
+ * The event loop: keyboard, network and clock events drive the application,
+ * and the screen is redrawn only after something changed, or while
+ * something moves on it.
+ */
 
 use std::{
     future::Future,
@@ -24,15 +26,21 @@ use crate::{
 
 /// Refresh rate of timers and live statistics while a session runs.
 const TICK: Duration = Duration::from_millis(100);
-/// Longest time an idle loop sleeps for, which only bounds a sleep that
-/// nothing waits on.
+/**
+ * Longest time an idle loop sleeps for, which only bounds a sleep that
+ * nothing waits on.
+ */
 const IDLE: Duration = Duration::from_secs(3_600);
-/// Longest wait, once the terminal is restored, for the room the player
-/// was in to hear that they left.
+/**
+ * Longest wait, once the terminal is restored, for the room the player
+ * was in to hear that they left.
+ */
 const GOODBYE_TIME: Duration = Duration::from_secs(1);
 
-/// Runs the interface until the user quits or the program is asked to
-/// stop, then leaves the room the player is in.
+/**
+ * Runs the interface until the user quits or the program is asked to
+ * stop, then leaves the room the player is in.
+ */
 pub async fn run(mut app: App) -> anyhow::Result<()> {
     let result = interact(&mut app).await;
     if let Some(connection) = app.finish() {
@@ -92,17 +100,21 @@ async fn interact(app: &mut App) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// When the loop wakes up by itself next: every period while there is one,
-/// without catching up on wake-ups missed while busy.
+/**
+ * When the loop wakes up by itself next: every period while there is one,
+ * without catching up on wake-ups missed while busy.
+ */
 #[derive(Debug, Default)]
 struct Clock {
     next: Option<tokio::time::Instant>,
 }
 
 impl Clock {
-    /// The next wake-up for `period`, far off without one, when nothing
-    /// waits on it. A wake-up already set stays, so that events coming
-    /// faster than the period never put it off.
+    /**
+     * The next wake-up for `period`, far off without one, when nothing
+     * waits on it. A wake-up already set stays, so that events coming
+     * faster than the period never put it off.
+     */
     fn next(&mut self, period: Option<Duration>) -> tokio::time::Instant {
         let now = tokio::time::Instant::now();
         let Some(period) = period else {
@@ -139,10 +151,12 @@ fn handle_terminal_event(app: &mut App, event: Event, hits: &Hits) -> bool {
     }
 }
 
-/// Gives `app` the size of the terminal, read before each draw rather than
-/// taken from resize events: Windows reports in them the size of the
-/// screen buffer, one more than the window each way, and consoles that do
-/// not report resizes at all are caught up at the next redraw.
+/**
+ * Gives `app` the size of the terminal, read before each draw rather than
+ * taken from resize events: Windows reports in them the size of the
+ * screen buffer, one more than the window each way, and consoles that do
+ * not report resizes at all are caught up at the next redraw.
+ */
 fn fit_to_terminal(app: &mut App, guard: &mut TerminalGuard) -> io::Result<()> {
     let size = guard.terminal().size()?;
     let viewport = Viewport {
@@ -162,12 +176,14 @@ async fn next_network_event(app: &mut App) -> Option<NetworkEvent> {
     }
 }
 
-/// Resolves when the program is asked to stop from outside: SIGTERM, SIGHUP
-/// or SIGINT on Unix, closing the console or Ctrl+Break on Windows. In raw
-/// mode, Ctrl+C is a key rather than a signal.
-///
-/// The listeners are registered before this returns, so that a signal sent
-/// before the first poll is not lost. Without any, it never resolves.
+/**
+ * Resolves when the program is asked to stop from outside: SIGTERM, SIGHUP
+ * or SIGINT on Unix, closing the console or Ctrl+Break on Windows. In raw
+ * mode, Ctrl+C is a key rather than a signal.
+ *
+ * The listeners are registered before this returns, so that a signal sent
+ * before the first poll is not lost. Without any, it never resolves.
+ */
 fn shutdown_signal() -> impl Future<Output = ()> {
     let listeners = signal_listeners();
     async move {

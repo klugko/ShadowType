@@ -1,7 +1,9 @@
-//! The mascot: a pixel-art ghost under the explorer that reacts to the typing.
-//!
-//! It is drawn with half blocks, two pixels to a cell: `▀` takes the colour
-//! of its upper pixel as foreground and of its lower pixel as background.
+/*!
+ * The mascot: a pixel-art ghost under the explorer that reacts to the typing.
+ *
+ * It is drawn with half blocks, two pixels to a cell: `▀` takes the colour
+ * of its upper pixel as foreground and of its lower pixel as background.
+ */
 
 use std::time::Duration;
 
@@ -212,8 +214,10 @@ pub fn render(frame: &mut Frame, area: Rect, mood: Mood, age: Duration, palette:
     frame.render_widget(Paragraph::new(lines).style(panel(palette)), area);
 }
 
-/// Sparkles and snores around the ghost: column after the canvas, row, text
-/// and colour.
+/**
+ * Sparkles and snores around the ghost: column after the canvas, row, text
+ * and colour.
+ */
 fn decorations(
     mood: Mood,
     age: Duration,
@@ -280,8 +284,10 @@ fn half_block(top: Option<Pixel>, bottom: Option<Pixel>, palette: &Palette) -> S
     }
 }
 
-/// The colour of `pixel`, `None` where the background shows through: the
-/// eyes of a colourless ghost are holes in it.
+/**
+ * The colour of `pixel`, `None` where the background shows through: the
+ * eyes of a colourless ghost are holes in it.
+ */
 fn color(pixel: Pixel, palette: &Palette) -> Option<Color> {
     if palette.mono {
         return match pixel {
