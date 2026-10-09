@@ -33,9 +33,7 @@ fn small_terminals_get_a_message_instead_of_a_broken_layout() {
 #[test]
 fn the_smallest_size_gives_the_explorer_columns_to_whole_buffer_lines() {
     let mut app = app();
-    for wpm in [72.0, 81.0] {
-        app.history.add(record(wpm)).expect("in memory");
-    }
+    add_records(&mut app, &[72.0, 81.0]);
     app.resize(MIN_WIDTH, MIN_HEIGHT);
     let home = screen(&app, MIN_WIDTH, MIN_HEIGHT);
     assert!(!home.contains("EXPLORER"), "{home}");
@@ -54,8 +52,7 @@ fn the_smallest_size_gives_the_explorer_columns_to_whole_buffer_lines() {
 #[test]
 fn every_buffer_renders_in_every_theme_and_size() {
     let mut app = app();
-    app.history.add(record(72.0)).expect("in memory");
-    app.history.add(record(81.0)).expect("in memory");
+    add_records(&mut app, &[72.0, 81.0]);
     for theme in Theme::ALL {
         app.config.theme = theme;
         for page in [

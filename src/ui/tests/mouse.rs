@@ -15,7 +15,7 @@ fn hits_of(app: &App, width: u16, height: u16, now: Instant) -> crate::app::mous
 fn what_the_screen_shows_is_where_a_click_lands() {
     use crate::app::{Buffer, mouse::Target};
     let mut app = app();
-    app.history.add(record(70.0)).expect("in memory");
+    add_records(&mut app, &[70.0]);
     command(&mut app, "words 10");
     let end = type_whole_text(&mut app, Duration::from_secs(10));
     let now = end + Duration::from_secs(5);

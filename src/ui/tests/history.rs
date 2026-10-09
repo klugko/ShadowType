@@ -3,9 +3,7 @@ use super::*;
 #[test]
 fn history_shows_records_and_a_chart() {
     let mut app = app();
-    for wpm in [60.0, 64.0, 70.0, 68.0, 75.0] {
-        app.history.add(record(wpm)).expect("in memory");
-    }
+    add_records(&mut app, &[60.0, 64.0, 70.0, 68.0, 75.0]);
     command(&mut app, "history");
     let text = screen(&app, 120, 40);
     for expected in ["5 sessions", "best", "75", "words 50", "┤"] {
@@ -19,9 +17,7 @@ fn history_draws_every_line_of_its_layout_and_no_other() {
     use crate::app::history_log::{CHART_SESSIONS, lines};
     for sessions in [0, 1, 2, CHART_SESSIONS + 1] {
         let mut app = app();
-        for _ in 0..sessions {
-            app.history.add(record(70.0)).expect("in memory");
-        }
+        add_records(&mut app, &vec![70.0; sessions]);
         command(&mut app, "history");
         let count = lines(sessions).len();
         let height = u16::try_from(count + 4)
@@ -52,9 +48,7 @@ fn the_oldest_session_can_be_scrolled_into_view() {
             ..record(50.0)
         })
         .expect("in memory");
-    for wpm in [60.0, 70.0] {
-        app.history.add(record(wpm)).expect("in memory");
-    }
+    add_records(&mut app, &[60.0, 70.0]);
     app.resize(80, 20);
     command(&mut app, "history");
     press(&mut app, KeyCode::Char('G'));

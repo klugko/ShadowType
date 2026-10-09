@@ -1,14 +1,9 @@
-use crossterm::event::KeyModifiers;
-
 use super::*;
 
 #[test]
 fn the_command_palette_finds_and_runs_a_command() {
     let mut app = app();
-    app.handle_key(
-        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
-        Instant::now(),
-    );
+    press_ctrl(&mut app, 'p');
     let text = screen(&app, 100, 30);
     for expected in ["commands", "Start a session", "COMMAND", "Enter run"] {
         assert!(text.contains(expected), "missing {expected}:\n{text}");

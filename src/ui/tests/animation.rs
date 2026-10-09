@@ -19,7 +19,7 @@ fn the_mascot_lives_at_the_bottom_of_the_explorer_when_there_is_room() {
     app.config.mascot = false;
     assert!(!screen(&app, 120, 30).contains('█'));
     app.config.mascot = true;
-    app.history.add(record(70.0)).expect("in memory");
+    add_records(&mut app, &[70.0]);
     app.resize(120, MIN_HEIGHT);
     assert!(
         !chrome::shows_mascot(&app),

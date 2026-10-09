@@ -1,8 +1,7 @@
 use code_racer_protocol::MAX_ROOM_PLAYERS;
-use crossterm::event::KeyModifiers;
 
 use super::*;
-use crate::config::Theme;
+use crate::config::{Look, Theme};
 
 const PREVIEW_SIZES: [(u16, u16); 2] = [(MIN_WIDTH, MIN_HEIGHT), (200, 60)];
 
@@ -27,10 +26,21 @@ fn shots(name: &str, app: &mut App) -> Vec<(String, String)> {
 #[tokio::test]
 #[ignore = "visual preview, not an assertion"]
 async fn preview_screens() {
-    let mut app = app();
-    for wpm in [58.0, 61.0, 66.0, 64.0, 70.0, 73.0, 71.0, 78.0] {
-        app.history.add(record(wpm)).expect("in memory");
+    let screens = [
+        solo_shots(),
+        room_shots(),
+        long_input_shots(),
+        look_shots(),
+        vscode_shots(),
+    ];
+    for (name, text) in screens.into_iter().flatten() {
+        println!("──── {name}\n{text}");
     }
+}
+
+fn solo_shots() -> Vec<(String, String)> {
+    let mut app = app();
+    add_records(&mut app, &[58.0, 61.0, 66.0, 64.0, 70.0, 73.0, 71.0, 78.0]);
     let mut screens = shots("home", &mut app);
     for page in ["race", "config", "history", "help"] {
         command(&mut app, page);
@@ -55,14 +65,16 @@ async fn preview_screens() {
     command(&mut app, "quote");
     type_whole_text(&mut app, Duration::from_secs(20));
     screens.extend(shots("results", &mut app));
+    screens
+}
+
+fn room_shots() -> Vec<(String, String)> {
+    let mut screens = Vec::new();
     for phase in [Phase::Lobby, Phase::Racing, Phase::Finished] {
         screens.extend(shots(&format!("{phase:?}"), &mut in_room(phase)));
     }
-    let mut full = room(Phase::Racing);
-    full.players = (1..=8_u32)
-        .map(|n| player(n.into(), &format!("racer{n}"), 10 * n, None))
-        .collect();
-    screens.extend(shots("full room", &mut in_room_at(full, Instant::now())));
+    let race = race_of_eight();
+    screens.extend(shots("full room", &mut in_room_at(race, Instant::now())));
     let lobby = full_room(Phase::Lobby, MAX_ROOM_PLAYERS, |id| {
         player(id, &racer(id), 0, None)
     });
@@ -74,12 +86,7 @@ async fn preview_screens() {
         "full results",
         &mut in_room_at(results, Instant::now()),
     ));
-    screens.extend(long_input_shots());
-    screens.extend(look_shots());
-    screens.extend(vscode_shots());
-    for (name, text) in screens {
-        println!("──── {name}\n{text}");
-    }
+    screens
 }
 
 fn vscode_shots() -> Vec<(String, String)> {
@@ -93,18 +100,13 @@ fn vscode_shots() -> Vec<(String, String)> {
 /// The command palette, then a words session in every look.
 fn look_shots() -> Vec<(String, String)> {
     let mut app = app();
-    for wpm in [58.0, 61.0] {
-        app.history.add(record(wpm)).expect("in memory");
-    }
-    app.handle_key(
-        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
-        Instant::now(),
-    );
+    add_records(&mut app, &[58.0, 61.0]);
+    press_ctrl(&mut app, 'p');
     let mut screens = shots("palette", &mut app);
     type_keys(&mut app, "cod");
     screens.extend(shots("palette code", &mut app));
     press(&mut app, KeyCode::Esc);
-    for look in crate::config::Look::DISGUISES {
+    for look in Look::DISGUISES {
         command(&mut app, &format!("set look={look}"));
         command(&mut app, "words 25");
         type_prefix(&mut app, 70);

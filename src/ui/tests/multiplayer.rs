@@ -72,11 +72,7 @@ async fn race_shows_the_text_and_live_standings() {
 
 #[tokio::test]
 async fn the_standings_always_show_the_player_even_last_of_a_full_room() {
-    let mut full = room(Phase::Racing);
-    full.players = (1..=8_u32)
-        .map(|n| player(n.into(), &format!("racer{n}"), 10 * n, None))
-        .collect();
-    let mut app = in_room_at(full, Instant::now());
+    let mut app = in_room_at(race_of_eight(), Instant::now());
     app.resize(MIN_WIDTH, MIN_HEIGHT);
     let text = screen(&app, MIN_WIDTH, MIN_HEIGHT);
     let standings: Vec<&str> = text

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use code_racer_engine::{Language, TextSource};
 use code_racer_protocol::{Phase, PlayerId, PlayerProgress, PlayerView, RoomView, ServerMessage};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Style};
 
 use super::*;
@@ -94,18 +94,23 @@ fn press(app: &mut App, code: KeyCode) {
     app.handle_key(KeyEvent::from(code), Instant::now());
 }
 
-fn command(app: &mut App, line: &str) {
-    press(app, KeyCode::Char(':'));
-    for ch in line.chars() {
-        press(app, KeyCode::Char(ch));
-    }
-    press(app, KeyCode::Enter);
+fn press_ctrl(app: &mut App, ch: char) {
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL),
+        Instant::now(),
+    );
 }
 
 fn type_keys(app: &mut App, text: &str) {
     for ch in text.chars() {
         press(app, KeyCode::Char(ch));
     }
+}
+
+fn command(app: &mut App, line: &str) {
+    press(app, KeyCode::Char(':'));
+    type_keys(app, line);
+    press(app, KeyCode::Enter);
 }
 
 /// Types the next `count` characters of the session correctly.
@@ -158,6 +163,12 @@ fn chart_end(screen: &str) -> Option<usize> {
         .filter(|line| line.contains(['┤', '┼']))
         .filter_map(|line| line.trim_end().chars().count().checked_sub(1))
         .max()
+}
+
+fn add_records(app: &mut App, wpms: &[f64]) {
+    for &wpm in wpms {
+        app.history.add(record(wpm)).expect("in memory");
+    }
 }
 
 fn record(wpm: f64) -> Record {
@@ -234,6 +245,15 @@ fn in_room_on(server: &str, room: RoomView, now: Instant) -> App {
     }
     app.handle_network(NetworkEvent::Message(ServerMessage::Room(room)), now);
     app
+}
+
+fn race_of_eight() -> RoomView {
+    RoomView {
+        players: (1..=8_u32)
+            .map(|n| player(n.into(), &format!("racer{n}"), 10 * n, None))
+            .collect(),
+        ..room(Phase::Racing)
+    }
 }
 
 /// A room of `size` players in `phase`, the client joined last.

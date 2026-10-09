@@ -19,7 +19,7 @@ fn a_look_names_the_file_and_its_type() {
 #[test]
 fn discreet_mode_shows_an_editor_and_nothing_else() {
     let mut app = app();
-    app.history.add(record(70.0)).expect("in memory");
+    add_records(&mut app, &[70.0]);
     app.resize(120, 30);
     press(&mut app, KeyCode::F(12));
     assert!(app.config.discreet);
