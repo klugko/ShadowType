@@ -10,7 +10,7 @@ mod changes;
 pub mod command;
 mod events;
 pub mod form;
-mod forms;
+mod form_keys;
 pub mod help;
 pub mod history_log;
 pub mod ink;

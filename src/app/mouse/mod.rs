@@ -9,7 +9,7 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 
-use super::{App, Buffer, Focus, forms::FormKind};
+use super::{App, Buffer, Focus, form_keys::FormKind};
 
 /// Lines the wheel scrolls a document by.
 const WHEEL_LINES: usize = 3;

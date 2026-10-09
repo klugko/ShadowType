@@ -7,7 +7,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{
     Activity, App, Buffer, Focus, Prompt,
-    forms::FormKind,
+    form_keys::FormKind,
     input::{control_letter, erases_word, normalized, typed_char},
     race::RoomRequest,
     text_event::TextEvent,
