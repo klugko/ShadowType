@@ -1,8 +1,3 @@
-/*!
- * How numbers, times and text are written on screen, in the columns
- * available.
- */
-
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -30,7 +25,6 @@ pub fn race_time(milliseconds: u64) -> String {
     format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
 }
 
-/// `1st`, `2nd`, `3rd`, `4th`…
 pub fn ordinal(place: usize) -> String {
     let suffix = match (place % 10, place % 100) {
         (1, 11) | (2, 12) | (3, 13) => "th",
@@ -55,7 +49,6 @@ pub fn truncate(text: &str, width: usize) -> String {
     }
 }
 
-/// The part of a text field in view, and where its cursor is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputView {
     pub text: String,

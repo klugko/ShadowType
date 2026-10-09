@@ -1,5 +1,3 @@
-//! Soft wrapping of the text being typed into rows of terminal cells.
-
 use unicode_width::UnicodeWidthStr;
 
 /**

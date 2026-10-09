@@ -11,11 +11,9 @@ use ratatui::layout::Rect;
 use crate::app::mouse::{Hits, Target};
 
 thread_local! {
-    /// The regions marked while drawing the current frame.
     static MARKED: RefCell<Option<Hits>> = const { RefCell::new(None) };
 }
 
-/// Starts collecting the regions of a frame.
 pub fn begin() {
     MARKED.with(|marked| *marked.borrow_mut() = Some(Hits::default()));
 }
@@ -32,7 +30,6 @@ pub fn mark(area: Rect, target: Target) {
     });
 }
 
-/// The regions of the frame, which stops collecting.
 pub fn finish() -> Hits {
     MARKED.with(|marked| marked.borrow_mut().take().unwrap_or_default())
 }

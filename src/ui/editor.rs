@@ -1,8 +1,3 @@
-/*!
- * A buffer drawn like an editor window: line numbers, a highlighted
- * cursor line and `~` markers past the end of the file.
- */
-
 use ratatui::{
     Frame,
     layout::Rect,
@@ -55,13 +50,12 @@ pub fn number_rows(rows: &mut [Row]) {
     }
 }
 
-/// Width of the gutter for numbers up to `highest`.
 pub fn gutter_width(highest: usize) -> u16 {
     let digits = highest.max(1).ilog10() + 1;
     u16::try_from(digits.max(3)).unwrap_or(3) + 2
 }
 
-/// Draws `rows` starting at `scroll`; returns the area used by the text.
+/// Returns the area of the text, right of the gutter.
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -94,7 +88,6 @@ pub fn render(
     text
 }
 
-/// Text width available next to the gutter.
 pub fn text_width(area_width: u16, highest_line: usize) -> u16 {
     area_width.saturating_sub(gutter_width(highest_line)).max(1)
 }

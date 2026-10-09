@@ -9,7 +9,6 @@ use ratatui::style::Color;
 
 use crate::{config::Icons, ui::theme::Palette};
 
-/// What a file holds, for its icon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Config,

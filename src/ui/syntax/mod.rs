@@ -12,7 +12,6 @@ use code_racer_engine::CodeLanguage;
 
 use lexer::Lexer;
 
-/// Syntax class of one grapheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Token {
     Plain,
@@ -26,7 +25,6 @@ pub enum Token {
     Punctuation,
 }
 
-/// Classifies every grapheme of `graphemes`; the result has the same length.
 pub fn highlight(graphemes: &[String], language: CodeLanguage) -> Vec<Token> {
     Lexer::new(graphemes, Syntax::of(language)).run()
 }
