@@ -1,8 +1,6 @@
 mod grading;
 mod history;
 mod input;
-#[cfg(test)]
-mod tests;
 
 use std::time::{Duration, Instant};
 
@@ -241,3 +239,6 @@ impl TypingSession {
             .count()
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,6 +1,3 @@
-#[cfg(test)]
-mod tests;
-
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 
@@ -188,3 +185,6 @@ fn capitalize(word: &str) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod tests;

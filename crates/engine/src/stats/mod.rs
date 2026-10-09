@@ -1,6 +1,3 @@
-#[cfg(test)]
-mod tests;
-
 use std::time::Duration;
 
 /// Characters in a "standard word" when converting characters to words.
@@ -181,3 +178,6 @@ pub(crate) fn sample_ends(elapsed: Duration) -> Vec<Duration> {
     }
     ends
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,6 +1,4 @@
 mod keyboard;
-#[cfg(test)]
-mod tests;
 
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
@@ -95,3 +93,6 @@ fn expand_tabs(line: &str) -> String {
     }
     expanded
 }
+
+#[cfg(test)]
+mod tests;

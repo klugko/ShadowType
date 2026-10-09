@@ -7,9 +7,6 @@
  * message never needs to accept the shape of an older version.
  */
 
-#[cfg(test)]
-mod tests;
-
 use code_racer_engine::{Tally, TextSource};
 use serde::{Deserialize, Serialize};
 
@@ -176,3 +173,6 @@ pub enum ErrorCode {
     #[serde(other)]
     Unknown,
 }
+
+#[cfg(test)]
+mod tests;
