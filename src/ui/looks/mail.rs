@@ -36,7 +36,6 @@ fn plain(text: &str, palette: &Palette) -> Row {
     )])
 }
 
-/// The name an email is signed with.
 fn author(name: &str) -> String {
     match name.trim() {
         "" => "me".to_owned(),

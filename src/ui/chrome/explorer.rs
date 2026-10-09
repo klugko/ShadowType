@@ -69,7 +69,6 @@ fn has_room_for_mascot(app: &App, inner: Rect, lines: usize) -> bool {
         && usize::from(inner.height) > lines + usize::from(mascot::HEIGHT)
 }
 
-/// Whether the mascot shows at the size of the terminal of `app`.
 pub fn shows_mascot(app: &App) -> bool {
     let viewport = app.viewport;
     if !app.sidebar || viewport.width < MIN_WIDTH || viewport.height < MIN_HEIGHT {

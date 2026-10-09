@@ -36,7 +36,6 @@ use theme::Palette;
 pub struct Moment {
     pub now: Instant,
     pub animate: bool,
-    /// Whether the typing cursor leaves a trail.
     pub trail: bool,
 }
 
@@ -50,7 +49,6 @@ impl Moment {
         }
     }
 
-    /// A frame at `now` where things move, the cursor trailing.
     pub fn moving(now: Instant) -> Self {
         Self {
             now,
@@ -59,7 +57,6 @@ impl Moment {
         }
     }
 
-    /// A frame of `app` at `now`, moving when its animations are on.
     pub fn of_app(app: &App, now: Instant) -> Self {
         Self {
             now,

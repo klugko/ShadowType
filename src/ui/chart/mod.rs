@@ -46,7 +46,6 @@ pub fn line_chart(values: &[f64], width: u16, height: u16) -> Vec<String> {
         .collect()
 }
 
-/// The series spread over exactly `columns` columns.
 fn resample(values: &[f64], columns: usize) -> Vec<f64> {
     match columns {
         0 => Vec::new(),

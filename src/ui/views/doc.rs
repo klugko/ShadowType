@@ -48,7 +48,6 @@ pub fn blank() -> Row {
     Row::blank()
 }
 
-/// What separates the key of an [`assignment`] from its value.
 const EQUALS: &str = " = ";
 
 /**
@@ -84,7 +83,6 @@ pub fn string(value: &str, palette: &Palette) -> Span<'static> {
     Span::styled(format!("{QUOTE}{value}{QUOTE}"), palette.fg(palette.string))
 }
 
-/// What separates two keys of a [`keys`] row.
 const KEY_GAP: &str = "    ";
 
 /**
