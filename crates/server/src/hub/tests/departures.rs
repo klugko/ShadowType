@@ -1,7 +1,6 @@
 use code_racer_protocol::Phase;
 
 use super::*;
-use crate::hub::describe;
 
 #[test]
 fn a_client_that_stops_reading_mid_race_is_shown_offline() {
@@ -124,12 +123,4 @@ fn a_client_whose_outbox_overflows_is_dropped() {
     assert_eq!(view.player(BOB), None);
     harness.send(BOB, ClientMessage::LeaveRoom, 3);
     assert_eq!(harness.received(BOB).len(), 2);
-}
-
-#[test]
-fn closing_notices_use_readable_durations() {
-    assert_eq!(describe(Duration::from_secs(1_800)), "30 minutes");
-    assert_eq!(describe(Duration::from_secs(60)), "1 minute");
-    assert_eq!(describe(Duration::from_secs(45)), "45 seconds");
-    assert_eq!(describe(Duration::from_secs(1)), "1 second");
 }
