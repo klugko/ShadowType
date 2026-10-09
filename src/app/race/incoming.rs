@@ -4,11 +4,7 @@ use code_racer_engine::{SessionOptions, TypingSession};
 use code_racer_protocol::{ClientMessage, ErrorCode, Phase, RoomView, ServerMessage};
 
 use super::{Intent, LiveRace, Outcome, RaceClient};
-use crate::{
-    app::{ink::Ink, practice::Plan},
-    history::Record,
-    network::NetworkEvent,
-};
+use crate::{app::ink::Ink, history::Record, network::NetworkEvent};
 
 impl RaceClient {
     pub fn handle(&mut self, event: NetworkEvent, now: Instant) -> Outcome {
@@ -67,7 +63,7 @@ impl RaceClient {
     }
 
     fn apply_room(&mut self, room: RoomView, now: Instant) -> Outcome {
-        let entered = (self.room.is_none()).then(|| room.code.clone());
+        let entered = self.room.is_none().then(|| room.code.clone());
         let phase = room.phase;
         self.room = Some(room);
         match (phase, &mut self.race) {
@@ -105,7 +101,7 @@ impl RaceClient {
             return None;
         }
         let progress = self.me()?.progress;
-        let language = Plan::Text(self.room.as_ref()?.text).language_label();
+        let language = self.plan()?.language_label();
         let stats = self.session_view()?.stats(now);
         let race = self.race.as_mut()?;
         if race.recorded || stats.keystrokes == 0 {

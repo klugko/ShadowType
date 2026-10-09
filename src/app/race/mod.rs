@@ -247,10 +247,7 @@ impl RaceClient {
     }
 
     pub fn syntax(&self) -> Option<CodeLanguage> {
-        match self.room.as_ref()?.text {
-            TextSource::Code { language } => Some(language),
-            _ => None,
-        }
+        self.plan()?.syntax()
     }
 
     /// What the room races on, once in a room.
