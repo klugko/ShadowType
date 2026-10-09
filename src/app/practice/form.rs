@@ -6,7 +6,6 @@ use crate::{
     config::{Config, Look, Mode, Practice},
 };
 
-/// A line of `practice.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Text(TextSetting),
@@ -15,7 +14,6 @@ pub enum Field {
     Start,
 }
 
-/// Lines of the practice form for the current mode.
 pub fn fields(practice: &Practice) -> Vec<Field> {
     let look = (practice.mode != Mode::Code).then_some(Field::Look);
     text_settings::settings(practice)

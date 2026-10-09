@@ -11,7 +11,6 @@ use super::RaceClient;
  */
 pub(super) const REQUEST_REPEAT: Duration = Duration::from_millis(150);
 
-/// What the player asks of the room from the lobby or the results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomRequest {
     ToggleReady,

@@ -22,7 +22,6 @@ pub enum Field {
 }
 
 impl Field {
-    /// The text typed to set this line, for the lines that take text.
     pub const fn text_field(self) -> Option<TextField> {
         match self {
             Self::Username => Some(TextField::Username),

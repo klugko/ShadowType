@@ -8,10 +8,9 @@ use crate::{
     config::{Config, Mode, Practice},
 };
 
-/// Modes a race can use: time mode is solo only.
+/// Time mode is solo only.
 const RACE_MODES: [Mode; 3] = [Mode::Words, Mode::Quote, Mode::Code];
 
-/// A line of `race.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Room,
@@ -23,7 +22,6 @@ pub enum Field {
 }
 
 impl Field {
-    /// The text typed to set this line, for the lines that take text.
     pub const fn text_field(self) -> Option<TextField> {
         match self {
             Self::Room => Some(TextField::RoomCode),
@@ -34,8 +32,8 @@ impl Field {
 }
 
 /**
- * Lines of the race form. The room line comes first, where the form
- * opens, as joining a room is what most players come for.
+ * The room line comes first, where the form opens, as joining a room is
+ * what most players come for.
  */
 pub fn fields(settings: &Practice) -> Vec<Field> {
     [Field::Room, Field::Join]

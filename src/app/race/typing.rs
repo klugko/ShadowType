@@ -23,7 +23,6 @@ impl RaceClient {
         taken
     }
 
-    /// Sends the player's progress when [`progress_due`] says so.
     fn report_progress(&mut self, now: Instant) {
         let Some(race) = &self.race else {
             return;

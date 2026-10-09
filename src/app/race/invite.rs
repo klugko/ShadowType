@@ -8,10 +8,8 @@ use crate::network;
  * and its address on the local network is unknown.
  */
 const LAN_ADDRESS_PLACEHOLDER: &str = "<your LAN address>";
-/// What the host must know when the server runs on their computer.
 const LOCAL_SERVER_NOTE: &str = "start the server with --host 0.0.0.0 for teammates to reach it";
 
-/// The server address to give teammates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SharedServer {
     address: String,
@@ -45,7 +43,6 @@ impl SharedServer {
 }
 
 impl RaceClient {
-    /// How teammates join the room, once in one.
     pub fn invite(&self) -> Option<Invite> {
         let room = self.room.as_ref()?;
         Some(Invite {

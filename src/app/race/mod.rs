@@ -28,7 +28,6 @@ pub use form::{Field, adjust, fields, row, section};
 use invite::SharedServer;
 pub use requests::RoomRequest;
 
-/// Why the player connects.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Intent {
     Create(TextSource),
@@ -44,7 +43,6 @@ impl From<Intent> for Launch {
     }
 }
 
-/// Where the player is in the life of a room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     Connecting,
@@ -55,7 +53,6 @@ pub enum Stage {
     Finished,
 }
 
-/// What the application should do after a network event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
     Nothing,
@@ -68,7 +65,6 @@ pub enum Outcome {
     Finished(Record),
 }
 
-/// How teammates join the room.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invite {
     /**
@@ -83,7 +79,6 @@ pub struct Invite {
     pub note: Option<&'static str>,
 }
 
-/// The race currently typed by the player.
 #[derive(Debug)]
 struct LiveRace {
     session: TypingSession,
@@ -97,7 +92,6 @@ struct LiveRace {
     recorded: bool,
 }
 
-/// Connection to the race server and local view of the room.
 #[derive(Debug)]
 pub struct RaceClient {
     connection: Connection,
@@ -193,7 +187,6 @@ impl RaceClient {
         matches!(self.phase(), Some(Phase::Countdown | Phase::Racing))
     }
 
-    /// Whether the room shows a race: its countdown, the race or its results.
     pub fn shows_a_race(&self) -> bool {
         self.is_live() || self.phase() == Some(Phase::Finished)
     }
@@ -250,7 +243,6 @@ impl RaceClient {
         self.plan()?.syntax()
     }
 
-    /// What the room races on, once in a room.
     pub fn plan(&self) -> Option<Plan> {
         self.room.as_ref().map(|room| Plan::Text(room.text))
     }

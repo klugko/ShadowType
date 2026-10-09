@@ -7,7 +7,6 @@ use crate::{
     history::Record,
 };
 
-/// What a solo session is made of.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Plan {
     Text(TextSource),

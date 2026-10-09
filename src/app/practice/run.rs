@@ -16,7 +16,6 @@ const TIMED_REFILL_BELOW: usize = 120;
 /// Most missed characters the results list.
 const MISSED_SHOWN: usize = 5;
 
-/// A solo session in progress or just finished.
 #[derive(Debug)]
 pub struct SoloRun {
     pub plan: Plan,
@@ -109,7 +108,6 @@ impl SoloRun {
         self.session.is_finished()
     }
 
-    /// Whether typing has started and is not over.
     pub fn is_in_progress(&self) -> bool {
         self.session.status() == Status::Running
     }

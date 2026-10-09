@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use code_racer_engine::TypingSession;
 
-/// A key for the text being typed, or the clock moving on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextEvent {
     Typed(char),
