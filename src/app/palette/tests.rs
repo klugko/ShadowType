@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    entries::{entry, toggle},
+    *,
+};
+use crate::app::command::Setting;
 
 fn titles(found: &[Match]) -> Vec<&str> {
     found
