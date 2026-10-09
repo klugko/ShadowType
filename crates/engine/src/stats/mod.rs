@@ -1,5 +1,3 @@
-//! Typing speed and accuracy metrics.
-
 #[cfg(test)]
 mod tests;
 
@@ -42,17 +40,14 @@ impl Tally {
         self.correct.saturating_sub(self.indentation)
     }
 
-    /// Correctly typed characters per minute, divided by five.
     pub fn wpm(&self, elapsed: Duration) -> f64 {
         words_per_minute(self.correctly_typed(), elapsed)
     }
 
-    /// Keystrokes per minute, divided by five, mistakes included.
     pub fn raw_wpm(&self, elapsed: Duration) -> f64 {
         words_per_minute(self.keystrokes, elapsed)
     }
 
-    /// Keystrokes that matched the text, as a percentage of all keystrokes.
     pub fn accuracy(&self) -> f64 {
         percentage(self.keystrokes.saturating_sub(self.errors), self.keystrokes)
     }
@@ -60,17 +55,13 @@ impl Tally {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Stats {
-    /// Correctly typed characters per minute, divided by five; see [`Tally::wpm`].
     pub wpm: f64,
-    /// Keystrokes per minute, divided by five, mistakes included.
     pub raw_wpm: f64,
-    /// Correct keystrokes over all keystrokes, as a percentage.
     pub accuracy: f64,
     /// Keystrokes that did not match the text, including corrected ones.
     pub errors: usize,
     /// Characters of the text currently typed correctly, auto-filled indentation included.
     pub correct_chars: usize,
-    /// Characters of the text currently typed incorrectly.
     pub incorrect_chars: usize,
     /**
      * Keys pressed so far, corrected mistakes included and auto-filled

@@ -1,5 +1,3 @@
-//! Endless, sentence-aware stream of words with optional punctuation and numbers.
-
 #[cfg(test)]
 mod tests;
 
@@ -12,7 +10,6 @@ const SENTENCE_LENGTH: std::ops::RangeInclusive<usize> = 4..=12;
 const NUMBER_PROBABILITY: f64 = 0.12;
 const PICK_ATTEMPTS: usize = 16;
 
-/// Extra characters mixed into generated words.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WordOptions {
     /// Capitalised sentences, commas, quotes, parentheses and sentence endings.

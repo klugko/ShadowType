@@ -12,7 +12,6 @@ use crate::{
     normalize::normalize,
 };
 
-/// A passage of literature together with its source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Quote {
     pub text: String,

@@ -1,5 +1,3 @@
-//! Canonical form for every text a player is asked to type.
-
 mod keyboard;
 #[cfg(test)]
 mod tests;
@@ -26,13 +24,13 @@ const EMOJI_PRESENTATION: char = '\u{fe0f}';
  *
  * - Every line ending becomes `\n`.
  * - Tabs become spaces up to the next multiple of four columns.
- * - Characters become what a keyboard types, as [`keyboard_form`] says:
+ * - Characters become what a keyboard types, as `keyboard_form` says:
  *   no-break and other spaces become a space, curly quotes and guillemets
  *   `'` or `"`, dashes `-`, box drawing `-`, `|` or `+`, and common symbols
  *   an ASCII spelling such as `...`, `->`, `<=` or `(c)`.
  * - Characters no key produces are dropped: byte order marks, zero-width
  *   and bidirectional formatting characters, the soft hyphen, control
- *   characters, and the symbols without a spelling that [`has_no_key`]
+ *   characters, and the symbols without a spelling that `has_no_key`
  *   lists. Letters and marks of every script, Latin-1 and currency symbols
  *   and emoji stay, with the zero-width joiner and variation selectors
  *   that emoji are made of.
@@ -71,7 +69,6 @@ fn clean_line(line: &str) -> String {
     cleaned
 }
 
-/// Appends what a keyboard types for `ch`, if anything.
 fn push_typeable(line: &mut String, ch: char) {
     match keyboard_form(ch) {
         KeyboardForm::Char(kept) if kept == ch && has_no_key(ch) => {}

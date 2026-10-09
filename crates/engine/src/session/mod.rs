@@ -1,5 +1,3 @@
-//! A typing session: keystrokes compared against a target text, grapheme by grapheme.
-
 mod grading;
 mod history;
 mod input;
@@ -23,7 +21,6 @@ pub const ERROR_RUN_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SessionOptions {
-    /// Ends the session after this much time, however much has been typed.
     pub time_limit: Option<Duration>,
     /// Fills the indentation of a line automatically after a newline, like a code editor.
     pub auto_indent: bool,
@@ -39,7 +36,6 @@ pub enum Status {
     TimeUp,
 }
 
-/// State of one character of the target text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mark {
     Pending,
@@ -157,7 +153,6 @@ impl TypingSession {
         &self.target
     }
 
-    /// Index of the next character to type.
     pub fn cursor(&self) -> usize {
         self.entries.len()
     }
@@ -199,7 +194,6 @@ impl TypingSession {
             .map(|limit| limit.saturating_sub(self.elapsed(now)))
     }
 
-    /// The counters every speed and accuracy figure is derived from.
     pub fn tally(&self) -> Tally {
         Tally {
             typed: self.cursor(),
@@ -215,7 +209,6 @@ impl TypingSession {
         Stats::new(self.tally(), elapsed, self.progress(elapsed))
     }
 
-    /// Speed and errors second by second, from the start of the session to `now`.
     pub fn samples(&self, now: Instant) -> Vec<Sample> {
         self.history.samples(self.elapsed(now))
     }

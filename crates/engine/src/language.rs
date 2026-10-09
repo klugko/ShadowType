@@ -1,11 +1,8 @@
-//! Natural languages and programming languages that texts can be generated in.
-
 use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// A natural language with a bundled word list and quote collection.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "&'static str")]
 pub enum Language {
@@ -38,7 +35,6 @@ impl Language {
     }
 }
 
-/// A programming language with a bundled collection of code snippets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "&'static str")]
 pub enum CodeLanguage {
@@ -122,7 +118,6 @@ macro_rules! impl_language_traits {
         impl FromStr for $language {
             type Err = UnknownLanguage;
 
-            /// Accepts any spelling from the names table, ignoring case and surrounding spaces.
             fn from_str(input: &str) -> Result<Self, Self::Err> {
                 let wanted = input.trim().to_lowercase();
                 <$language>::ALL

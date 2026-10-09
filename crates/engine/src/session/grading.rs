@@ -1,7 +1,6 @@
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
-/// How some input compares with the character expected at its position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Judgement {
     Correct,

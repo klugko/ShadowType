@@ -82,7 +82,6 @@ fn fullwidth_ascii(ch: char) -> Option<char> {
     char::from_u32(u32::from(ch) - OFFSET)
 }
 
-/// How the symbols and ligatures that keyboards lack are spelled in ASCII.
 fn ascii_spelling(ch: char) -> Option<&'static str> {
     let spelling = match ch {
         '\u{2026}' => "...",

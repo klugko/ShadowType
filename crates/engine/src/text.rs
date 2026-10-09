@@ -1,5 +1,3 @@
-//! Turns a description of what to practise into the text to type.
-
 use std::ops::RangeInclusive;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};

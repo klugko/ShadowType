@@ -1,5 +1,3 @@
-//! The indentation that auto-indent types for the player in code.
-
 use crate::session::graphemes;
 
 /**
