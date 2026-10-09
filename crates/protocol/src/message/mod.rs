@@ -58,6 +58,16 @@ pub enum ClientMessage {
     ReturnToLobby,
 }
 
+impl ClientMessage {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    pub fn from_json(json: &str) -> serde_json::Result<Self> {
+        serde_json::from_str(json)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Progress {
     pub typed: u32,
@@ -109,11 +119,42 @@ pub enum ServerMessage {
     Error(ServerError),
 }
 
+impl ServerMessage {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    pub fn from_json(json: &str) -> serde_json::Result<Self> {
+        serde_json::from_str(json)
+    }
+
+    pub fn error(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self::Error(ServerError::new(code, message))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerError {
     pub code: ErrorCode,
     pub message: String,
 }
+
+impl ServerError {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ServerError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ServerError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -134,45 +175,4 @@ pub enum ErrorCode {
     InvalidSettings,
     #[serde(other)]
     Unknown,
-}
-
-impl ServerError {
-    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
-    }
-}
-
-impl std::fmt::Display for ServerError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for ServerError {}
-
-impl ClientMessage {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
-    }
-
-    pub fn from_json(json: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(json)
-    }
-}
-
-impl ServerMessage {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
-    }
-
-    pub fn from_json(json: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(json)
-    }
-
-    pub fn error(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self::Error(ServerError::new(code, message))
-    }
 }
