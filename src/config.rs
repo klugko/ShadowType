@@ -1,6 +1,8 @@
-//! User settings stored in `config.toml`, a file meant to be edited by hand
-//! too: missing keys take their default, and saving keeps comments and keys
-//! this version does not know.
+/*!
+ * User settings stored in `config.toml`, a file meant to be edited by hand
+ * too: missing keys take their default, and saving keeps comments and keys
+ * this version does not know.
+ */
 
 use std::{
     fmt, io,
@@ -111,8 +113,10 @@ macro_rules! display_by_name {
     )+};
 }
 
-/// What a prose text looks like on screen: the kind of file it is typed in,
-/// so that a glance at the screen shows someone writing, not practising.
+/**
+ * What a prose text looks like on screen: the kind of file it is typed in,
+ * so that a glance at the screen shows someone writing, not practising.
+ */
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Look {
@@ -178,8 +182,10 @@ impl Look {
         }
     }
 
-    /// The look a shuffle gives the text after one that looked like
-    /// `previous`: another of the [`Look::DISGUISES`], picked with `seed`.
+    /**
+     * The look a shuffle gives the text after one that looked like
+     * `previous`: another of the [`Look::DISGUISES`], picked with `seed`.
+     */
     pub fn shuffled_after(previous: Self, seed: u64) -> Self {
         let others: Vec<Self> = Self::DISGUISES
             .into_iter()
@@ -208,8 +214,10 @@ pub struct Practice {
 }
 
 impl Practice {
-    /// Word counts offered by the forms, solo and in races. Other counts in
-    /// [`WORD_COUNTS`], or [`RACE_WORD_COUNTS`] for races, can be set by hand.
+    /**
+     * Word counts offered by the forms, solo and in races. Other counts in
+     * [`WORD_COUNTS`], or [`RACE_WORD_COUNTS`] for races, can be set by hand.
+     */
     pub const WORD_COUNT_PRESETS: [u16; 4] = [10, 25, 50, 100];
     /// Time session lengths offered by the forms, in seconds.
     pub const DURATION_PRESETS: [u16; 4] = [15, 30, 60, 120];
@@ -225,8 +233,10 @@ impl Practice {
         }
     }
 
-    /// The same settings for a race: time mode becomes words mode, which
-    /// races can use, and the word count is brought into [`RACE_WORD_COUNTS`].
+    /**
+     * The same settings for a race: time mode becomes words mode, which
+     * races can use, and the word count is brought into [`RACE_WORD_COUNTS`].
+     */
     pub fn for_race(self) -> Self {
         Self {
             mode: match self.mode {
@@ -238,14 +248,18 @@ impl Practice {
         }
     }
 
-    /// The finite text these settings describe, `None` in time mode where
-    /// words keep coming until the timer runs out.
+    /**
+     * The finite text these settings describe, `None` in time mode where
+     * words keep coming until the timer runs out.
+     */
     pub fn text_source(&self) -> Option<TextSource> {
         (self.mode != Mode::Time).then(|| self.text_in(self.mode))
     }
 
-    /// The text of a race created with these settings, which
-    /// [`Practice::for_race`] makes raceable.
+    /**
+     * The text of a race created with these settings, which
+     * [`Practice::for_race`] makes raceable.
+     */
     pub fn race_text_source(self) -> TextSource {
         let race = self.for_race();
         race.text_in(race.mode)
@@ -322,24 +336,36 @@ pub struct Config {
     pub look: Look,
     /// Whether the mascot lives at the bottom of the explorer.
     pub mascot: bool,
-    /// Whether things move on screen: the ink of typed text drying, the
-    /// cursor breathing, the mascot, the results counting up.
+    /**
+     * Whether things move on screen: the ink of typed text drying, the
+     * cursor breathing, the mascot, the results counting up.
+     */
     pub animations: bool,
-    /// Whether the typing cursor leaves a trail behind it as it moves,
-    /// like a smooth cursor in a code editor.
+    /**
+     * Whether the typing cursor leaves a trail behind it as it moves,
+     * like a smooth cursor in a code editor.
+     */
     pub trail: bool,
-    /// Whether the mouse clicks and scrolls in the interface. Off, it is
-    /// left to the terminal, to select and copy text.
+    /**
+     * Whether the mouse clicks and scrolls in the interface. Off, it is
+     * left to the terminal, to select and copy text.
+     */
     pub mouse: bool,
-    /// Whether the screen shows an editor and nothing else: no speed in the
-    /// status line, no records, no mascot, no name of the application.
+    /**
+     * Whether the screen shows an editor and nothing else: no speed in the
+     * status line, no records, no mascot, no name of the application.
+     */
     pub discreet: bool,
-    /// Settings of solo sessions, kept at the top level of the file as in
-    /// earlier versions.
+    /**
+     * Settings of solo sessions, kept at the top level of the file as in
+     * earlier versions.
+     */
     #[serde(flatten)]
     pub practice: Practice,
-    /// Settings of the races this player creates, in a `[race]` table. They
-    /// are always raceable once loaded: see [`Practice::for_race`].
+    /**
+     * Settings of the races this player creates, in a `[race]` table. They
+     * are always raceable once loaded: see [`Practice::for_race`].
+     */
     pub race: Practice,
     pub multiplayer: Multiplayer,
 }
@@ -369,11 +395,13 @@ impl Config {
         self.username.parse().ok()
     }
 
-    /// Takes from `after` every setting that differs from `before`, and
-    /// keeps the others.
-    ///
-    /// `after` is taken apart field by field, so that a setting added later
-    /// cannot be forgotten here without a compilation error.
+    /**
+     * Takes from `after` every setting that differs from `before`, and
+     * keeps the others.
+     *
+     * `after` is taken apart field by field, so that a setting added later
+     * cannot be forgotten here without a compilation error.
+     */
     pub fn adopt_changes(&mut self, before: &Self, after: &Self) {
         let Self {
             username,
@@ -449,8 +477,10 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// Platform directories for the current user, `None` when the home
-    /// directory cannot be determined.
+    /**
+     * Platform directories for the current user, `None` when the home
+     * directory cannot be determined.
+     */
     pub fn discover() -> Option<Self> {
         let directories = ProjectDirs::from("", "", "code-racer")?;
         let data = directories.data_local_dir();
@@ -465,10 +495,12 @@ impl Paths {
     }
 }
 
-/// Reads the configuration. A missing file gives the defaults, and an
-/// invalid one is moved aside, explained in the warning, and gives the
-/// defaults too. `None` means the file could be neither used nor moved
-/// aside: it is still there, and must not be written over.
+/**
+ * Reads the configuration. A missing file gives the defaults, and an
+ * invalid one is moved aside, explained in the warning, and gives the
+ * defaults too. `None` means the file could be neither used nor moved
+ * aside: it is still there, and must not be written over.
+ */
 pub fn load_config(path: &Path) -> Loaded<Option<Config>> {
     persist::read_or_recover(path, "defaults loaded", parse_config).map(|found| match found {
         Recovered::Parsed(config) => Some(config),
@@ -477,14 +509,16 @@ pub fn load_config(path: &Path) -> Loaded<Option<Config>> {
     })
 }
 
-/// Applies `change` to the settings saved at `path`, as the file holds them
-/// now, and writes them back when they changed. The values are updated in
-/// place, so that the comments, layout and unknown keys of the file survive.
-///
-/// A file that cannot be read, or that does not hold valid settings, is
-/// refused rather than overwritten: it is what failed to load, and the
-/// settings in memory are only defaults. Other instances of code-racer wait
-/// while the file is read and replaced, so that none undoes another's save.
+/**
+ * Applies `change` to the settings saved at `path`, as the file holds them
+ * now, and writes them back when they changed. The values are updated in
+ * place, so that the comments, layout and unknown keys of the file survive.
+ *
+ * A file that cannot be read, or that does not hold valid settings, is
+ * refused rather than overwritten: it is what failed to load, and the
+ * settings in memory are only defaults. Other instances of code-racer wait
+ * while the file is read and replaced, so that none undoes another's save.
+ */
 pub fn update_config(path: &Path, change: impl FnOnce(&mut Config)) -> io::Result<()> {
     let _lock = persist::lock(path)?;
     let existing = persist::read_existing(path)?.unwrap_or_default();
@@ -508,8 +542,10 @@ fn updated_document(existing: &str, config: &Config) -> io::Result<String> {
     Ok(document.to_string())
 }
 
-/// Copies every setting into `table`, inserting the missing ones and
-/// leaving keys that are not settings alone.
+/**
+ * Copies every setting into `table`, inserting the missing ones and
+ * leaving keys that are not settings alone.
+ */
 fn update_table(table: &mut dyn TableLike, settings: &dyn TableLike) {
     for (key, setting) in settings.iter() {
         match table.get_mut(key) {
@@ -531,8 +567,10 @@ fn update_item(item: &mut Item, setting: &Item) {
     }
 }
 
-/// Replaces a changed value, keeping the whitespace and comment around it.
-/// An unchanged one keeps its spelling too, such as single quotes.
+/**
+ * Replaces a changed value, keeping the whitespace and comment around it.
+ * An unchanged one keeps its spelling too, such as single quotes.
+ */
 fn update_value(value: &mut Value, new_value: &Value) {
     if !same_setting(value, new_value) {
         let decor = value.decor().clone();

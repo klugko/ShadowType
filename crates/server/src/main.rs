@@ -70,15 +70,19 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Whether log lines carry ANSI colours: only on a terminal that renders
-/// them, so that files, pipes, `docker logs` and journald get plain text.
+/**
+ * Whether log lines carry ANSI colours: only on a terminal that renders
+ * them, so that files, pipes, `docker logs` and journald get plain text.
+ */
 fn coloured_logs() -> bool {
     let no_color = std::env::var_os("NO_COLOR");
     colours_wanted(std::io::stderr().is_terminal(), no_color.as_deref()) && terminal_renders_ansi()
 }
 
-/// Colours suit a terminal, unless `NO_COLOR` is set to a non-empty value,
-/// as <https://no-color.org> asks.
+/**
+ * Colours suit a terminal, unless `NO_COLOR` is set to a non-empty value,
+ * as <https://no-color.org> asks.
+ */
 fn colours_wanted(terminal: bool, no_color: Option<&OsStr>) -> bool {
     terminal && no_color.is_none_or(OsStr::is_empty)
 }
