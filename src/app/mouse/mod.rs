@@ -111,14 +111,7 @@ impl App {
         self.dismiss_message();
         self.prompt = None;
         match target {
-            Some(Target::Entry(buffer)) => {
-                if buffer != self.buffer {
-                    self.cancel_edit();
-                }
-                self.buffer = buffer;
-                self.focus_editor();
-            }
-            Some(Target::Tab(buffer)) => self.open(buffer),
+            Some(Target::Entry(buffer) | Target::Tab(buffer)) => self.open(buffer),
             Some(Target::FormLine(index)) => self.click_form_line(index, now),
             Some(Target::Key { code, times }) => {
                 for _ in 0..times {
