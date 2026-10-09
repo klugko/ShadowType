@@ -5,9 +5,9 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{
-    Activity, App, Buffer, FieldEdit, Focus, Prompt, TextField,
+    Activity, App, Buffer, Focus, Prompt,
     forms::FormKind,
-    input::{Edit, TextInput, control_letter, erases_word, normalized, typed_char},
+    input::{control_letter, erases_word, normalized, typed_char},
     race::RoomRequest,
     text_event::TextEvent,
 };
@@ -199,39 +199,6 @@ impl App {
             (_, KeyCode::Esc) => self.leave_session(now),
             _ => {}
         }
-    }
-
-    fn field_key(&mut self, key: KeyEvent) {
-        let Some(edit) = &mut self.editing else {
-            return;
-        };
-        match edit.input.handle_key(key) {
-            Edit::Submitted => {
-                let field = edit.field;
-                let value = edit.input.value().to_owned();
-                self.commit_field(field, &value);
-            }
-            Edit::Cancelled => {
-                let field = edit.field;
-                self.editing = None;
-                if field == TextField::Username {
-                    self.skip_username();
-                }
-            }
-            Edit::Changed | Edit::Ignored => {}
-        }
-    }
-
-    pub(super) fn begin_edit(&mut self, field: TextField) {
-        let value = match field {
-            TextField::Username => self.config.username.as_str(),
-            TextField::Server => self.config.multiplayer.server.as_str(),
-            TextField::RoomCode => self.room_code.as_str(),
-        };
-        self.editing = Some(FieldEdit {
-            field,
-            input: TextInput::new(value, field.max_length()),
-        });
     }
 }
 

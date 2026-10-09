@@ -31,11 +31,10 @@ mod startup;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub(crate) mod text_event;
+mod text_field;
 pub mod text_settings;
 
 use std::{fmt::Display, time::Instant};
-
-use code_racer_protocol::{RoomCode, Username};
 
 use crate::{
     cli::Launch,
@@ -44,7 +43,6 @@ use crate::{
 };
 pub use buffer::Buffer;
 use form::Cursor;
-use input::TextInput;
 pub use layout::{Focus, Viewport};
 use messages::Messages;
 pub use messages::{Message, MessageKind};
@@ -56,6 +54,7 @@ use saved_config::SavedConfig;
 pub use session::{Disguise, SessionView};
 pub use startup::Overrides;
 use text_event::TextEvent;
+pub use text_field::{FieldEdit, TextField};
 
 /// Vim-like mode shown in the status line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,34 +62,6 @@ pub enum EditorMode {
     Normal,
     Insert,
     Command,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TextField {
-    Username,
-    Server,
-    RoomCode,
-}
-
-impl TextField {
-    /// Longest server address that can be typed, in characters.
-    const MAX_SERVER_LENGTH: usize = 120;
-
-    /// How many characters the field takes.
-    const fn max_length(self) -> usize {
-        match self {
-            Self::Username => Username::MAX_LENGTH,
-            Self::Server => Self::MAX_SERVER_LENGTH,
-            Self::RoomCode => RoomCode::LENGTH,
-        }
-    }
-}
-
-/// A form value being typed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FieldEdit {
-    pub field: TextField,
-    pub input: TextInput,
 }
 
 #[derive(Debug)]
@@ -173,14 +144,6 @@ impl App {
         self.saved.path()
     }
 
-    /// What is being typed in `field`, while it is.
-    pub fn input_of(&self, field: TextField) -> Option<&TextInput> {
-        self.editing
-            .as_ref()
-            .filter(|edit| edit.field == field)
-            .map(|edit| &edit.input)
-    }
-
     pub fn editor_mode(&self) -> EditorMode {
         if self.prompt.is_some() || self.palette.is_some() {
             EditorMode::Command
@@ -221,15 +184,6 @@ impl App {
         if !hidden && !typing_error {
             self.messages.dismiss();
         }
-    }
-
-    /**
-     * Drops the field being typed, and what was to follow the name asked
-     * at first launch.
-     */
-    fn cancel_edit(&mut self) {
-        self.editing = None;
-        self.pending = None;
     }
 }
 
