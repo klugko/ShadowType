@@ -56,7 +56,6 @@ pub use startup::Overrides;
 use text_event::TextEvent;
 pub use text_field::{FieldEdit, TextField};
 
-/// Vim-like mode shown in the status line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditorMode {
     Normal,

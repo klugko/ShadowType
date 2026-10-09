@@ -17,7 +17,6 @@ impl TextField {
     /// Longest server address that can be typed, in characters.
     const MAX_SERVER_LENGTH: usize = 120;
 
-    /// How many characters the field takes.
     const fn max_length(self) -> usize {
         match self {
             Self::Username => Username::MAX_LENGTH,
@@ -27,7 +26,6 @@ impl TextField {
     }
 }
 
-/// A form value being typed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldEdit {
     pub field: TextField,

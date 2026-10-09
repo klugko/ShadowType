@@ -16,7 +16,6 @@ pub struct SessionView<'a> {
      * clock stops there. A finished text stops its clock by itself.
      */
     pub stopped_at: Option<Instant>,
-    /// When each character was typed.
     pub ink: Option<&'a Ink>,
     /// What the text looks like when it is prose; code looks like code.
     pub disguise: Option<Disguise<'a>>,
@@ -51,7 +50,6 @@ impl SessionView<'_> {
         self.session.stats(self.clock(now))
     }
 
-    /// Time left at `now` in a timed session.
     pub fn time_left(&self, now: Instant) -> Option<Duration> {
         self.session.time_left(self.clock(now))
     }

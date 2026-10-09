@@ -1,6 +1,5 @@
 use super::{Activity, App};
 
-/// What the editor pane can show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Buffer {
     Practice,
@@ -43,7 +42,6 @@ impl App {
         entries
     }
 
-    /// Name of a buffer as shown in the explorer and the tab line.
     pub fn buffer_name(&self, buffer: Buffer) -> String {
         match (buffer, &self.activity) {
             (Buffer::Session, Some(Activity::Solo(run))) => run.plan.title(self.disguise()),

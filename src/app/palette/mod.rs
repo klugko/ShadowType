@@ -20,7 +20,6 @@ pub use matching::{Match, matches};
 /// Longest query, in characters.
 const MAX_QUERY: usize = 60;
 
-/// The palette while it is open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandPalette {
     pub query: TextInput,

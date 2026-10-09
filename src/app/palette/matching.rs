@@ -1,6 +1,5 @@
 use super::Entry;
 
-/// An entry that matches the query, and where.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Match {
     pub entry: Entry,
