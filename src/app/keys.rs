@@ -5,7 +5,7 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{
-    Activity, App, Buffer, FieldEdit, Focus, Message, Prompt, TextField, command,
+    Activity, App, Buffer, FieldEdit, Focus, Prompt, TextField,
     forms::FormKind,
     input::{Edit, TextInput, control_letter, erases_word, normalized, typed_char},
     race::RoomRequest,
@@ -201,33 +201,6 @@ impl App {
         }
     }
 
-    fn prompt_key(&mut self, key: KeyEvent) {
-        let Some(prompt) = &mut self.prompt else {
-            return;
-        };
-        if key.code == KeyCode::Tab {
-            prompt.complete();
-            return;
-        }
-        if key.code == KeyCode::Backspace && prompt.input.value().is_empty() {
-            self.prompt = None;
-            return;
-        }
-        match prompt.input.handle_key(key) {
-            Edit::Submitted => {
-                let line = prompt.input.value().to_owned();
-                self.prompt = None;
-                match command::parse(&line) {
-                    Ok(command) => self.run_command(command),
-                    Err(error) => self.messages.push(Message::command_error(&error)),
-                }
-            }
-            Edit::Cancelled => self.prompt = None,
-            Edit::Changed => prompt.completion = None,
-            Edit::Ignored => {}
-        }
-    }
-
     fn field_key(&mut self, key: KeyEvent) {
         let Some(edit) = &mut self.editing else {
             return;
@@ -259,19 +232,6 @@ impl App {
             field,
             input: TextInput::new(value, field.max_length()),
         });
-    }
-}
-
-impl Prompt {
-    fn complete(&mut self) {
-        let (typed, index) = match &self.completion {
-            Some((typed, index)) => (typed.clone(), index + 1),
-            None => (self.input.value().to_owned(), 0),
-        };
-        if let Some(name) = command::complete(&typed, index) {
-            self.input = TextInput::new(name, Self::MAX_LENGTH);
-            self.completion = Some((typed, index));
-        }
     }
 }
 

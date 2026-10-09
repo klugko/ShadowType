@@ -22,6 +22,7 @@ mod messages;
 pub mod mouse;
 pub mod palette;
 pub mod practice;
+mod prompt;
 pub mod race;
 mod saved_config;
 mod session;
@@ -49,6 +50,7 @@ use messages::Messages;
 pub use messages::{Message, MessageKind};
 use palette::CommandPalette;
 use practice::SoloRun;
+pub use prompt::Prompt;
 use race::RaceClient;
 use saved_config::SavedConfig;
 pub use session::{Disguise, SessionView};
@@ -89,24 +91,6 @@ impl TextField {
 pub struct FieldEdit {
     pub field: TextField,
     pub input: TextInput,
-}
-
-/// The `:` command line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Prompt {
-    pub input: TextInput,
-    completion: Option<(String, usize)>,
-}
-
-impl Prompt {
-    const MAX_LENGTH: usize = 200;
-
-    fn new() -> Self {
-        Self {
-            input: TextInput::new("", Self::MAX_LENGTH),
-            completion: None,
-        }
-    }
 }
 
 #[derive(Debug)]
