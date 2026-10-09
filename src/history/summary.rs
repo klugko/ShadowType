@@ -42,8 +42,7 @@ impl History {
             .iter()
             .filter(|record| record.date.date_naive() == day)
             .collect();
-        let seconds: f64 = records.iter().map(|record| record.duration).sum();
-        (records.len(), Duration::from_secs_f64(seconds.max(0.0)))
+        (records.len(), total_time(records))
     }
 
     /**
@@ -90,7 +89,7 @@ fn mean(values: impl Iterator<Item = f64>) -> f64 {
     }
 }
 
-fn total_time(records: &[Record]) -> Duration {
-    let seconds: f64 = records.iter().map(|record| record.duration).sum();
+fn total_time<'a>(records: impl IntoIterator<Item = &'a Record>) -> Duration {
+    let seconds: f64 = records.into_iter().map(|record| record.duration).sum();
     Duration::try_from_secs_f64(seconds).unwrap_or_default()
 }
