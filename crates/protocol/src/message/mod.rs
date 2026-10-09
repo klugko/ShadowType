@@ -99,13 +99,13 @@ pub(crate) fn count(value: u32) -> usize {
 
 impl From<Tally> for Progress {
     fn from(tally: Tally) -> Self {
-        let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
+        let clamped = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
         Self {
-            typed: count(tally.typed),
-            correct: count(tally.correct),
-            indentation: count(tally.indentation),
-            keystrokes: count(tally.keystrokes),
-            errors: count(tally.errors),
+            typed: clamped(tally.typed),
+            correct: clamped(tally.correct),
+            indentation: clamped(tally.indentation),
+            keystrokes: clamped(tally.keystrokes),
+            errors: clamped(tally.errors),
         }
     }
 }
