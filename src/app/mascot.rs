@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use super::{Activity, App};
+use super::{App, ink::Ink};
 
 /**
  * How long without a key before the mascot falls asleep. Asleep it stops
@@ -37,33 +37,21 @@ pub enum Mood {
 
 impl App {
     pub fn mascot_mood(&self, now: Instant) -> Mood {
-        let typing = self.session_view().and_then(|view| view.ink);
-        if self.is_typing_blocked()
-            || typing
-                .and_then(|ink| ink.last_mistake())
-                .is_some_and(|at| now.saturating_duration_since(at) < STARTLE)
-        {
+        let ink = self.session_view().and_then(|view| view.ink);
+        let mistake = ink.and_then(Ink::last_mistake);
+        if self.is_typing_blocked() || happened_within(mistake, STARTLE, now) {
             return Mood::Oops;
         }
-        if let Some(Activity::Solo(run)) = &self.activity
-            && let Some(result) = &run.result
-            && now.saturating_duration_since(result.at) < REJOICING
-        {
-            return if result.is_personal_best() {
-                Mood::Proud
-            } else {
-                Mood::Happy
-            };
+        if let Some(mood) = self.rejoicing(now) {
+            return mood;
         }
         let live_race = self.race().is_some_and(|client| client.is_live());
         let idle = now.saturating_duration_since(self.last_input.unwrap_or(self.born));
         if idle >= NAP_AFTER && !live_race {
             return Mood::Asleep;
         }
-        let typing_along = self.is_typing()
-            && typing
-                .and_then(|ink| ink.last_key())
-                .is_some_and(|at| now.saturating_duration_since(at) < TYPING_ALONG);
+        let typing_along =
+            self.is_typing() && happened_within(ink.and_then(Ink::last_key), TYPING_ALONG, now);
         if typing_along || live_race {
             Mood::Typing
         } else {
@@ -71,10 +59,24 @@ impl App {
         }
     }
 
+    fn rejoicing(&self, now: Instant) -> Option<Mood> {
+        let result = self.solo()?.result.as_ref()?;
+        let mood = if result.is_personal_best() {
+            Mood::Proud
+        } else {
+            Mood::Happy
+        };
+        happened_within(Some(result.at), REJOICING, now).then_some(mood)
+    }
+
     /// How long the mascot has lived at `now`, which its moves follow.
     pub fn mascot_age(&self, now: Instant) -> Duration {
         now.saturating_duration_since(self.born)
     }
+}
+
+fn happened_within(at: Option<Instant>, span: Duration, now: Instant) -> bool {
+    at.is_some_and(|at| now.saturating_duration_since(at) < span)
 }
 
 #[cfg(test)]
