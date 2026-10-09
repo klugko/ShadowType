@@ -1,8 +1,10 @@
-//! The hub is the single owner of every room and connected player.
-//!
-//! It runs as one task fed with [`Command`]s, so no state is shared between
-//! connections. [`Hub`] holds the logic and is driven synchronously with
-//! explicit instants; [`run`] is the thin async loop around it.
+/*!
+ * The hub is the single owner of every room and connected player.
+ *
+ * It runs as one task fed with [`Command`]s, so no state is shared between
+ * connections. [`Hub`] holds the logic and is driven synchronously with
+ * explicit instants; [`run`] is the thin async loop around it.
+ */
 
 use std::{
     collections::{HashMap, HashSet},
@@ -26,7 +28,6 @@ use crate::{config::ServerConfig, room::Room};
 /// How often rooms advance and coalesced progress is broadcast (20 Hz).
 const TICK_INTERVAL: Duration = Duration::from_millis(50);
 
-/// What connections tell the hub.
 #[derive(Debug)]
 pub enum Command {
     /// A player completed the handshake. Messages for them go to `outbox`.
@@ -93,7 +94,6 @@ impl Hub {
         self.drop_stuck_players(now);
     }
 
-    /// Advances every room, broadcasts the rooms that changed and closes idle ones.
     pub fn tick(&mut self, now: Instant) {
         let race_timeout = self.config.race_timeout;
         for (code, room) in &mut self.rooms {
@@ -336,8 +336,10 @@ impl Hub {
         }
     }
 
-    /// The room of a player, first brought up to date with the clock so that
-    /// no request acts on a countdown or a race that is already over.
+    /**
+     * The room of a player, first brought up to date with the clock so that
+     * no request acts on a countdown or a race that is already over.
+     */
     fn current_room(
         &mut self,
         id: PlayerId,
@@ -397,8 +399,10 @@ pub async fn run(mut hub: Hub, mut commands: mpsc::Receiver<Command>) {
     }
 }
 
-/// Queues a message for a player. Returns false when their connection is gone
-/// or so far behind that its outbox is full.
+/**
+ * Queues a message for a player. Returns false when their connection is gone
+ * or so far behind that its outbox is full.
+ */
 fn deliver(players: &HashMap<PlayerId, Player>, id: PlayerId, message: ServerMessage) -> bool {
     let Some(player) = players.get(&id) else {
         return true;

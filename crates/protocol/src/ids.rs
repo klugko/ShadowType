@@ -19,10 +19,12 @@ impl fmt::Display for PlayerId {
     }
 }
 
-/// Short code used to invite people into a room, such as `FK72AD`.
-///
-/// Codes use uppercase letters and digits, leaving out the look-alikes
-/// `0`, `O`, `1` and `I` so they can be read aloud or copied by hand.
+/**
+ * Short code used to invite people into a room, such as `FK72AD`.
+ *
+ * Codes use uppercase letters and digits, leaving out the look-alikes
+ * `0`, `O`, `1` and `I` so they can be read aloud or copied by hand.
+ */
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct RoomCode(String);
@@ -109,13 +111,15 @@ pub enum InvalidUsername {
 
 impl Username {
     pub const MAX_LENGTH: usize = 24;
-    /// Longest name in bytes of UTF-8. One character can stack any number of
-    /// combining marks, so the character limit alone does not bound a name,
-    /// while a room view listing [`MAX_ROOM_PLAYERS`] names must fit in
-    /// [`MAX_MESSAGE_BYTES`].
-    ///
-    /// [`MAX_ROOM_PLAYERS`]: crate::MAX_ROOM_PLAYERS
-    /// [`MAX_MESSAGE_BYTES`]: crate::MAX_MESSAGE_BYTES
+    /**
+     * Longest name in bytes of UTF-8. One character can stack any number of
+     * combining marks, so the character limit alone does not bound a name,
+     * while a room view listing [`MAX_ROOM_PLAYERS`] names must fit in
+     * [`MAX_MESSAGE_BYTES`].
+     *
+     * [`MAX_ROOM_PLAYERS`]: crate::MAX_ROOM_PLAYERS
+     * [`MAX_MESSAGE_BYTES`]: crate::MAX_MESSAGE_BYTES
+     */
     pub const MAX_BYTES: usize = 128;
 
     pub fn as_str(&self) -> &str {
@@ -126,12 +130,14 @@ impl Username {
 impl FromStr for Username {
     type Err = InvalidUsername;
 
-    /// Surrounding spaces are ignored.
-    ///
-    /// Characters that take no room on screen are refused: zero-width spaces,
-    /// bidirectional controls and lone combining marks would make a name blank
-    /// or scramble the line it is shown on. Joiners inside a visible
-    /// character, as in emoji, are fine.
+    /**
+     * Surrounding spaces are ignored.
+     *
+     * Characters that take no room on screen are refused: zero-width spaces,
+     * bidirectional controls and lone combining marks would make a name blank
+     * or scramble the line it is shown on. Joiners inside a visible
+     * character, as in emoji, are fine.
+     */
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let name = input.trim();
         if name.chars().any(is_control_or_line_break) {

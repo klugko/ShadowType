@@ -1,7 +1,9 @@
-//! Race server for code-racer: rooms and races behind a WebSocket endpoint.
-//!
-//! Each connection runs in its own task and talks to a single hub task that
-//! owns every room, so room state is never shared or locked.
+/*!
+ * Race server for code-racer: rooms and races behind a WebSocket endpoint.
+ *
+ * Each connection runs in its own task and talks to a single hub task that
+ * owns every room, so room state is never shared or locked.
+ */
 
 mod config;
 mod connection;
@@ -35,9 +37,11 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// Time connections get to close cleanly once the server stops.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
-/// Accepts players on `listener` until `shutdown` completes, then closes every connection.
-///
-/// Fails only if the task owning the rooms stops unexpectedly.
+/**
+ * Accepts players on `listener` until `shutdown` completes, then closes every connection.
+ *
+ * Fails only if the task owning the rooms stops unexpectedly.
+ */
 pub async fn serve(
     listener: TcpListener,
     config: ServerConfig,
@@ -81,8 +85,10 @@ fn hub_failure(stopped: Result<(), JoinError>) -> io::Error {
     io::Error::other(format!("the room hub stopped unexpectedly: {stopped:?}"))
 }
 
-/// Bounds how many players are served, how many are being refused, and how
-/// many connections one address holds, at once.
+/**
+ * Bounds how many players are served, how many are being refused, and how
+ * many connections one address holds, at once.
+ */
 #[derive(Debug)]
 struct Admission {
     players: Arc<Semaphore>,
@@ -100,8 +106,10 @@ impl Admission {
         }
     }
 
-    /// Serves or refuses a new connection. A peer over its share is dropped
-    /// without a word, so that it cannot fill the refusal slots either.
+    /**
+     * Serves or refuses a new connection. A peer over its share is dropped
+     * without a word, so that it cannot fill the refusal slots either.
+     */
     fn admit(
         &self,
         connections: &mut JoinSet<()>,
@@ -133,7 +141,6 @@ impl Admission {
     }
 }
 
-/// Lets connections finish their goodbyes, then cuts the ones still open.
 async fn close_all(mut connections: JoinSet<()>) {
     let drained = time::timeout(SHUTDOWN_GRACE, async {
         while connections.join_next().await.is_some() {}

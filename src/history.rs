@@ -1,17 +1,17 @@
-//! Results of finished sessions, stored in `history.json`.
-//!
-//! The file is a JSON array of records, oldest first. Files written by
-//! code-racer 0.1 are understood and migrated on the next save. Several
-//! running instances can share the file: each result is appended to what the
-//! file holds at that moment, not to what it held at start-up.
+/*!
+ * Results of finished sessions, stored in `history.json` as a JSON array of
+ * records, oldest first. Files written by code-racer 0.1 are understood and
+ * migrated on the next save.
+ */
 
 use std::{
+    collections::BTreeSet,
     io,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveDate};
 use code_racer_engine::Stats;
 use serde::{Deserialize, Serialize};
 
@@ -27,11 +27,15 @@ pub const RECENT_SESSIONS: usize = 10;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Record {
     pub date: DateTime<Local>,
-    /// What was practised: `words 50`, `time 30`, `quote`, `code`, `file` or
-    /// `race`.
+    /**
+     * What was practised: `words 50`, `time 30`, `quote`, `code`, `file` or
+     * `race`.
+     */
     pub mode: String,
-    /// The natural language of the text, or the programming language of a
-    /// `code` session (`rust`), a `file` (`text` when unknown) or a race on code.
+    /**
+     * The natural language of the text, or the programming language of a
+     * `code` session (`rust`), a `file` (`text` when unknown) or a race on code.
+     */
     pub language: String,
     /// Length of the session, in seconds.
     pub duration: f64,
@@ -86,12 +90,14 @@ pub struct History {
 }
 
 impl History {
-    /// Reads the history saved at `path`, which later additions are written to.
-    ///
-    /// A missing file gives an empty history. An invalid one is moved aside,
-    /// explained in the warning, and replaced by an empty history. A file
-    /// that can be neither used nor moved aside gives an empty history that
-    /// stays in memory, so that the file is never overwritten.
+    /**
+     * Reads the history saved at `path`, which later additions are written to.
+     *
+     * A missing file gives an empty history. An invalid one is moved aside,
+     * explained in the warning, and replaced by an empty history. A file
+     * that can be neither used nor moved aside gives an empty history that
+     * stays in memory, so that the file is never overwritten.
+     */
     pub fn load(path: &Path) -> Loaded<Self> {
         persist::read_or_recover(path, "starting a new history", parse_records).map(|found| {
             match found {
@@ -124,11 +130,13 @@ impl History {
         &self.records
     }
 
-    /// Appends a record and saves it, along with the records saved meanwhile
-    /// by other running instances, which then show up here too.
-    ///
-    /// On a write error the record stays in memory, is saved with the next
-    /// one, and the error is returned.
+    /**
+     * Appends a record and saves it, along with the records saved meanwhile
+     * by other running instances, which then show up here too.
+     *
+     * On a write error the record stays in memory, is saved with the next
+     * one, and the error is returned.
+     */
     pub fn add(&mut self, record: Record) -> io::Result<()> {
         self.records.push(record.sanitized());
         self.unsaved = (self.unsaved + 1).min(MAX_RECORDS);
@@ -154,6 +162,38 @@ impl History {
         }
     }
 
+    /// What was practised on `day`: how many sessions, for how long.
+    pub fn day(&self, day: NaiveDate) -> (usize, Duration) {
+        let records: Vec<&Record> = self
+            .records
+            .iter()
+            .filter(|record| record.date.date_naive() == day)
+            .collect();
+        let seconds: f64 = records.iter().map(|record| record.duration).sum();
+        (records.len(), Duration::from_secs_f64(seconds.max(0.0)))
+    }
+
+    /**
+     * How many days in a row, up to `today`, have at least one session.
+     * A streak still counts on a day not practised yet when the day
+     * before was.
+     */
+    pub fn streak(&self, today: NaiveDate) -> usize {
+        let days: BTreeSet<NaiveDate> = self
+            .records
+            .iter()
+            .map(|record| record.date.date_naive())
+            .collect();
+        let start = if days.contains(&today) {
+            Some(today)
+        } else {
+            today
+                .pred_opt()
+                .filter(|yesterday| days.contains(yesterday))
+        };
+        std::iter::successors(start, |day| day.pred_opt().filter(|day| days.contains(day))).count()
+    }
+
     /// Best speed ever reached in this mode and language.
     pub fn personal_best(&self, mode: &str, language: &str) -> Option<f64> {
         self.records
@@ -174,10 +214,12 @@ impl History {
     }
 }
 
-/// Appends `records` to the file and returns everything it then holds.
-///
-/// The file is read again under the lock, rather than rewritten from memory,
-/// so that the results another instance saved since start-up are kept.
+/**
+ * Appends `records` to the file and returns everything it then holds.
+ *
+ * The file is read again under the lock, rather than rewritten from memory,
+ * so that the results another instance saved since start-up are kept.
+ */
 fn append_to_file(path: &Path, records: &[Record]) -> io::Result<Vec<Record>> {
     let _lock = persist::lock(path)?;
     let mut saved = match persist::read_existing(path)? {
@@ -194,9 +236,11 @@ fn append_to_file(path: &Path, records: &[Record]) -> io::Result<Vec<Record>> {
 }
 
 impl Record {
-    /// JSON cannot store NaN or infinities, which would make the whole file
-    /// unreadable, and negative amounts are meaningless: both become zero, so
-    /// that no summary can come out as NaN.
+    /**
+     * JSON cannot store NaN or infinities, which would make the whole file
+     * unreadable, and negative amounts are meaningless: both become zero, so
+     * that no summary can come out as NaN.
+     */
     fn sanitized(self) -> Self {
         Self {
             duration: non_negative(self.duration),
@@ -301,8 +345,10 @@ impl From<StoredRecord> for Record {
     }
 }
 
-/// Development builds of 0.2 migrated code sessions to `code <language>`,
-/// which never matches the `code` key that sessions are recorded under.
+/**
+ * Development builds of 0.2 migrated code sessions to `code <language>`,
+ * which never matches the `code` key that sessions are recorded under.
+ */
 fn current_mode(mode: String) -> String {
     if mode.starts_with("code ") {
         Record::CODE_MODE.to_owned()
@@ -352,6 +398,51 @@ mod tests {
                 .expect("in-memory add");
         }
         history
+    }
+
+    /// A history with a 30-second session on each of `days`.
+    fn practised_on(days: &[&str]) -> History {
+        let mut history = History::in_memory();
+        for day in days {
+            let date = DateTime::parse_from_rfc3339(&format!("{day}T12:00:00+00:00"))
+                .expect("valid date")
+                .with_timezone(&Local);
+            history
+                .add(Record {
+                    date,
+                    ..record("words 50", "english", 60.0, 95.0)
+                })
+                .expect("in-memory add");
+        }
+        history
+    }
+
+    fn date(day: &str) -> NaiveDate {
+        let noon = DateTime::parse_from_rfc3339(&format!("{day}T12:00:00+00:00"))
+            .expect("valid date")
+            .with_timezone(&Local);
+        noon.date_naive()
+    }
+
+    #[test]
+    fn a_day_counts_its_sessions_and_their_time() {
+        let history = practised_on(&["2026-05-01", "2026-05-01", "2026-05-02"]);
+        let (sessions, time) = history.day(date("2026-05-01"));
+        assert_eq!((sessions, time), (2, Duration::from_secs(60)));
+        assert_eq!(history.day(date("2026-05-03")).0, 0);
+    }
+
+    #[test]
+    fn a_streak_counts_the_days_in_a_row() {
+        let history = practised_on(&["2026-05-01", "2026-05-03", "2026-05-04", "2026-05-05"]);
+        assert_eq!(history.streak(date("2026-05-05")), 3);
+        assert_eq!(
+            history.streak(date("2026-05-06")),
+            3,
+            "today may still come"
+        );
+        assert_eq!(history.streak(date("2026-05-07")), 0, "a day was missed");
+        assert_eq!(History::in_memory().streak(date("2026-05-07")), 0);
     }
 
     #[test]

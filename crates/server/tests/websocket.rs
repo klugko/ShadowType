@@ -155,8 +155,10 @@ fn typed(length: u32, keystrokes: u32, errors: u32) -> ClientMessage {
     })
 }
 
-/// The server refuses progress faster than 30 characters per second plus a
-/// burst of 5; waits until typing `length` characters is believable.
+/**
+ * The server refuses progress faster than 30 characters per second plus a
+ * burst of 5; waits until typing `length` characters is believable.
+ */
 async fn wait_until_plausible(length: u32) {
     let seconds = (f64::from(length) - 5.0) / 30.0;
     if seconds > 0.0 {

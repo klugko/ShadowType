@@ -32,7 +32,6 @@ pub enum TextSource {
     },
 }
 
-/// The text produced for a [`TextSource`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedText {
     pub text: String,
@@ -41,7 +40,7 @@ pub struct GeneratedText {
 }
 
 impl TextSource {
-    /// Produces the text for this source. The same seed always yields the same text.
+    /// The same seed always yields the same text.
     pub fn generate(&self, seed: u64) -> GeneratedText {
         match *self {
             Self::Words {

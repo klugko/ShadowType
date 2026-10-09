@@ -14,11 +14,12 @@ use crate::{
         App, Focus, TextField,
         form::{self, Value},
         input::TextInput,
+        mouse::Target,
         practice, race, settings,
     },
     ui::{
         editor::{self, Row},
-        format,
+        format, hits,
         theme::Palette,
     },
 };
@@ -32,14 +33,15 @@ enum Item<'a> {
     Field {
         row: form::Row,
         selected: bool,
-        /// What is being typed in the line, while it is.
         editing: Option<&'a TextInput>,
     },
 }
 
 impl<'a> Item<'a> {
-    /// A form line of `app`, being typed when it takes `text` and that text
-    /// is being edited.
+    /**
+     * A form line of `app`, being typed when it takes `text` and that text
+     * is being edited.
+     */
     fn field(app: &'a App, row: form::Row, text: Option<TextField>, selected: bool) -> Self {
         Self::Field {
             row,
@@ -53,48 +55,30 @@ pub fn practice(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> 
     let settings = &app.config.practice;
     let fields = practice::fields(settings);
     let selected = app.practice_cursor.index(fields.len());
-    let mut items = vec![
-        Item::Plain(doc::title("practice.toml", palette)),
-        Item::Plain(doc::comment(
-            "solo session settings, s starts one from anywhere",
-            palette,
-        )),
-        Item::Plain(doc::blank()),
-    ];
-    items.extend(fields.iter().enumerate().map(|(index, field)| {
-        Item::field(
-            app,
-            practice::row(settings, *field),
-            None,
-            index == selected,
-        )
-    }));
-    if let Some(last) = app.history.records().last() {
-        items.push(Item::Plain(doc::blank()));
-        items.push(Item::Plain(doc::comment(
-            format!(
-                "last session: {} · {} · {:.0} wpm · {:.0}% accuracy",
-                last.mode, last.language, last.wpm, last.accuracy
-            ),
-            palette,
-        )));
-    }
+    let items = fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            Item::field(
+                app,
+                practice::row(&app.config, *field),
+                None,
+                index == selected,
+            )
+        })
+        .collect();
     draw(frame, area, items, palette)
 }
 
 pub fn race(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Option<Position> {
     let fields = race::fields(&app.config.race);
     let selected = app.race_cursor.index(fields.len());
-    let mut items = vec![
-        Item::Plain(doc::title("race.toml", palette)),
-        Item::Plain(doc::comment(
-            "race your team: everyone types the same text at the same time",
-            palette,
-        )),
-    ];
+    let mut items = Vec::new();
     for (index, field) in fields.iter().enumerate() {
         if let Some(section) = race::section(*field) {
-            items.push(Item::Plain(doc::blank()));
+            if !items.is_empty() {
+                items.push(Item::Plain(doc::blank()));
+            }
             items.push(Item::Plain(Row::new(vec![Span::styled(
                 format!("[{section}]"),
                 palette.fg(palette.keyword),
@@ -108,11 +92,7 @@ pub fn race(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Opti
 
 pub fn settings(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> Option<Position> {
     let selected = app.settings_cursor.index(settings::FIELDS.len());
-    let mut items = vec![
-        Item::Plain(doc::title("config.toml", palette)),
-        Item::Plain(doc::comment("Enter edits or changes a value", palette)),
-        Item::Plain(doc::blank()),
-    ];
+    let mut items = Vec::new();
     for (index, field) in settings::FIELDS.iter().enumerate() {
         let row = settings::row(&app.config, *field);
         items.push(Item::field(app, row, field.text_field(), index == selected));
@@ -127,8 +107,10 @@ pub fn settings(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) -> 
     draw(frame, area, items, palette)
 }
 
-/// Draws the form lines; returns where the terminal cursor goes when a
-/// value is being typed and shows.
+/**
+ * Returns where the terminal cursor goes while a value is being typed and
+ * in view.
+ */
 fn draw(
     frame: &mut Frame,
     area: Rect,
@@ -139,6 +121,7 @@ fn draw(
     let mut cursor = None;
     let mut selected_row = 0;
     let mut rows: Vec<Row> = Vec::with_capacity(items.len());
+    let mut lines = Vec::new();
     for item in items {
         let row = match item {
             Item::Plain(row) => row,
@@ -147,6 +130,7 @@ fn draw(
                 selected,
                 editing,
             } => {
+                lines.push(rows.len());
                 if selected {
                     selected_row = rows.len();
                 }
@@ -160,6 +144,16 @@ fn draw(
     editor::number_rows(&mut rows);
     let scroll = editor::scroll_for(selected_row, area.height, rows.len());
     let text = editor::render(frame, area, &rows, scroll, palette);
+    for (index, row) in lines.into_iter().enumerate() {
+        let shown = row
+            .checked_sub(scroll)
+            .and_then(|offset| u16::try_from(offset).ok())
+            .filter(|offset| *offset < area.height);
+        if let Some(offset) = shown {
+            let line = Rect::new(area.x, area.y + offset, area.width, 1);
+            hits::mark(line, Target::FormLine(index));
+        }
+    }
     let (row, column) = cursor?;
     let row = u16::try_from(row.checked_sub(scroll)?).ok()?;
     let column = u16::try_from(column).unwrap_or(u16::MAX);
@@ -169,7 +163,6 @@ fn draw(
     })
 }
 
-/// The columns of a form.
 #[derive(Debug, Clone, Copy)]
 struct Columns {
     /// Width the keys are padded to.
@@ -181,7 +174,6 @@ struct Columns {
 }
 
 impl Columns {
-    /// The columns of the form of `items`, in an area `area_width` wide.
     fn of(items: &[Item<'_>], area_width: u16, palette: &Palette) -> Self {
         let rows = items.iter().filter_map(|item| match item {
             Item::Field { row, .. } if !matches!(row.value, Value::Action(_)) => Some(row),
@@ -199,8 +191,10 @@ impl Columns {
     }
 }
 
-/// The row of a form line and, while its value is being typed, the column
-/// of the typing cursor in it. The hint follows only when it fits whole.
+/**
+ * The row of a form line and, while its value is being typed, the column
+ * of the typing cursor in it. The hint follows only when it fits whole.
+ */
 fn field_row(
     row: &form::Row,
     columns: Columns,
@@ -224,8 +218,10 @@ fn field_row(
     (Row::new(spans).current(selected), cursor)
 }
 
-/// `text` as a comment after `spans`, if any and if it fits whole in
-/// `width` columns: a cut example could read as another valid value.
+/**
+ * `text` as a comment after `spans`, if any and if it fits whole in
+ * `width` columns: a cut example could read as another valid value.
+ */
 fn comment_after(
     spans: &[Span<'_>],
     text: &str,
@@ -258,8 +254,10 @@ fn setting(
     spans
 }
 
-/// The line of a value being typed, scrolled to keep its cursor in view
-/// with both quotes, and the column of the cursor.
+/**
+ * The line of a value being typed, scrolled to keep its cursor in view
+ * with both quotes, and the column of the cursor.
+ */
 fn typed_setting(
     key: &str,
     input: &TextInput,
@@ -274,8 +272,10 @@ fn typed_setting(
     (setting(key, value, columns, palette), cursor)
 }
 
-/// The comment after a form line: how to end the typing, the key of the
-/// selected action, or what the line sets.
+/**
+ * The comment after a form line: how to end the typing, the key of the
+ * selected action, or what the line sets.
+ */
 fn hint(row: &form::Row, selected: bool, editing: bool) -> &str {
     match (&row.value, editing) {
         (_, true) => "Enter saves, Esc cancels",

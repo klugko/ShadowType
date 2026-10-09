@@ -1,9 +1,11 @@
-//! Messages exchanged over the WebSocket, encoded as tagged JSON objects.
-//!
-//! A connection starts with [`ClientMessage::Hello`], answered by
-//! [`ServerMessage::Welcome`] or an [`ErrorCode::IncompatibleVersion`] error.
-//! Only peers of the same [`PROTOCOL_VERSION`] talk to each other, so a
-//! message never needs to accept the shape of an older version.
+/*!
+ * Messages exchanged over the WebSocket, encoded as tagged JSON objects.
+ *
+ * A connection starts with [`ClientMessage::Hello`], answered by
+ * [`ServerMessage::Welcome`] or an [`ErrorCode::IncompatibleVersion`] error.
+ * Only peers of the same [`PROTOCOL_VERSION`] talk to each other, so a
+ * message never needs to accept the shape of an older version.
+ */
 
 use code_racer_engine::{Tally, TextSource};
 use serde::{Deserialize, Serialize};
@@ -13,14 +15,18 @@ use crate::{
     room::RoomView,
 };
 
-/// Incremented whenever a change breaks compatibility with older peers. The
-/// server refuses a `Hello` announcing any other version. Version 3 left
-/// auto-filled indentation out of keystrokes and made
-/// [`Progress::indentation`] required.
+/**
+ * Incremented whenever a change breaks compatibility with older peers. The
+ * server refuses a `Hello` announcing any other version. Version 3 left
+ * auto-filled indentation out of keystrokes and made
+ * [`Progress::indentation`] required.
+ */
 pub const PROTOCOL_VERSION: u16 = 3;
 
-/// Largest WebSocket message either side accepts. Every valid message fits:
-/// usernames are bounded in bytes and rooms in players for that purpose.
+/**
+ * Largest WebSocket message either side accepts. Every valid message fits:
+ * usernames are bounded in bytes and rooms in players for that purpose.
+ */
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,8 +49,10 @@ pub enum ClientMessage {
     },
     /// Host only, once every player is ready.
     StartRace,
-    /// Sent periodically while racing. The server derives speed, accuracy and
-    /// finishing time from it.
+    /**
+     * Sent periodically while racing. The server derives speed, accuracy and
+     * finishing time from it.
+     */
     Progress(Progress),
     /// Host only, once the race is finished.
     ReturnToLobby,
@@ -57,8 +65,10 @@ pub struct Progress {
     pub typed: u32,
     /// Characters currently matching the text, auto-filled indentation included.
     pub correct: u32,
-    /// Characters of `correct` that auto-indentation filled in. Required
-    /// since protocol version 3, which stopped counting them as keystrokes.
+    /**
+     * Characters of `correct` that auto-indentation filled in. Required
+     * since protocol version 3, which stopped counting them as keystrokes.
+     */
     pub indentation: u32,
     /// Keys pressed, corrected mistakes included.
     pub keystrokes: u32,
@@ -67,7 +77,6 @@ pub struct Progress {
 }
 
 impl Progress {
-    /// The counters in the engine's terms, to score them with its rules.
     pub fn tally(&self) -> Tally {
         Tally {
             typed: count(self.typed),
@@ -79,14 +88,12 @@ impl Progress {
     }
 }
 
-/// A counter of the wire format as an engine counter.
 pub(crate) fn count(value: u32) -> usize {
     usize::try_from(value).unwrap_or(usize::MAX)
 }
 
 impl From<Tally> for Progress {
-    /// The counters of a typing session as reported to the server, each
-    /// clamped to the range of the wire format.
+    /// Clamps each counter to the range of the wire format.
     fn from(tally: Tally) -> Self {
         let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
         Self {

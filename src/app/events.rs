@@ -1,23 +1,30 @@
-//! Events other than key presses: pasted text, the network and the clock,
-//! and the quiet period that follows the end of typing.
+/*!
+ * Events other than key presses: pasted text, the network and the clock,
+ * and the quiet period that follows the end of typing.
+ */
 
 use std::time::{Duration, Instant};
 
 use super::{Activity, App, Buffer, race::Outcome, text_event::TextEvent};
 use crate::{history::Record, network::NetworkEvent};
 
-/// How long keys are ignored once typing stops by itself: a fast typist
-/// still has keystrokes on their way, which would otherwise be taken as
-/// commands, such as `q` to quit or Enter to start another text.
+/**
+ * How long keys are ignored once typing stops by itself: a fast typist
+ * still has keystrokes on their way, which would otherwise be taken as
+ * commands, such as `q` to quit or Enter to start another text.
+ */
 const QUIET_PERIOD: Duration = Duration::from_millis(600);
 
 impl App {
     pub fn handle_paste(&mut self, text: &str, now: Instant) {
         self.begin_event();
+        self.last_input = Some(now);
         if self.is_quiet(now) {
             return;
         }
-        if let Some(prompt) = &mut self.prompt {
+        if let Some(palette) = &mut self.palette {
+            palette.query.insert_str(text);
+        } else if let Some(prompt) = &mut self.prompt {
             prompt.input.insert_str(text);
         } else if let Some(edit) = &mut self.editing {
             edit.input.insert_str(text);
@@ -64,10 +71,13 @@ impl App {
         self.quiet_if_typing_stopped(was_typing, now);
     }
 
-    /// Brings the player to the race text when the countdown begins,
-    /// wherever they were: a command line or a field being typed would
-    /// otherwise take the first keystrokes of the race.
+    /**
+     * Brings the player to the race text when the countdown begins,
+     * wherever they were: a command line or a field being typed would
+     * otherwise take the first keystrokes of the race.
+     */
     fn show_race(&mut self) {
+        self.shuffle_look(rand::random());
         self.prompt = None;
         self.cancel_edit();
         self.open(Buffer::Session);
@@ -80,15 +90,16 @@ impl App {
         }
     }
 
-    /// Whether keys are still ignored after typing stopped by itself.
     pub(super) fn is_quiet(&self, now: Instant) -> bool {
         self.quiet_until.is_some_and(|until| now < until)
     }
 
-    /// Starts the quiet period when typing has just stopped, unless the
-    /// player stopped it: the text was completed, the time ran out, the race
-    /// ended or the connection was lost. The message on screen stays, as
-    /// the ignored keys do not dismiss it.
+    /**
+     * Starts the quiet period when typing has just stopped, unless the
+     * player stopped it: the text was completed, the time ran out, the race
+     * ended or the connection was lost. The message on screen stays, as
+     * the ignored keys do not dismiss it.
+     */
     pub(super) fn quiet_if_typing_stopped(&mut self, was_typing: bool, now: Instant) {
         if was_typing && !self.is_typing() {
             self.quiet_until = Some(now + QUIET_PERIOD);

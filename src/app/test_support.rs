@@ -1,8 +1,10 @@
-//! Typing helpers shared by the tests of the app and of its views.
-//!
-//! Each keystroke is checked as it is typed: a key the text refuses or
-//! judges wrong fails the test at once, where a loop typing "until the
-//! text is done" would spin forever.
+/*!
+ * Typing helpers shared by the tests of the app and of its views.
+ *
+ * Each keystroke is checked as it is typed: a key the text refuses or
+ * judges wrong fails the test at once, where a loop typing "until the
+ * text is done" would spin forever.
+ */
 
 use std::time::Instant;
 
@@ -11,13 +13,14 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use super::App;
 
-/// The text being typed.
 pub(crate) fn session(app: &App) -> &TypingSession {
     app.session_view().expect("a session").session
 }
 
-/// Types the character the text expects next, at `at`, and checks that it
-/// was taken and judged right.
+/**
+ * Types the character the text expects next, at `at`, and checks that it
+ * was taken and judged right.
+ */
 pub(crate) fn type_next(app: &mut App, at: Instant) {
     let before = session(app).cursor();
     let next = session(app)
@@ -35,15 +38,13 @@ pub(crate) fn type_next(app: &mut App, at: Instant) {
     );
 }
 
-/// Types the rest of the text correctly, at `at`, until it is complete.
-/// Every round moves the cursor on, or fails.
+/// Every round moves the cursor on, or fails, so the loop always ends.
 pub(crate) fn type_remaining_at(app: &mut App, at: Instant) {
     while !session(app).is_finished() {
         type_next(app, at);
     }
 }
 
-/// The keys that type `grapheme`.
 fn keys_for(grapheme: &str) -> Vec<KeyCode> {
     match grapheme {
         "\n" => vec![KeyCode::Enter],

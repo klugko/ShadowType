@@ -1,9 +1,8 @@
-//! User settings stored in `config.toml`.
-//!
-//! The file is meant to be edited by hand too: missing keys take their
-//! default, and saving changes only the values of the settings, so comments
-//! and keys this version does not know are kept. A file that cannot be parsed
-//! is moved aside rather than overwritten.
+/*!
+ * User settings stored in `config.toml`, a file meant to be edited by hand
+ * too: missing keys take their default, and saving keeps comments and keys
+ * this version does not know.
+ */
 
 use std::{
     fmt, io,
@@ -32,16 +31,46 @@ pub enum Theme {
     Dark,
     /// Monochrome, for terminals without colors.
     Mono,
+    /// The colours of VS Code's default dark theme, its blue status bar
+    /// included.
+    #[value(name = "vscode")]
+    VsCode,
 }
 
 impl Theme {
-    pub const ALL: [Self; 3] = [Self::Editor, Self::Dark, Self::Mono];
+    pub const ALL: [Self; 4] = [Self::Editor, Self::Dark, Self::Mono, Self::VsCode];
 
     pub const fn name(self) -> &'static str {
         match self {
             Self::Editor => "editor",
             Self::Dark => "dark",
             Self::Mono => "mono",
+            Self::VsCode => "vscode",
+        }
+    }
+}
+
+/// The icons in front of file names, in the explorer and the tabs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Icons {
+    /// Symbols every terminal font has, coloured by file type.
+    #[default]
+    Unicode,
+    /// The icons of a Nerd Font, as in a code editor's file icon theme.
+    Nerd,
+    /// No icons.
+    None,
+}
+
+impl Icons {
+    pub const ALL: [Self; 3] = [Self::Unicode, Self::Nerd, Self::None];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Unicode => "unicode",
+            Self::Nerd => "nerd",
+            Self::None => "none",
         }
     }
 }
@@ -84,7 +113,90 @@ macro_rules! display_by_name {
     )+};
 }
 
-display_by_name!(Theme, Mode);
+/**
+ * What a prose text looks like on screen: the kind of file it is typed in,
+ * so that a glance at the screen shows someone writing, not practising.
+ */
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Look {
+    /// Markdown notes: the text as it comes.
+    #[default]
+    Notes,
+    /// A markdown checklist, ticked off row by row.
+    Todo,
+    /// A git commit message, git's template under it.
+    Commit,
+    /// The documentation comment of a function, in the code language.
+    Docs,
+    /// A log, each row stamped with the time it was typed.
+    Log,
+    /// An email draft.
+    Mail,
+    /// Another of the others for every text.
+    Shuffle,
+}
+
+impl Look {
+    pub const ALL: [Self; 7] = [
+        Self::Notes,
+        Self::Todo,
+        Self::Commit,
+        Self::Docs,
+        Self::Log,
+        Self::Mail,
+        Self::Shuffle,
+    ];
+    /// The looks a text can have on screen, every one but [`Look::Shuffle`].
+    pub const DISGUISES: [Self; 6] = [
+        Self::Notes,
+        Self::Todo,
+        Self::Commit,
+        Self::Docs,
+        Self::Log,
+        Self::Mail,
+    ];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Notes => "notes",
+            Self::Todo => "todo",
+            Self::Commit => "commit",
+            Self::Docs => "docs",
+            Self::Log => "log",
+            Self::Mail => "mail",
+            Self::Shuffle => "shuffle",
+        }
+    }
+
+    /// What the look makes texts look like, for messages and hints.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::Notes => "markdown notes",
+            Self::Todo => "a todo list",
+            Self::Commit => "a commit message",
+            Self::Docs => "a doc comment",
+            Self::Log => "a log file",
+            Self::Mail => "an email draft",
+            Self::Shuffle => "a different file every time",
+        }
+    }
+
+    /**
+     * The look a shuffle gives the text after one that looked like
+     * `previous`: another of the [`Look::DISGUISES`], picked with `seed`.
+     */
+    pub fn shuffled_after(previous: Self, seed: u64) -> Self {
+        let others: Vec<Self> = Self::DISGUISES
+            .into_iter()
+            .filter(|look| *look != previous)
+            .collect();
+        let index = seed % u64::try_from(others.len()).unwrap_or(1);
+        others[usize::try_from(index).unwrap_or(0)]
+    }
+}
+
+display_by_name!(Theme, Mode, Look, Icons);
 
 /// Settings of the last solo session or race, reused as the next defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,8 +214,10 @@ pub struct Practice {
 }
 
 impl Practice {
-    /// Word counts offered by the forms, solo and in races. Other counts in
-    /// [`WORD_COUNTS`], or [`RACE_WORD_COUNTS`] for races, can be set by hand.
+    /**
+     * Word counts offered by the forms, solo and in races. Other counts in
+     * [`WORD_COUNTS`], or [`RACE_WORD_COUNTS`] for races, can be set by hand.
+     */
     pub const WORD_COUNT_PRESETS: [u16; 4] = [10, 25, 50, 100];
     /// Time session lengths offered by the forms, in seconds.
     pub const DURATION_PRESETS: [u16; 4] = [15, 30, 60, 120];
@@ -119,8 +233,10 @@ impl Practice {
         }
     }
 
-    /// The same settings for a race: time mode becomes words mode, which
-    /// races can use, and the word count is brought into [`RACE_WORD_COUNTS`].
+    /**
+     * The same settings for a race: time mode becomes words mode, which
+     * races can use, and the word count is brought into [`RACE_WORD_COUNTS`].
+     */
     pub fn for_race(self) -> Self {
         Self {
             mode: match self.mode {
@@ -132,14 +248,18 @@ impl Practice {
         }
     }
 
-    /// The finite text these settings describe, `None` in time mode where
-    /// words keep coming until the timer runs out.
+    /**
+     * The finite text these settings describe, `None` in time mode where
+     * words keep coming until the timer runs out.
+     */
     pub fn text_source(&self) -> Option<TextSource> {
         (self.mode != Mode::Time).then(|| self.text_in(self.mode))
     }
 
-    /// The text of a race created with these settings, which
-    /// [`Practice::for_race`] makes raceable.
+    /**
+     * The text of a race created with these settings, which
+     * [`Practice::for_race`] makes raceable.
+     */
     pub fn race_text_source(self) -> TextSource {
         let race = self.for_race();
         race.text_in(race.mode)
@@ -212,12 +332,40 @@ impl Default for Multiplayer {
 pub struct Config {
     pub username: String,
     pub theme: Theme,
-    /// Settings of solo sessions, kept at the top level of the file as in
-    /// earlier versions.
+    pub icons: Icons,
+    pub look: Look,
+    /// Whether the mascot lives at the bottom of the explorer.
+    pub mascot: bool,
+    /**
+     * Whether things move on screen: the ink of typed text drying, the
+     * cursor breathing, the mascot, the results counting up.
+     */
+    pub animations: bool,
+    /**
+     * Whether the typing cursor leaves a trail behind it as it moves,
+     * like a smooth cursor in a code editor.
+     */
+    pub trail: bool,
+    /**
+     * Whether the mouse clicks and scrolls in the interface. Off, it is
+     * left to the terminal, to select and copy text.
+     */
+    pub mouse: bool,
+    /**
+     * Whether the screen shows an editor and nothing else: no speed in the
+     * status line, no records, no mascot, no name of the application.
+     */
+    pub discreet: bool,
+    /**
+     * Settings of solo sessions, kept at the top level of the file as in
+     * earlier versions.
+     */
     #[serde(flatten)]
     pub practice: Practice,
-    /// Settings of the races this player creates, in a `[race]` table. They
-    /// are always raceable once loaded: see [`Practice::for_race`].
+    /**
+     * Settings of the races this player creates, in a `[race]` table. They
+     * are always raceable once loaded: see [`Practice::for_race`].
+     */
     pub race: Practice,
     pub multiplayer: Multiplayer,
 }
@@ -227,6 +375,13 @@ impl Default for Config {
         Self {
             username: String::new(),
             theme: Theme::default(),
+            icons: Icons::default(),
+            look: Look::default(),
+            mascot: true,
+            animations: true,
+            trail: true,
+            mouse: true,
+            discreet: false,
             practice: Practice::default(),
             race: Practice::default().for_race(),
             multiplayer: Multiplayer::default(),
@@ -240,21 +395,37 @@ impl Config {
         self.username.parse().ok()
     }
 
-    /// Takes from `after` every setting that differs from `before`, and
-    /// keeps the others.
-    ///
-    /// `after` is taken apart field by field, so that a setting added later
-    /// cannot be forgotten here without a compilation error.
+    /**
+     * Takes from `after` every setting that differs from `before`, and
+     * keeps the others.
+     *
+     * `after` is taken apart field by field, so that a setting added later
+     * cannot be forgotten here without a compilation error.
+     */
     pub fn adopt_changes(&mut self, before: &Self, after: &Self) {
         let Self {
             username,
             theme,
+            icons,
+            look,
+            mascot,
+            animations,
+            trail,
+            mouse,
+            discreet,
             practice,
             race,
             multiplayer: Multiplayer { server },
         } = after;
         adopt(&mut self.username, &before.username, username);
         adopt(&mut self.theme, &before.theme, theme);
+        adopt(&mut self.icons, &before.icons, icons);
+        adopt(&mut self.look, &before.look, look);
+        adopt(&mut self.mascot, &before.mascot, mascot);
+        adopt(&mut self.animations, &before.animations, animations);
+        adopt(&mut self.trail, &before.trail, trail);
+        adopt(&mut self.mouse, &before.mouse, mouse);
+        adopt(&mut self.discreet, &before.discreet, discreet);
         self.practice.adopt_changes(&before.practice, practice);
         self.race.adopt_changes(&before.race, race);
         adopt(
@@ -306,8 +477,10 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// Platform directories for the current user, `None` when the home
-    /// directory cannot be determined.
+    /**
+     * Platform directories for the current user, `None` when the home
+     * directory cannot be determined.
+     */
     pub fn discover() -> Option<Self> {
         let directories = ProjectDirs::from("", "", "code-racer")?;
         let data = directories.data_local_dir();
@@ -322,10 +495,12 @@ impl Paths {
     }
 }
 
-/// Reads the configuration. A missing file gives the defaults, and an
-/// invalid one is moved aside, explained in the warning, and gives the
-/// defaults too. `None` means the file could be neither used nor moved
-/// aside: it is still there, and must not be written over.
+/**
+ * Reads the configuration. A missing file gives the defaults, and an
+ * invalid one is moved aside, explained in the warning, and gives the
+ * defaults too. `None` means the file could be neither used nor moved
+ * aside: it is still there, and must not be written over.
+ */
 pub fn load_config(path: &Path) -> Loaded<Option<Config>> {
     persist::read_or_recover(path, "defaults loaded", parse_config).map(|found| match found {
         Recovered::Parsed(config) => Some(config),
@@ -334,14 +509,16 @@ pub fn load_config(path: &Path) -> Loaded<Option<Config>> {
     })
 }
 
-/// Applies `change` to the settings saved at `path`, as the file holds them
-/// now, and writes them back when they changed. The values are updated in
-/// place, so that the comments, layout and unknown keys of the file survive.
-///
-/// A file that cannot be read, or that does not hold valid settings, is
-/// refused rather than overwritten: it is what failed to load, and the
-/// settings in memory are only defaults. Other instances of code-racer wait
-/// while the file is read and replaced, so that none undoes another's save.
+/**
+ * Applies `change` to the settings saved at `path`, as the file holds them
+ * now, and writes them back when they changed. The values are updated in
+ * place, so that the comments, layout and unknown keys of the file survive.
+ *
+ * A file that cannot be read, or that does not hold valid settings, is
+ * refused rather than overwritten: it is what failed to load, and the
+ * settings in memory are only defaults. Other instances of code-racer wait
+ * while the file is read and replaced, so that none undoes another's save.
+ */
 pub fn update_config(path: &Path, change: impl FnOnce(&mut Config)) -> io::Result<()> {
     let _lock = persist::lock(path)?;
     let existing = persist::read_existing(path)?.unwrap_or_default();
@@ -365,8 +542,10 @@ fn updated_document(existing: &str, config: &Config) -> io::Result<String> {
     Ok(document.to_string())
 }
 
-/// Copies every setting into `table`, inserting the missing ones and
-/// leaving keys that are not settings alone.
+/**
+ * Copies every setting into `table`, inserting the missing ones and
+ * leaving keys that are not settings alone.
+ */
 fn update_table(table: &mut dyn TableLike, settings: &dyn TableLike) {
     for (key, setting) in settings.iter() {
         match table.get_mut(key) {
@@ -388,8 +567,10 @@ fn update_item(item: &mut Item, setting: &Item) {
     }
 }
 
-/// Replaces a changed value, keeping the whitespace and comment around it.
-/// An unchanged one keeps its spelling too, such as single quotes.
+/**
+ * Replaces a changed value, keeping the whitespace and comment around it.
+ * An unchanged one keeps its spelling too, such as single quotes.
+ */
 fn update_value(value: &mut Value, new_value: &Value) {
     if !same_setting(value, new_value) {
         let decor = value.decor().clone();
@@ -460,7 +641,6 @@ word_count = 50
 server = "ws://127.0.0.1:8080"
 "#;
 
-    /// Saves every setting of `config` over those of the file.
     fn save(path: &Path, config: &Config) -> io::Result<()> {
         update_config(path, |saved| saved.clone_from(config))
     }
@@ -491,6 +671,7 @@ server = "ws://127.0.0.1:8080"
                 multiplayer: Multiplayer {
                     server: "ws://127.0.0.1:8080".to_owned(),
                 },
+                ..Config::default()
             })
         );
         assert_eq!(
@@ -601,6 +782,13 @@ server = "ws://127.0.0.1:8080"
         let config = Config {
             username: "Élodie".to_owned(),
             theme: Theme::Mono,
+            icons: Icons::Nerd,
+            look: Look::Commit,
+            mascot: false,
+            animations: false,
+            trail: false,
+            mouse: false,
+            discreet: true,
             practice: Practice {
                 mode: Mode::Time,
                 language: Language::French,
@@ -977,5 +1165,46 @@ server = "ws://127.0.0.1:8080"
             let value = mode.to_possible_value().expect("possible value");
             assert_eq!(value.get_name(), mode.to_string());
         }
+        for look in Look::ALL {
+            let value = look.to_possible_value().expect("possible value");
+            assert_eq!(value.get_name(), look.name());
+            assert_eq!(Look::from_str(look.name(), true), Ok(look));
+        }
+        for icons in Icons::ALL {
+            let value = icons.to_possible_value().expect("possible value");
+            assert_eq!(value.get_name(), icons.name());
+        }
+        let vscode = toml::to_string(&Config {
+            theme: Theme::VsCode,
+            ..Config::default()
+        })
+        .expect("serialized");
+        assert!(vscode.contains("theme = \"vscode\""), "{vscode}");
+    }
+
+    #[test]
+    fn a_shuffle_never_gives_the_same_look_twice_in_a_row() {
+        let picked: std::collections::HashSet<Look> = (0..60)
+            .map(|seed| Look::shuffled_after(Look::Todo, seed))
+            .collect();
+        assert_eq!(picked.len(), Look::DISGUISES.len() - 1);
+        assert!(!picked.contains(&Look::Todo));
+        assert!(!picked.contains(&Look::Shuffle));
+    }
+
+    #[test]
+    fn the_new_settings_default_to_on_and_load_from_their_keys() {
+        let dir = TempDir::new();
+        assert_eq!(Config::default().look, Look::Notes);
+        assert!(Config::default().mascot && Config::default().animations);
+        assert!(Config::default().mouse);
+        let contents = "look = \"log\"
+mascot = false
+animations = false
+mouse = false
+";
+        let loaded = load(&write_config(&dir, contents)).value;
+        assert_eq!(loaded.look, Look::Log);
+        assert!(!loaded.mascot && !loaded.animations && !loaded.mouse);
     }
 }

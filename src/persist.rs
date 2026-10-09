@@ -1,5 +1,7 @@
-//! Crash-safe writes, locking and recovery of unusable files, shared by the
-//! configuration and the history.
+/*!
+ * Crash-safe writes, locking and recovery of unusable files, shared by the
+ * configuration and the history.
+ */
 
 use std::{
     borrow::Cow,
@@ -11,8 +13,10 @@ use std::{
 
 const MAX_BACKUPS: u32 = 99;
 
-/// A value read from disk, with an explanation for the user when the file was
-/// unusable and had to be replaced.
+/**
+ * A value read from disk, with an explanation for the user when the file was
+ * unusable and had to be replaced.
+ */
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Loaded<T> {
     pub value: T,
@@ -35,12 +39,14 @@ impl<T> Loaded<T> {
     }
 }
 
-/// Replaces the contents of `path`, creating its directory if needed.
-///
-/// The bytes are written and flushed to a temporary sibling that is then
-/// renamed over `path`, so a crash never leaves a truncated file behind.
-/// A symbolic link is replaced through, not over, so that a file kept in a
-/// dotfiles repository stays linked.
+/**
+ * Replaces the contents of `path`, creating its directory if needed.
+ *
+ * The bytes are written and flushed to a temporary sibling that is then
+ * renamed over `path`, so a crash never leaves a truncated file behind.
+ * A symbolic link is replaced through, not over, so that a file kept in a
+ * dotfiles repository stays linked.
+ */
 pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     create_parent_directory(&path)?;
@@ -52,11 +58,13 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
-/// Waits for the advisory lock that guards `path` against other running
-/// instances of code-racer, held until the returned file is dropped.
-///
-/// The lock is taken on a `<name>.lock` sibling rather than on `path`, which
-/// [`write_atomically`] replaces by another file.
+/**
+ * Waits for the advisory lock that guards `path` against other running
+ * instances of code-racer, held until the returned file is dropped.
+ *
+ * The lock is taken on a `<name>.lock` sibling rather than on `path`, which
+ * [`write_atomically`] replaces by another file.
+ */
 pub fn lock(path: &Path) -> io::Result<File> {
     let lock_path = with_suffix(path, ".lock");
     create_parent_directory(&lock_path)?;
@@ -78,8 +86,10 @@ pub fn read_existing(path: &Path) -> io::Result<Option<String>> {
     }
 }
 
-/// The error for a file that does not hold what it should. Such a file is
-/// refused rather than overwritten, so that the user can repair it.
+/**
+ * The error for a file that does not hold what it should. Such a file is
+ * refused rather than overwritten, so that the user can repair it.
+ */
 pub fn invalid_contents(problem: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidData,
@@ -87,8 +97,10 @@ pub fn invalid_contents(problem: &str) -> io::Error {
     )
 }
 
-/// Renames an unusable file to `<name>.bak`, or `<name>.<n>.bak` when older
-/// backups exist, so that it can be inspected and repaired by hand.
+/**
+ * Renames an unusable file to `<name>.bak`, or `<name>.<n>.bak` when older
+ * backups exist, so that it can be inspected and repaired by hand.
+ */
 pub fn move_aside(path: &Path) -> io::Result<PathBuf> {
     let backup = (1..=MAX_BACKUPS)
         .map(|number| backup_path(path, number))
@@ -107,21 +119,27 @@ pub fn move_aside(path: &Path) -> io::Result<PathBuf> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Recovered<T> {
     Parsed(T),
-    /// No usable file: it did not exist, or it was invalid and has been moved
-    /// aside. A new one may be written.
+    /**
+     * No usable file: it did not exist, or it was invalid and has been moved
+     * aside. A new one may be written.
+     */
     Absent,
-    /// The file could not be used but is still there, because it could not
-    /// be read or moved aside. Writing to the path would destroy it.
+    /**
+     * The file could not be used but is still there, because it could not
+     * be read or moved aside. Writing to the path would destroy it.
+     */
     LeftInPlace,
 }
 
-/// Reads and parses `path`.
-///
-/// A missing file is [`Recovered::Absent`] silently. Any other problem comes
-/// with a warning that continues with `fallback`, the description of what
-/// replaces the file. Only a file whose contents are invalid is moved aside:
-/// one that cannot be read at all, for lack of permission or because another
-/// program holds it, may be perfectly fine and is left alone.
+/**
+ * Reads and parses `path`.
+ *
+ * A missing file is [`Recovered::Absent`] silently. Any other problem comes
+ * with a warning that continues with `fallback`, the description of what
+ * replaces the file. Only a file whose contents are invalid is moved aside:
+ * one that cannot be read at all, for lack of permission or because another
+ * program holds it, may be perfectly fine and is left alone.
+ */
 pub fn read_or_recover<T>(
     path: &Path,
     fallback: &str,
@@ -272,8 +290,10 @@ pub(crate) mod scratch {
         }
     }
 
-    /// Removes every permission on `path`. Returns `false` when the file can
-    /// still be read anyway, as it can by root.
+    /**
+     * Removes every permission on `path`. Returns `false` when the file can
+     * still be read anyway, as it can by root.
+     */
     #[cfg(unix)]
     pub(crate) fn make_unreadable(path: &Path) -> bool {
         use std::os::unix::fs::PermissionsExt;

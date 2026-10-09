@@ -1,9 +1,9 @@
-//! Syntax highlighting for the code snippets shown in the typing editor.
-//!
-//! Each language is described by a small table driving one hand-written
-//! lexer. It aims at idiomatic snippets rather than full grammars, and it is
-//! total: any input, including half-typed or malformed code, gets exactly one
-//! token per grapheme.
+/*!
+ * Syntax highlighting of code snippets: one hand-written lexer driven by a
+ * small table per language, aimed at idiomatic snippets rather than full
+ * grammars. It is total: any input, half-typed or malformed, gets exactly one
+ * token per grapheme.
+ */
 
 use std::iter;
 
@@ -300,8 +300,10 @@ impl Lexer<'_> {
         }
     }
 
-    /// Whether the `e` at `offset` starts an exponent, as in `2.5e-3`, rather
-    /// than ending a suffix, as in `1usize-1`.
+    /**
+     * Whether the `e` at `offset` starts an exponent, as in `2.5e-3`, rather
+     * than ending a suffix, as in `1usize-1`.
+     */
     fn is_exponent_marker(&self, offset: usize) -> bool {
         is_one_of(self.at(offset), "eE")
             && offset
@@ -329,9 +331,11 @@ impl Lexer<'_> {
         (token, len)
     }
 
-    /// Whether `word` is a soft keyword such as Python's `match`: one that opens
-    /// a statement, is followed by a space and is not being assigned to, as in
-    /// `match = pattern.search(line)`.
+    /**
+     * Whether `word` is a soft keyword such as Python's `match`: one that opens
+     * a statement, is followed by a space and is not being assigned to, as in
+     * `match = pattern.search(line)`.
+     */
     fn is_soft_keyword(&self, word: &[String]) -> bool {
         let words = &self.syntax.words;
         let spaces = self.count_from(word.len(), " ");

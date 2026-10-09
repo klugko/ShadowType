@@ -15,18 +15,19 @@ pub struct WordOptions {
     /// Capitalised sentences, commas, quotes, parentheses and sentence endings.
     #[serde(default)]
     pub punctuation: bool,
-    /// Numbers interleaved with the words.
     #[serde(default)]
     pub numbers: bool,
 }
 
-/// Generates words from a language's vocabulary, one at a time.
-///
-/// With punctuation enabled the stream is organised in sentences: the first
-/// word is capitalised, the last one carries a full stop, a question mark or an
-/// exclamation mark, and words in between are occasionally decorated with
-/// commas, quotes or parentheses. French spacing rules are respected. The
-/// output is fully determined by the seed.
+/**
+ * Generates words from a language's vocabulary, one at a time.
+ *
+ * With punctuation enabled the stream is organised in sentences: the first
+ * word is capitalised, the last one carries a full stop, a question mark or an
+ * exclamation mark, and words in between are occasionally decorated with
+ * commas, quotes or parentheses. French spacing rules are respected. The
+ * output is fully determined by the seed.
+ */
 #[derive(Debug)]
 pub struct WordStream {
     language: Language,
@@ -49,10 +50,12 @@ impl WordStream {
         }
     }
 
-    /// Generates `count` words separated by spaces.
-    ///
-    /// With punctuation enabled the text always ends a sentence, so phrases can
-    /// be appended to each other.
+    /**
+     * Generates `count` words separated by spaces.
+     *
+     * With punctuation enabled the text always ends a sentence, so phrases can
+     * be appended to each other.
+     */
     pub fn phrase(&mut self, count: usize) -> String {
         (0..count)
             .map(|index| self.next_word(index + 1 == count))
@@ -94,8 +97,10 @@ impl WordStream {
         }
     }
 
-    /// Picks a random word, avoiding immediate repetitions. Sentence openers
-    /// must start with an ASCII letter so that their capital is easy to type.
+    /**
+     * Picks a random word, avoiding immediate repetitions. Sentence openers
+     * must start with an ASCII letter so that their capital is easy to type.
+     */
     fn vocabulary_word(&mut self, opens_sentence: bool) -> String {
         if self.vocabulary.is_empty() {
             return String::new();
@@ -260,8 +265,10 @@ mod tests {
         assert!(!sample(Language::English, PLAIN, 5).contains(|c: char| c.is_ascii_digit()));
     }
 
-    /// Whether a sentence may start with `first`: an ASCII capital, easy to
-    /// type on every layout, or a digit.
+    /**
+     * Whether a sentence may start with `first`: an ASCII capital, easy to
+     * type on every layout, or a digit.
+     */
     fn opens_sentence(first: char) -> bool {
         first.is_ascii_uppercase() || first.is_ascii_digit()
     }

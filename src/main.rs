@@ -34,9 +34,11 @@ fn main() -> ExitCode {
     }
 }
 
-/// Runs `work` on a runtime of its own, then stops it without waiting for
-/// the blocking jobs still running: resolving a server's host name is one,
-/// which only the system can time out, and quitting must not hang on it.
+/**
+ * Runs `work` on a runtime of its own, then stops it without waiting for
+ * the blocking jobs still running: resolving a server's host name is one,
+ * which only the system can time out, and quitting must not hang on it.
+ */
 fn run_to_completion(work: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Runtime::new().context("cannot start the async runtime")?;
     let result = runtime.block_on(work);
@@ -76,9 +78,11 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     runtime::run(app).await
 }
 
-/// The saved settings, and where to save them. A file that could not be
-/// read is left alone for the whole run: the settings in memory are then
-/// only defaults, and saving them would lose the user's.
+/**
+ * The saved settings, and where to save them. A file that could not be
+ * read is left alone for the whole run: the settings in memory are then
+ * only defaults, and saving them would lose the user's.
+ */
 fn load_settings(paths: Option<&Paths>) -> Loaded<(Config, Option<PathBuf>)> {
     let Some(paths) = paths else {
         return Loaded::clean((Config::default(), None));
@@ -89,8 +93,10 @@ fn load_settings(paths: Option<&Paths>) -> Loaded<(Config, Option<PathBuf>)> {
     })
 }
 
-/// The flags that change settings for this run, the server address
-/// checked now rather than when connecting.
+/**
+ * The flags that change settings for this run, the server address
+ * checked now rather than when connecting.
+ */
 fn overrides(cli: &Cli) -> anyhow::Result<Overrides> {
     let server = cli
         .server

@@ -30,7 +30,6 @@ impl Language {
         matches!(self, Self::French)
     }
 
-    /// French writes decimals with a comma.
     pub(crate) const fn decimal_separator(self) -> char {
         match self {
             Self::English => '.',
@@ -81,7 +80,6 @@ impl CodeLanguage {
         }
     }
 
-    /// Guesses the language of a source file from its extension.
     pub fn from_extension(extension: &str) -> Option<Self> {
         let extension = extension.to_ascii_lowercase();
         match extension.as_str() {
@@ -94,7 +92,6 @@ impl CodeLanguage {
     }
 }
 
-/// Returned when a language name is not recognised.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("unknown language `{name}`, expected one of {expected}")]
 pub struct UnknownLanguage {
@@ -102,9 +99,11 @@ pub struct UnknownLanguage {
     expected: String,
 }
 
-/// Names, display, parsing and serde all go through the `names` table of a
-/// language enum, so the command line, the configuration file and the wire
-/// accept exactly the same spellings.
+/**
+ * Names, display, parsing and serde all go through the `names` table of a
+ * language enum, so the command line, the configuration file and the wire
+ * accept exactly the same spellings.
+ */
 macro_rules! impl_language_traits {
     ($language:ty) => {
         impl $language {

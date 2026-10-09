@@ -11,7 +11,7 @@ use code_racer_protocol::{RoomCode, Username};
 use directories::BaseDirs;
 use thiserror::Error;
 
-use crate::config::{Practice, Theme};
+use crate::config::{Icons, Look, Practice, Theme};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -40,7 +40,14 @@ pub enum Setting {
     Punctuation(bool),
     Numbers(bool),
     Sidebar(bool),
+    Mascot(bool),
+    Animations(bool),
+    Trail(bool),
+    Mouse(bool),
+    Discreet(bool),
     Theme(Theme),
+    Icons(Icons),
+    Look(Look),
     Server(String),
     Username(Username),
 }
@@ -127,10 +134,12 @@ pub fn complete(input: &str, index: usize) -> Option<&'static str> {
     (!candidates.is_empty()).then(|| candidates[index % candidates.len()])
 }
 
-/// The file named by `argument` as a shell would read it: without the
-/// quotes around it, such as those of a path copied from a file manager,
-/// and from the `home` directory when it starts with `~` alone, as in
-/// `~/projects/lib.rs`. `~user` forms are left alone.
+/**
+ * The file named by `argument` as a shell would read it: without the
+ * quotes around it, such as those of a path copied from a file manager,
+ * and from the `home` directory when it starts with `~` alone, as in
+ * `~/projects/lib.rs`. `~user` forms are left alone.
+ */
 fn file_argument(argument: &str, home: Option<&Path>) -> PathBuf {
     let path = unquoted(argument);
     let Some(rest) = path.strip_prefix('~') else {
@@ -199,6 +208,11 @@ fn setting(argument: &str) -> Result<Setting, CommandError> {
         "punctuation" | "punct" => Ok(Setting::Punctuation(enabled)),
         "numbers" | "num" => Ok(Setting::Numbers(enabled)),
         "sidebar" | "explorer" => Ok(Setting::Sidebar(enabled)),
+        "mascot" | "pet" => Ok(Setting::Mascot(enabled)),
+        "animations" | "anim" => Ok(Setting::Animations(enabled)),
+        "trail" => Ok(Setting::Trail(enabled)),
+        "mouse" => Ok(Setting::Mouse(enabled)),
+        "discreet" | "stealth" => Ok(Setting::Discreet(enabled)),
         _ => Err(invalid(argument)),
     }
 }
@@ -207,6 +221,12 @@ fn assignment(key: &str, value: &str) -> Result<Setting, CommandError> {
     match key {
         "theme" => <Theme as ValueEnum>::from_str(value, true)
             .map(Setting::Theme)
+            .map_err(|_| invalid(value)),
+        "icons" => <Icons as ValueEnum>::from_str(value, true)
+            .map(Setting::Icons)
+            .map_err(|_| invalid(value)),
+        "look" => <Look as ValueEnum>::from_str(value, true)
+            .map(Setting::Look)
             .map_err(|_| invalid(value)),
         "server" if !value.is_empty() => Ok(Setting::Server(value.to_owned())),
         "username" | "name" => value
@@ -296,6 +316,43 @@ mod tests {
         );
         assert!(parse("set username=").is_err());
         assert!(parse("set colour=red").is_err());
+    }
+
+    #[test]
+    fn set_toggles_the_mascot_animations_mouse_and_chooses_the_look() {
+        assert_eq!(
+            parse("set nomascot"),
+            Ok(Command::Set(Setting::Mascot(false)))
+        );
+        assert_eq!(
+            parse("set animations"),
+            Ok(Command::Set(Setting::Animations(true)))
+        );
+        assert_eq!(
+            parse("set nomouse"),
+            Ok(Command::Set(Setting::Mouse(false)))
+        );
+        assert_eq!(
+            parse("set discreet"),
+            Ok(Command::Set(Setting::Discreet(true)))
+        );
+        assert_eq!(
+            parse("set look=commit"),
+            Ok(Command::Set(Setting::Look(Look::Commit)))
+        );
+        assert!(parse("set look=poem").is_err());
+        assert_eq!(
+            parse("set theme=vscode"),
+            Ok(Command::Set(Setting::Theme(Theme::VsCode)))
+        );
+        assert_eq!(
+            parse("set icons=nerd"),
+            Ok(Command::Set(Setting::Icons(Icons::Nerd)))
+        );
+        assert_eq!(
+            parse("set notrail"),
+            Ok(Command::Set(Setting::Trail(false)))
+        );
     }
 
     #[test]

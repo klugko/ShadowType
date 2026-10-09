@@ -17,7 +17,6 @@ pub enum Value {
     Action(&'static str),
 }
 
-/// Direction of a value change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Next,
@@ -108,6 +107,10 @@ impl Cursor {
 
     pub fn first(&mut self) {
         self.index = 0;
+    }
+
+    pub fn select(&mut self, index: usize, len: usize) {
+        self.index = index.min(len.saturating_sub(1));
     }
 }
 

@@ -1,5 +1,7 @@
-//! The lines that describe a text to type, shared by `practice.toml` and
-//! `race.toml`: the two forms differ only in the modes they offer.
+/*!
+ * The lines that describe a text to type, shared by `practice.toml` and
+ * `race.toml`: the two forms differ only in the modes they offer.
+ */
 
 use code_racer_engine::{CodeLanguage, Language};
 
@@ -8,7 +10,6 @@ use crate::{
     config::{Mode, Practice},
 };
 
-/// One setting of the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextSetting {
     Mode,
@@ -49,16 +50,15 @@ pub fn row(practice: &Practice, setting: TextSetting, modes: &[Mode]) -> Row {
             .hint(choices(Practice::WORD_COUNT_PRESETS)),
         TextSetting::Duration => Row::new("seconds", Value::Number(practice.duration.into()))
             .hint(choices(Practice::DURATION_PRESETS)),
-        TextSetting::Punctuation => Row::new("punctuation", Value::Bool(practice.punctuation))
-            .hint("capitals, commas, quotes, full stops"),
-        TextSetting::Numbers => {
-            Row::new("numbers", Value::Bool(practice.numbers)).hint("digits mixed with words")
-        }
+        TextSetting::Punctuation => Row::new("punctuation", Value::Bool(practice.punctuation)),
+        TextSetting::Numbers => Row::new("numbers", Value::Bool(practice.numbers)),
     }
 }
 
-/// Moves `setting` to its next or previous choice, cycling through `modes`
-/// on the mode line.
+/**
+ * Moves `setting` to its next or previous choice, cycling through `modes`
+ * on the mode line.
+ */
 pub fn adjust(practice: &mut Practice, setting: TextSetting, step: Step, modes: &[Mode]) {
     match setting {
         TextSetting::Mode => practice.mode = cycle(modes, practice.mode, step),

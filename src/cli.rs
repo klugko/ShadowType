@@ -1,7 +1,9 @@
-//! Command line of the `code-racer` binary.
-//!
-//! Flags are layered over the settings saved in `config.toml`: whatever is not
-//! given on the command line keeps its saved value.
+/*!
+ * Command line of the `code-racer` binary.
+ *
+ * Flags are layered over the settings saved in `config.toml`: whatever is not
+ * given on the command line keeps its saved value.
+ */
 
 use std::{ops::RangeInclusive, path::PathBuf};
 
@@ -126,8 +128,10 @@ pub enum CliError {
 }
 
 impl Cli {
-    /// Resolves the screen to open, layering the flags over the saved solo
-    /// or race settings.
+    /**
+     * Resolves the screen to open, layering the flags over the saved solo
+     * or race settings.
+     */
     pub fn launch(&self, saved: &Config) -> Result<Launch, CliError> {
         Ok(match &self.command {
             None => Launch::Home,
@@ -152,8 +156,10 @@ impl SoloArgs {
 }
 
 impl RoomArgs {
-    /// Time mode cannot be raced: it is refused when asked for explicitly and
-    /// replaced by words mode when it is only the saved default.
+    /**
+     * Time mode cannot be raced: it is refused when asked for explicitly and
+     * replaced by words mode when it is only the saved default.
+     */
     fn text_source(&self, defaults: &Practice) -> Result<TextSource, CliError> {
         if self.text.mode == Some(Mode::Time) {
             return Err(CliError::TimeModeInRace);
@@ -192,8 +198,10 @@ impl TextArgs {
         }
     }
 
-    /// Without `--mode`, the other flags tell which mode is meant: a
-    /// programming language means code, `--seconds` time and `--words` words.
+    /**
+     * Without `--mode`, the other flags tell which mode is meant: a
+     * programming language means code, `--seconds` time and `--words` words.
+     */
     fn mode(&self, language: Option<LanguageName>, seconds_given: bool, default: Mode) -> Mode {
         if let Some(mode) = self.mode {
             return mode;
@@ -274,8 +282,10 @@ mod tests {
 
     use super::*;
 
-    /// Launches with `defaults` saved for solo sessions and, made raceable,
-    /// for races.
+    /**
+     * Launches with `defaults` saved for solo sessions and, made raceable,
+     * for races.
+     */
     fn launch(arguments: &[&str], defaults: &Practice) -> Result<Launch, CliError> {
         let saved = Config {
             practice: *defaults,

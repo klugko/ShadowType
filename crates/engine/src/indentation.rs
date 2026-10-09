@@ -2,11 +2,13 @@
 
 use crate::session::graphemes;
 
-/// The characters of a text that auto-indentation fills in: the spaces
-/// opening every line but the first.
-///
-/// A race server uses it to check how much of a player's progress was
-/// filled in rather than typed.
+/**
+ * The characters of a text that auto-indentation fills in: the spaces
+ * opening every line but the first.
+ *
+ * A race server uses it to check how much of a player's progress was
+ * filled in rather than typed.
+ */
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Indentation {
     /// Grapheme positions, in increasing order.
@@ -34,8 +36,10 @@ impl Indentation {
     }
 }
 
-/// Number of spaces from `start` on: the indentation auto-indent fills in
-/// when a newline was typed right before `start`.
+/**
+ * Number of spaces from `start` on: the indentation auto-indent fills in
+ * when a newline was typed right before `start`.
+ */
 pub(crate) fn indentation_run(target: &[String], start: usize) -> usize {
     target.get(start..).map_or(0, |rest| {
         rest.iter().take_while(|grapheme| *grapheme == " ").count()

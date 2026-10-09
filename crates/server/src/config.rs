@@ -18,10 +18,12 @@ pub struct ServerConfig {
     pub max_rooms: usize,
     /// Simultaneous WebSocket connections; extra ones are refused with `ServerFull`.
     pub max_connections: usize,
-    /// Simultaneous connections from one IP address, handshakes included, so
-    /// that one machine cannot hold every slot; extra ones are dropped at
-    /// once. Peers behind one shared address, such as a NAT or a port forward
-    /// that hides client addresses, count together. `None` lifts the limit.
+    /**
+     * Simultaneous connections from one IP address, handshakes included, so
+     * that one machine cannot hold every slot; extra ones are dropped at
+     * once. Peers behind one shared address, such as a NAT or a port forward
+     * that hides client addresses, count together. `None` lifts the limit.
+     */
     pub max_connections_per_address: Option<NonZeroUsize>,
 }
 
@@ -40,8 +42,10 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    /// Players a room holds: beyond [`MAX_ROOM_PLAYERS`], room views could
-    /// outgrow the messages clients accept.
+    /**
+     * Players a room holds: beyond [`MAX_ROOM_PLAYERS`], room views could
+     * outgrow the messages clients accept.
+     */
     pub(crate) fn room_capacity(&self) -> u8 {
         self.max_players.min(MAX_ROOM_PLAYERS)
     }

@@ -1,7 +1,9 @@
-//! WebSocket connection to a race server.
-//!
-//! [`Connection::open`] returns immediately: connecting, the handshake and the
-//! traffic run in a background task that reports through [`NetworkEvent`]s.
+/*!
+ * WebSocket connection to a race server.
+ *
+ * [`Connection::open`] returns immediately: connecting, the handshake and the
+ * traffic run in a background task that reports through [`NetworkEvent`]s.
+ */
 
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
@@ -31,8 +33,10 @@ const EVENT_CAPACITY: usize = 256;
 const CONNECTION_LOST: &str = "connection lost";
 const CLOSED_BY_CLIENT: &str = "connection closed by the client";
 const SERVER_SILENT: &str = "the server stopped responding";
-/// An address on another network, from a range reserved for documentation:
-/// the route to it is the one to every other network.
+/**
+ * An address on another network, from a range reserved for documentation:
+ * the route to it is the one to every other network.
+ */
 const OTHER_NETWORK: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)), 9);
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -44,18 +48,24 @@ struct Timeouts {
     connect: Duration,
     /// Getting the welcome once the hello is sent.
     handshake: Duration,
-    /// Sending one frame, or closing: a server that takes longer stopped
-    /// reading.
+    /**
+     * Sending one frame, or closing: a server that takes longer stopped
+     * reading.
+     */
     write: Duration,
-    /// Longest time without any frame from the server, which notices a
-    /// server that vanished without closing the connection, such as a machine
-    /// that lost the network or went to sleep.
+    /**
+     * Longest time without any frame from the server, which notices a
+     * server that vanished without closing the connection, such as a machine
+     * that lost the network or went to sleep.
+     */
     silence: Duration,
 }
 
 impl Timeouts {
-    /// The client pings three times per silence period, so a live server
-    /// always has pongs to send in time even when nothing else happens.
+    /**
+     * The client pings three times per silence period, so a live server
+     * always has pongs to send in time even when nothing else happens.
+     */
     fn ping_interval(self) -> Duration {
         self.silence / 3
     }
@@ -84,10 +94,12 @@ pub enum InvalidServerUrl {
     Port(String),
 }
 
-/// Turns what a user typed into a WebSocket URL.
-///
-/// An address without scheme gets `ws://`, `http` and `https` become `ws` and
-/// `wss`, and any other scheme is refused. Normalising twice changes nothing.
+/**
+ * Turns what a user typed into a WebSocket URL.
+ *
+ * An address without scheme gets `ws://`, `http` and `https` become `ws` and
+ * `wss`, and any other scheme is refused. Normalising twice changes nothing.
+ */
 pub fn server_url(input: &str) -> Result<String, InvalidServerUrl> {
     let input = input.trim();
     if input.is_empty() {
@@ -116,9 +128,11 @@ fn websocket_scheme(scheme: &str) -> Result<&'static str, InvalidServerUrl> {
     }
 }
 
-/// Whether the server at `url` is only reachable from this computer: its
-/// host is `localhost`, or a loopback or unspecified address, which another
-/// computer would take for itself.
+/**
+ * Whether the server at `url` is only reachable from this computer: its
+ * host is `localhost`, or a loopback or unspecified address, which another
+ * computer would take for itself.
+ */
 pub fn is_local_only(url: &str) -> bool {
     let address = url.split_once("://").map_or(url, |(_, address)| address);
     let Some((host, _)) = host_and_port(address) else {
@@ -132,8 +146,10 @@ pub fn is_local_only(url: &str) -> bool {
             .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
 }
 
-/// `url` with `host`, an IPv6 address given in brackets, in place of its
-/// host, keeping the scheme, user, port and path. `None` without a scheme.
+/**
+ * `url` with `host`, an IPv6 address given in brackets, in place of its
+ * host, keeping the scheme, user, port and path. `None` without a scheme.
+ */
 pub fn with_host(url: &str, host: &str) -> Option<String> {
     let (scheme, address) = url.split_once("://")?;
     let (authority, path) = split_authority(address);
@@ -146,9 +162,11 @@ pub fn with_host(url: &str, host: &str) -> Option<String> {
     Some(format!("{scheme}://{user}{host}{port}{path}"))
 }
 
-/// This computer's address on the local network: the one the system would
-/// send from to reach other networks. Connecting a UDP socket only picks
-/// that route, nothing is sent. `None` without such a route.
+/**
+ * This computer's address on the local network: the one the system would
+ * send from to reach other networks. Connecting a UDP socket only picks
+ * that route, nothing is sent. `None` without such a route.
+ */
 pub fn lan_address() -> Option<IpAddr> {
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
     socket.connect(OTHER_NETWORK).ok()?;
@@ -156,15 +174,19 @@ pub fn lan_address() -> Option<IpAddr> {
     (!address.is_loopback() && !address.is_unspecified()).then_some(address)
 }
 
-/// The authority of `address`, then what follows it: path, query and
-/// fragment.
+/**
+ * The authority of `address`, then what follows it: path, query and
+ * fragment.
+ */
 fn split_authority(address: &str) -> (&str, &str) {
     let end = address.find(['/', '?', '#']).unwrap_or(address.len());
     address.split_at(end)
 }
 
-/// Host and port of the authority in `address`, `None` when an IPv6 address
-/// is not properly bracketed.
+/**
+ * Host and port of the authority in `address`, `None` when an IPv6 address
+ * is not properly bracketed.
+ */
 fn host_and_port(address: &str) -> Option<(&str, Option<&str>)> {
     let (authority, _) = split_authority(address);
     let host_and_port = authority
@@ -198,12 +220,14 @@ pub enum NetworkEvent {
     },
 }
 
-/// A connection to a race server.
-///
-/// Dropping it never blocks: the background task still sends the messages
-/// already queued, such as a last [`ClientMessage::LeaveRoom`], then closes
-/// the WebSocket and stops, as long as the runtime runs. A program about to
-/// exit waits for that with [`Connection::close`].
+/**
+ * A connection to a race server.
+ *
+ * Dropping it never blocks: the background task still sends the messages
+ * already queued, such as a last [`ClientMessage::LeaveRoom`], then closes
+ * the WebSocket and stops, as long as the runtime runs. A program about to
+ * exit waits for that with [`Connection::close`].
+ */
 #[derive(Debug)]
 pub struct Connection {
     outgoing: mpsc::Sender<ClientMessage>,
@@ -213,9 +237,11 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Starts connecting to `url` on the current tokio runtime.
-    ///
-    /// Outside of a runtime the connection is born closed.
+    /**
+     * Starts connecting to `url` on the current tokio runtime.
+     *
+     * Outside of a runtime the connection is born closed.
+     */
     pub fn open(url: String, username: Username) -> Self {
         Self::open_with(url, username, Timeouts::default())
     }
@@ -244,8 +270,10 @@ impl Connection {
         }
     }
 
-    /// Closes the connection, waiting at most `limit` for the messages
-    /// already queued to be sent and the WebSocket to be closed.
+    /**
+     * Closes the connection, waiting at most `limit` for the messages
+     * already queued to be sent and the WebSocket to be closed.
+     */
     pub async fn close(self, limit: Duration) {
         let Self {
             outgoing,
@@ -258,14 +286,18 @@ impl Connection {
         }
     }
 
-    /// Queues a message for the server. Returns `false` when the connection
-    /// is closed or too far behind to accept more.
+    /**
+     * Queues a message for the server. Returns `false` when the connection
+     * is closed or too far behind to accept more.
+     */
     pub fn send(&self, message: ClientMessage) -> bool {
         self.outgoing.try_send(message).is_ok()
     }
 
-    /// The next event, or `None` once [`NetworkEvent::Closed`] was delivered.
-    /// Cancel safe.
+    /**
+     * The next event, or `None` once [`NetworkEvent::Closed`] was delivered.
+     * Cancel safe.
+     */
     pub async fn next_event(&mut self) -> Option<NetworkEvent> {
         self.events.recv().await
     }
@@ -286,8 +318,10 @@ impl Connection {
     }
 }
 
-/// The background task of a [`Connection`]. Connecting is abandoned as soon
-/// as the connection is dropped: nobody would hear of the result.
+/**
+ * The background task of a [`Connection`]. Connecting is abandoned as soon
+ * as the connection is dropped: nobody would hear of the result.
+ */
 async fn run(
     url: String,
     username: Username,
@@ -358,13 +392,15 @@ async fn handshake(socket: &mut Socket, username: Username) -> Result<PlayerId, 
     }
 }
 
-/// Forwards messages both ways until the server goes away, falls silent or
-/// the [`Connection`] is dropped, and returns why it stopped.
-///
-/// Outgoing messages come first, so that the ones queued before the drop
-/// are all sent before the socket is closed. Only frames from the server
-/// prove that it is alive: sending succeeds long after it vanished, as the
-/// operating system buffers the data and retries for minutes.
+/**
+ * Forwards messages both ways until the server goes away, falls silent or
+ * the [`Connection`] is dropped, and returns why it stopped.
+ *
+ * Outgoing messages come first, so that the ones queued before the drop
+ * are all sent before the socket is closed. Only frames from the server
+ * prove that it is alive: sending succeeds long after it vanished, as the
+ * operating system buffers the data and retries for minutes.
+ */
 async fn relay(
     mut socket: Socket,
     outgoing: &mut mpsc::Receiver<ClientMessage>,
@@ -397,8 +433,10 @@ async fn relay(
     }
 }
 
-/// Sends the next queued message, or closes the socket once the
-/// [`Connection`] is gone and the queue is empty.
+/**
+ * Sends the next queued message, or closes the socket once the
+ * [`Connection`] is gone and the queue is empty.
+ */
 async fn send_next(
     socket: &mut Socket,
     message: Option<ClientMessage>,
@@ -413,7 +451,6 @@ async fn send_next(
     }
 }
 
-/// Sends `frame`, giving up after `limit`.
 async fn send_frame(
     socket: &mut Socket,
     frame: Message,
@@ -425,9 +462,11 @@ async fn send_frame(
     }
 }
 
-/// Hands a server message to the application. When the application stopped
-/// listening, the queue of outgoing messages is closed too, which ends the
-/// relay once it is flushed.
+/**
+ * Hands a server message to the application. When the application stopped
+ * listening, the queue of outgoing messages is closed too, which ends the
+ * relay once it is flushed.
+ */
 async fn deliver(
     incoming: Incoming,
     outgoing: &mut mpsc::Receiver<ClientMessage>,
@@ -445,9 +484,11 @@ async fn deliver(
     }
 }
 
-/// Sends a close frame and reads until the server answers it, for at most
-/// `limit`. Dropping a socket with unread data would reset the connection,
-/// which can destroy the last messages before the server reads them.
+/**
+ * Sends a close frame and reads until the server answers it, for at most
+ * `limit`. Dropping a socket with unread data would reset the connection,
+ * which can destroy the last messages before the server reads them.
+ */
 async fn hang_up(socket: &mut Socket, limit: Duration) {
     let closing = async {
         socket.close(None).await?;
@@ -501,10 +542,12 @@ fn describe(error: &tungstenite::Error) -> String {
     }
 }
 
-/// The short, platform-independent name of common network failures, and
-/// otherwise the system's own message. The kind alone is useless for codes
-/// that std does not map, such as an unknown host on Windows, which would
-/// read "uncategorized error".
+/**
+ * The short, platform-independent name of common network failures, and
+ * otherwise the system's own message. The kind alone is useless for codes
+ * that std does not map, such as an unknown host on Windows, which would
+ * read "uncategorized error".
+ */
 fn describe_io(error: &std::io::Error) -> String {
     use std::io::ErrorKind::{
         AddrNotAvailable, ConnectionAborted, ConnectionRefused, ConnectionReset, HostUnreachable,
@@ -534,8 +577,10 @@ mod tests {
     const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
     /// Replaces a production timeout that a test waits for on purpose.
     const SHORT_TIMEOUT: Duration = Duration::from_millis(100);
-    /// Replaces the silence timeout where a test needs the client to ping:
-    /// long enough that a busy machine still answers in time.
+    /**
+     * Replaces the silence timeout where a test needs the client to ping:
+     * long enough that a busy machine still answers in time.
+     */
     const SHORT_SILENCE: Duration = Duration::from_millis(400);
 
     fn username() -> Username {

@@ -13,28 +13,33 @@ use code_racer_protocol::{
 
 use crate::{
     app::{
-        SessionView, TextField,
+        Disguise, SessionView, TextField,
         form::{Row, Step, Value},
-        practice::{Plan, code_file_name},
+        ink::Ink,
+        practice::{Plan, code_file_name, disguised_name},
         settings,
         text_event::TextEvent,
         text_settings::{self, TextSetting},
     },
     cli::Launch,
-    config::{Config, Mode, Practice},
+    config::{Config, Look, Mode, Practice},
     history::Record,
     network::{self, Connection, NetworkEvent},
 };
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
-/// Shortest time between two presses of the same room request. A held key
-/// repeats faster, and terminals without keyboard enhancement report its
-/// repeats as new presses, which would trip the server's message limit.
+/**
+ * Shortest time between two presses of the same room request. A held key
+ * repeats faster, and terminals without keyboard enhancement report its
+ * repeats as new presses, which would trip the server's message limit.
+ */
 const REQUEST_REPEAT: Duration = Duration::from_millis(150);
 /// Modes a race can use: time mode is solo only.
 const RACE_MODES: [Mode; 3] = [Mode::Words, Mode::Quote, Mode::Code];
-/// Stands for the host of the invite when the server runs on this computer
-/// and its address on the local network is unknown.
+/**
+ * Stands for the host of the invite when the server runs on this computer
+ * and its address on the local network is unknown.
+ */
 const LAN_ADDRESS_PLACEHOLDER: &str = "<your LAN address>";
 /// What the host must know when the server runs on their computer.
 const LOCAL_SERVER_NOTE: &str = "start the server with --host 0.0.0.0 for teammates to reach it";
@@ -46,7 +51,7 @@ pub enum Field {
     Join,
     Text(TextSetting),
     Create,
-    /// The address of the race server, the one of `config.toml`.
+    /// The race server address, the same setting as in `config.toml`.
     Server,
 }
 
@@ -61,8 +66,10 @@ impl Field {
     }
 }
 
-/// Lines of the race form. The room line comes first, where the form
-/// opens, as joining a room is what most players come for.
+/**
+ * Lines of the race form. The room line comes first, where the form
+ * opens, as joining a room is what most players come for.
+ */
 pub fn fields(settings: &Practice) -> Vec<Field> {
     [Field::Room, Field::Join]
         .into_iter()
@@ -87,8 +94,9 @@ pub fn section(field: Field) -> Option<&'static str> {
 
 pub fn row(config: &Config, room_code: &str, field: Field) -> Row {
     match field {
-        Field::Room => Row::new("room", Value::Text(room_code.to_owned()))
-            .hint("code shared by the host, Enter to type it"),
+        Field::Room => {
+            Row::new("room", Value::Text(room_code.to_owned())).hint("Enter to type the code")
+        }
         Field::Join => Row::action("join room"),
         Field::Text(setting) => text_settings::row(&config.race, setting, &RACE_MODES),
         Field::Create => Row::action("create room"),
@@ -155,9 +163,12 @@ pub enum RoomRequest {
 #[derive(Debug)]
 struct LiveRace {
     session: TypingSession,
+    ink: Ink,
     countdown_ends: Instant,
-    /// When the room finished the race, which stops the clock of a text
-    /// the player had not finished.
+    /**
+     * When the room finished the race, which stops the clock of a text
+     * the player had not finished.
+     */
     ended_at: Option<Instant>,
     recorded: bool,
 }
@@ -165,11 +176,15 @@ struct LiveRace {
 /// How teammates join the room.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invite {
-    /// What they run, such as
-    /// `code-racer join FK72AD --server ws://192.168.1.42:8080`.
+    /**
+     * What they run, such as
+     * `code-racer join FK72AD --server ws://192.168.1.42:8080`.
+     */
     pub command: String,
-    /// What the host must check for the command to work, when the server
-    /// runs on their computer.
+    /**
+     * What the host must check for the command to work, when the server
+     * runs on their computer.
+     */
     pub note: Option<&'static str>,
 }
 
@@ -181,10 +196,12 @@ struct SharedServer {
 }
 
 impl SharedServer {
-    /// How teammates reach `server`. An address only this computer reaches,
-    /// such as `ws://127.0.0.1:8080`, would send them to their own computer:
-    /// this computer's address on the local network, found by
-    /// `lan_address`, or a placeholder for it takes its place.
+    /**
+     * How teammates reach `server`. An address only this computer reaches,
+     * such as `ws://127.0.0.1:8080`, would send them to their own computer,
+     * so this computer's LAN address from `lan_address`, or a placeholder
+     * for it, takes its place.
+     */
     fn of(server: &str, lan_address: impl FnOnce() -> Option<IpAddr>) -> Self {
         if !network::is_local_only(server) {
             return Self {
@@ -215,12 +232,13 @@ pub struct RaceClient {
     race: Option<LiveRace>,
     intent: Option<Intent>,
     reported: Option<(Instant, Progress)>,
-    /// Whether a room request is still unanswered. The server answers each
-    /// with the new room view or an error, and only then can the next one
-    /// be decided: a held key would otherwise flood the server, and
-    /// toggling twice would ask for the same state twice.
+    /**
+     * Whether a room request is still unanswered. The server answers each
+     * with the new room view or an error, and only then can the next one
+     * be decided: a held key would otherwise flood the server, and
+     * toggling twice would ask for the same state twice.
+     */
     awaiting_answer: bool,
-    /// The last room request pressed, and when.
     last_press: Option<(RoomRequest, Instant)>,
 }
 
@@ -289,7 +307,6 @@ impl RaceClient {
         self.is_live() || self.phase() == Some(Phase::Finished)
     }
 
-    /// Whether the race text takes what the player types.
     pub fn accepts_typing(&self) -> bool {
         self.phase() == Some(Phase::Racing)
             && self
@@ -298,9 +315,11 @@ impl RaceClient {
                 .is_some_and(|race| !race.session.is_finished())
     }
 
-    /// Whether the player is in a race they have not finished: the keyboard
-    /// belongs to the race text, already during the countdown so that early
-    /// keys are not taken as commands.
+    /**
+     * Whether the player is in a race they have not finished: the keyboard
+     * belongs to the race text, already during the countdown so that early
+     * keys are not taken as commands.
+     */
     pub fn is_player_racing(&self) -> bool {
         self.phase() == Some(Phase::Countdown) || self.accepts_typing()
     }
@@ -312,13 +331,19 @@ impl RaceClient {
             syntax: self.syntax(),
             attribution: None,
             stopped_at: race.ended_at,
+            ink: Some(&race.ink),
+            disguise: None,
         })
     }
 
-    /// File name shown in the editor for the race text.
-    pub fn title(&self) -> String {
+    /**
+     * File name shown in the editor for the race text: prose is in a file
+     * named after the room, unless `disguise` makes it another kind of file.
+     */
+    pub fn title(&self, disguise: Disguise<'_>) -> String {
         match self.room.as_ref().map(|room| room.text) {
             Some(TextSource::Code { language }) => code_file_name(language),
+            Some(_) if disguise.look != Look::Notes => disguised_name(disguise),
             Some(_) => format!("{}.md", self.room_label()),
             None => "race.md".to_owned(),
         }
@@ -370,13 +395,15 @@ impl RaceClient {
         }
     }
 
-    /// Hands `event` to the race text, which takes keys only while the race
-    /// is on and the player's text unfinished, then reports the progress.
-    /// Returns whether the text took the key.
+    /**
+     * Hands `event` to the race text, which takes keys only while the race
+     * is on and the player's text unfinished, then reports the progress.
+     * Returns whether the text took the key.
+     */
     pub fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
         let open = event == TextEvent::Tick || self.accepts_typing();
         let taken = match &mut self.race {
-            Some(race) if open => event.apply_to(&mut race.session, now),
+            Some(race) if open => race.ink.apply(event, &mut race.session, now),
             _ => false,
         };
         self.report_progress(now);
@@ -398,9 +425,11 @@ impl RaceClient {
         }
     }
 
-    /// Sends `request` pressed at `now`, unless the previous one is still
-    /// unanswered or the key is only repeating. Returns why it cannot be
-    /// made, if it cannot.
+    /**
+     * Sends `request` pressed at `now`, unless the previous one is still
+     * unanswered or the key is only repeating. Returns why it cannot be
+     * made, if it cannot.
+     */
     pub fn request(&mut self, request: RoomRequest, now: Instant) -> Result<(), String> {
         if self.repeats_last_press(request, now) {
             return Ok(());
@@ -424,9 +453,11 @@ impl RaceClient {
         Ok(())
     }
 
-    /// Records a press of `request` and tells whether it repeats the previous
-    /// press within [`REQUEST_REPEAT`]. Every press restarts the delay, so a
-    /// key held down acts once.
+    /**
+     * Records a press of `request` and tells whether it repeats the previous
+     * press within [`REQUEST_REPEAT`]. Every press restarts the delay, so a
+     * key held down acts once.
+     */
     fn repeats_last_press(&mut self, request: RoomRequest, now: Instant) -> bool {
         let repeats = self.last_press.is_some_and(|(last, at)| {
             last == request && now.saturating_duration_since(at) < REQUEST_REPEAT
@@ -446,8 +477,10 @@ impl RaceClient {
         Ok(())
     }
 
-    /// Leaves the room and hands back the connection, which still has the
-    /// goodbye to send.
+    /**
+     * Leaves the room and hands back the connection, which still has the
+     * goodbye to send.
+     */
     pub fn leave(self) -> Connection {
         self.connection.send(ClientMessage::LeaveRoom);
         self.connection
@@ -494,6 +527,7 @@ impl RaceClient {
         };
         self.race = Some(LiveRace {
             session: TypingSession::new(text, options),
+            ink: Ink::default(),
             countdown_ends: now + Duration::from_millis(duration_ms.into()),
             ended_at: None,
             recorded: false,
@@ -519,18 +553,22 @@ impl RaceClient {
         entered.map_or(Outcome::Nothing, Outcome::Entered)
     }
 
-    /// Whether the player's race is over: the server timed their finish,
-    /// or the race ended, finished or not.
+    /**
+     * Whether the player's race is over: the server timed their finish,
+     * or the race ended, finished or not.
+     */
     fn is_over_for_me(&self) -> bool {
         self.phase() == Some(Phase::Finished)
             || self.me().is_some_and(|me| me.progress.is_finished())
     }
 
-    /// The record of the race once it is over for the player, and only
-    /// once: as soon as the server timed their finish, so that leaving
-    /// before the slowest player finishes keeps it. It takes the server's
-    /// figures where it has them, as in the standings, and the local ones
-    /// otherwise. A race where nothing was typed is not recorded.
+    /**
+     * The record of the race once it is over for the player, and only
+     * once: as soon as the server timed their finish, so that leaving
+     * before the slowest player finishes keeps it. It takes the server's
+     * figures where it has them, as in the standings, and the local ones
+     * otherwise. A race where nothing was typed is not recorded.
+     */
     fn conclude(&mut self, now: Instant) -> Option<Record> {
         if !self.is_over_for_me() {
             return None;
@@ -555,9 +593,11 @@ impl RaceClient {
     }
 }
 
-/// Whether `progress` should be sent: the first report at once, then only
-/// a changed one, at most every [`PROGRESS_INTERVAL`] but at once when the
-/// text is complete, so that the server times the finish exactly.
+/**
+ * Whether `progress` should be sent: the first report at once, then only
+ * a changed one, at most every [`PROGRESS_INTERVAL`] but at once when the
+ * text is complete, so that the server times the finish exactly.
+ */
 fn progress_due(
     last: Option<(Instant, Progress)>,
     progress: Progress,
@@ -645,8 +685,10 @@ mod tests {
         }
     }
 
-    /// A client in the lobby over a connection that hands what it sends to
-    /// the test, the join request already taken.
+    /**
+     * A client in the lobby over a connection that hands what it sends to
+     * the test, the join request already taken.
+     */
     fn in_lobby() -> (RaceClient, mpsc::Receiver<ClientMessage>, Instant) {
         let (connection, mut sent) = Connection::loopback();
         let code: RoomCode = "FK72AD".parse().expect("code");

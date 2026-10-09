@@ -17,8 +17,10 @@ use crate::{
     },
 };
 
-/// Draws the lines of [`history_log::lines`] in view. The lines out of view
-/// are left empty: only their numbers count, for the width of the gutter.
+/**
+ * Draws the lines of [`history_log::lines`] in view. The lines out of view
+ * are left empty: only their numbers count, for the width of the gutter.
+ */
 pub fn render(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
     let records = app.history.records();
     let lines = history_log::lines(records.len());
@@ -98,8 +100,10 @@ impl Page<'_> {
     }
 }
 
-/// The rows of the progression chart of the last sessions, in a text
-/// `width` columns wide, none before two sessions.
+/**
+ * The rows of the progression chart of the last sessions, in a text
+ * `width` columns wide, none before two sessions.
+ */
 fn chart(records: &[Record], width: u16, palette: &Palette) -> Vec<Row> {
     let recent: Vec<f64> = records
         .iter()

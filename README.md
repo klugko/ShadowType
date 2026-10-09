@@ -47,16 +47,40 @@ During a race the standings sit in a panel under the text, like an IDE's termina
   key or as `e` + accent both count), auto-indentation in code, mistakes must be fixed to finish, and
   input stops 10 characters after an uncorrected mistake.
 - **Statistics**: WPM, raw WPM, accuracy, errors, correct and incorrect characters, consistency, time,
-  progress, a WPM chart after each session, history and personal records.
+  progress, a WPM chart after each session, the characters you missed most, how the session compares
+  with your recent average, history, personal records, today's practice and your streak of days.
+- **Looks**: prose can look like any file you would be writing (markdown notes, a todo list ticked
+  off row by row, a git commit message above git's template, the doc comment of a function in your
+  code language, a log stamped with the time each row is typed, an email draft) or a different one
+  for every text (`shuffle`).
+- **Code that looks like code**: the snippet to type shows its syntax highlighting from the start,
+  dimmed, and lights up as you type it; brackets are coloured by depth and indentation has guides.
+- **Animations**: the cursor leaves a trail behind it as it moves, like a smooth cursor in a code
+  editor, and a streak when it jumps (a word erased, a line indented); the cursor breathes while you
+  pause, results count up and their chart draws itself. `:set notrail` lets typed text glow instead
+  of the trail, `:set noanimations` keeps the screen still.
+- **A mascot**: a little pixel-art ghost lives under the explorer. It floats about, types along,
+  startles at mistakes, cheers at the end of a text and naps when nothing happens.
+- **Discreet mode** (`F12`): an editor and nothing else. The status line shows `Ln, Col`, `UTF-8`
+  and `LF` instead of your speed, the records and the mascot go, and the explorer shows the
+  directory you run in instead of the application's name.
+- **Command palette** (`Ctrl+P` or `F1`): every action, found by typing a few letters of it.
+- **Mouse**: click a file, a tab, a setting or a key shown on screen; the wheel scrolls.
 - **Races** (TypeRacer style): private rooms with short codes such as `FK72AD`, ready checks, a
   server-driven countdown, live standings, server-measured finishing times and a final ranking.
 - **Editor look**: explorer, tab line, line numbers, cursor line, `~` past the end of the buffer,
   lualine-like status line, Vim modes (NORMAL, INSERT, COMMAND) and `:` commands with Tab completion.
-- **Themes**: `editor` (true colour), `dark` (the 16 ANSI colours on a black background), `mono` (no colour).
+- **Themes**: `editor` (true colour), `vscode` (VS Code's Dark+: its blue status bar, list
+  selection and syntax colours), `dark` (the 16 ANSI colours on a black background), `mono` (no
+  colour).
+- **File icons**, as in a code editor's file icon theme, in the explorer and the tabs: symbols every
+  font has (`unicode`), the icons of a Nerd Font (`nerd`, with a font such as CaskaydiaCove Nerd Font)
+  or `none`.
 - **Robust terminal handling**: the terminal is restored on exit, on error and on panic; resizing is
   handled, the explorer makes room for the buffer below 100 columns, showing only while it has the
   focus, until `Ctrl+B` says otherwise; small terminals get a clear message instead of a broken
-  layout; no CPU use while idle.
+  layout; no CPU use while idle: animations only run while something moves, and the mascot falls
+  asleep after 45 seconds without a key.
 
 ## Installation
 
@@ -122,7 +146,20 @@ Flags apply to this run only: `--theme`, `--server` and the `solo` options are n
 ## Solo mode
 
 Open `practice.toml` in the explorer (or press `s` anywhere to start immediately). `j`/`k` select a
-setting, `h`/`l` change it, Enter on `▶ start session` starts. Settings are saved for next time.
+setting, `h`/`l` change it, Enter on `▶ start session` starts. Settings are saved for next time. With
+the mouse, click a setting to select it and click it again to change it.
+
+The `look` line chooses what prose looks like:
+
+| Look      | File             | What it adds                                                  |
+| --------- | ---------------- | ------------------------------------------------------------- |
+| `notes`   | `notes.md`       | nothing: the text as it comes                                 |
+| `todo`    | `TODO.md`        | a checkbox before each row, ticked once the row is typed      |
+| `commit`  | `COMMIT_EDITMSG` | git's template under the message                              |
+| `docs`    | `lib.rs`, …      | comment markers and a function, in the code language          |
+| `log`     | `server.log`     | a timestamp and a level before each row, stamped as you type  |
+| `mail`    | `draft.eml`      | headers, a greeting and your name                             |
+| `shuffle` |                  | another of these for every text                               |
 
 The clock starts with the first keystroke. A session ends when the whole text is typed correctly, or
 when the timer runs out in time mode. Mistakes stay in your statistics even once corrected. In code,
@@ -219,8 +256,12 @@ such as `wss://race.example.com`.
 
 | Where                  | Keys                    | Action                                     |
 | ---------------------- | ----------------------- | ------------------------------------------ |
-| everywhere             | `Ctrl+C`                | quit, the terminal is restored             |
+| everywhere             | `Ctrl+P`, `F1`          | command palette                            |
+|                        | `Ctrl+C`                | quit, the terminal is restored             |
 |                        | `Ctrl+B`                | show or hide the explorer                  |
+|                        | `F12`                   | discreet mode on or off                    |
+| command palette        | letters, `↑` `↓`, Enter | find, select, run (`Esc` closes)           |
+| mouse                  | click, wheel            | open, select, press the key shown; scroll  |
 | normal mode            | `:`                     | command line (Tab completes)               |
 |                        | `?`                     | help                                       |
 |                        | `s` / `m` / `c` / `q`   | solo session / race.toml / create room / quit |
@@ -246,7 +287,10 @@ such as `wss://race.example.com`.
 | `:lang french`, `:lang rust`    | language of words and quotes, or of code         |
 | `:e path/to/file`               | practise on a file                               |
 | `:set punctuation`, `:set nonumbers` | toggle options                              |
-| `:set theme=mono`               | `editor`, `dark` or `mono`                       |
+| `:set look=commit`              | `notes`, `todo`, `commit`, `docs`, `log`, `mail`, `shuffle` |
+| `:set theme=vscode`             | `editor`, `dark`, `mono` or `vscode`             |
+| `:set icons=nerd`               | file icons: `unicode`, `nerd` or `none`          |
+| `:set nomascot`, `:set notrail`, `:set noanimations`, `:set nomouse`, `:set discreet` | interface options |
 | `:set server=URL`, `:set username=NAME` | multiplayer settings                     |
 | `:create`, `:join CODE`         | create or join a room                            |
 | `:history`, `:config`, `:race`, `:help` | open a buffer                            |
@@ -259,7 +303,14 @@ such as `wss://race.example.com`.
 
 ```toml
 username = "Jean"
-theme = "editor"          # editor, dark, mono
+theme = "editor"          # editor, dark, mono, vscode
+icons = "unicode"         # unicode, nerd (needs a Nerd Font), none
+look = "notes"            # notes, todo, commit, docs, log, mail, shuffle
+mascot = true             # the ghost under the explorer
+animations = true         # cursor trail, cursor breathing, mascot, results counting up
+trail = true              # the cursor's trail; false lets typed text glow instead
+mouse = true              # false leaves the mouse to the terminal, to select text
+discreet = false          # true: an editor and nothing else (F12)
 default_mode = "words"    # words, time, quote, code
 language = "french"       # english, french
 code_language = "rust"    # rust, python, typescript, javascript, sql
@@ -310,6 +361,9 @@ src/                client
   app/              state machine, independent of rendering
     mod.rs          App: buffers, focus, modes, viewport, what the screen needs
     keys.rs         key handling by context      actions.rs        what users can do
+    palette.rs      command palette, fuzzy match mouse.rs          clicks and wheel on what was drawn
+    ink.rs          when each character was typed, the characters missed
+    mascot.rs       the mood of the mascot
     events.rs       network, clock, paste, quiet period after typing
     practice.rs     solo plans and sessions      race.rs           room client and race rules
     text_settings.rs  lines shared by practice.toml and race.toml
@@ -318,6 +372,9 @@ src/                client
   ui/               rendering only
     chrome.rs       explorer, tab line, status line, command line
     editor.rs       buffer with line numbers     typing.rs         ghost text and typed text
+    looks.rs        what prose is dressed as     mascot.rs         the pixel-art ghost
+    icons.rs        file icons by kind of file
+    overlay.rs      the command palette          hits.rs           where clicks land
     views/          practice/race/config forms, session, room, history, help
     format.rs, wrap.rs, syntax.rs, chart.rs, theme.rs
   config.rs, history.rs, persist.rs, cli.rs, network.rs, logging.rs
@@ -342,7 +399,8 @@ tests/e2e/          real binaries in pseudo-terminals
 Design choices:
 
 - The client is event-driven: it sleeps until a key, a network message or (only while a session runs)
-  a 100 ms clock tick arrives, and redraws only after a change.
+  a 100 ms clock tick arrives, and redraws only after a change, or every 40 to 100 ms while something
+  moves on screen.
 - The typing engine and the text generator are plain Rust with injected time, so they are fully
   tested without a terminal.
 - The protocol is versioned (`Hello` / `Welcome` handshake, currently version 3), tagged JSON, and

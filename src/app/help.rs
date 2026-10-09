@@ -16,10 +16,19 @@ pub const LINES: &[Line] = &[
     Text("Typing practice that looks like your editor. Race your team on the LAN."),
     Blank,
     Heading("everywhere"),
+    Key(
+        "Ctrl+P F1",
+        "command palette: type a few letters, Enter runs",
+    ),
     Key("Ctrl+C", "quit and restore the terminal"),
     Key("Ctrl+B", "show or hide the explorer"),
+    Key("F12", "discreet mode: an editor and nothing else"),
     Key(":", "command line, Tab completes"),
     Key("?", "this help"),
+    Key(
+        "mouse",
+        "click files, tabs, settings and keys; wheel scrolls",
+    ),
     Blank,
     Heading("explorer and settings"),
     Key("j k", "move down and up"),
@@ -60,7 +69,16 @@ pub const LINES: &[Line] = &[
     ),
     Key(":e src/lib.rs", "practise on one of your own files"),
     Key(":set punctuation", "also nopunctuation, numbers, nonumbers"),
-    Key(":set theme=mono", "editor, dark or mono"),
+    Key(
+        ":set look=commit",
+        "notes, todo, commit, docs, log, mail, shuffle",
+    ),
+    Key(":set theme=vscode", "editor, dark, mono or vscode"),
+    Key(":set icons=nerd", "file icons: unicode, nerd or none"),
+    Key(
+        ":set nomascot",
+        "also notrail, noanimations, nomouse, discreet",
+    ),
     Key(":set server=URL", "race server address, ws://host:8080"),
     Key(":set username=Jean", "name shown to other racers"),
     Key(":create", "create a room with the race.toml settings"),
@@ -75,6 +93,12 @@ pub const LINES: &[Line] = &[
     Key("errors", "wrong keystrokes, corrected or not"),
     Text("Mistakes must be fixed to finish a text. Typing stops 10 characters"),
     Text("after an uncorrected mistake, so a typo never ruins a whole line."),
+    Blank,
+    Heading("looks"),
+    Text("Prose can look like any file you would be writing: markdown notes, a"),
+    Text("todo list ticked off row by row, a git commit message, the doc comment"),
+    Text("of a function, a log stamped as you type, or an email draft. Code is"),
+    Text("always code, its syntax coloured before you even type it."),
 ];
 
 #[cfg(test)]

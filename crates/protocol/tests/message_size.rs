@@ -1,6 +1,8 @@
-//! Every message either side can legally send fits in [`MAX_MESSAGE_BYTES`],
-//! the most a peer accepts: a message over it would cost the receiver its
-//! connection, so one player could disconnect a whole room.
+/*!
+ * Every message either side can legally send fits in [`MAX_MESSAGE_BYTES`],
+ * the most a peer accepts: a message over it would cost the receiver its
+ * connection, so one player could disconnect a whole room.
+ */
 
 use code_racer_engine::{
     CodeLanguage, Language, TextSource, WordOptions,
@@ -11,8 +13,10 @@ use code_racer_protocol::{
     PlayerView, Progress, RoomView, ServerMessage, Username,
 };
 
-/// The valid name with the longest JSON: as many bytes as allowed, and a
-/// quote, which JSON escapes, at the start of each of its characters.
+/**
+ * The valid name with the longest JSON: as many bytes as allowed, and a
+ * quote, which JSON escapes, at the start of each of its characters.
+ */
 fn widest_name() -> Username {
     let marks = (Username::MAX_BYTES - Username::MAX_LENGTH) / '\u{301}'.len_utf8();
     let name = format!(
