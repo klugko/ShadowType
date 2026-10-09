@@ -67,6 +67,25 @@ impl WordStream {
     }
 
     fn next_word(&mut self, closes_phrase: bool) -> String {
+        let (starts_sentence, ends_sentence) = self.advance_sentence(closes_phrase);
+        let word = if self.options.numbers && self.rng.random_bool(NUMBER_PROBABILITY) {
+            self.number()
+        } else {
+            self.vocabulary_word(starts_sentence && self.options.punctuation)
+        };
+        if !self.options.punctuation {
+            return word;
+        }
+        match (starts_sentence, ends_sentence) {
+            (true, true) => self.end_sentence(capitalize(&word)),
+            (false, true) => self.end_sentence(word),
+            (true, false) => self.open_sentence(&word),
+            (false, false) => self.decorate(word),
+        }
+    }
+
+    /// Counts the next word into its sentence: whether it starts it, and whether it ends it.
+    fn advance_sentence(&mut self, closes_phrase: bool) -> (bool, bool) {
         let starts_sentence = self.words_left_in_sentence == 0;
         if starts_sentence {
             self.words_left_in_sentence = self.rng.random_range(SENTENCE_LENGTH);
@@ -76,28 +95,7 @@ impl WordStream {
         if ends_sentence {
             self.words_left_in_sentence = 0;
         }
-
-        let word = if self.options.numbers && self.rng.random_bool(NUMBER_PROBABILITY) {
-            self.number()
-        } else {
-            self.vocabulary_word(starts_sentence && self.options.punctuation)
-        };
-
-        if !self.options.punctuation {
-            return word;
-        }
-        if ends_sentence {
-            let word = if starts_sentence {
-                capitalize(&word)
-            } else {
-                word
-            };
-            self.end_sentence(word)
-        } else if starts_sentence {
-            self.open_sentence(&word)
-        } else {
-            self.decorate(word)
-        }
+        (starts_sentence, ends_sentence)
     }
 
     /**
