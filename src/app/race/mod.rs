@@ -68,7 +68,7 @@ pub enum Outcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invite {
     /**
-     * What they run, such as
+     * What teammates run to join, such as
      * `code-racer join FK72AD --server ws://192.168.1.42:8080`.
      */
     pub command: String,
