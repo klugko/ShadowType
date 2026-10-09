@@ -49,22 +49,7 @@ pub fn palette(
     }
     let frame_area = Rect::new(area.x + (area.width - width) / 2, area.y, width, height);
     frame.render_widget(Clear, frame_area);
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(palette.fg(palette.accent))
-        .title(Span::styled(
-            " commands ",
-            palette.fg(palette.muted).add_modifier(Modifier::BOLD),
-        ))
-        .title_bottom(
-            Line::from(Span::styled(
-                format!(" {} ", found.len()),
-                palette.fg(palette.faint),
-            ))
-            .right_aligned(),
-        )
-        .style(Style::new().bg(palette.panel).fg(palette.text));
+    let block = frame_block(found.len(), palette);
     let inner = block.inner(frame_area);
     frame.render_widget(block, frame_area);
     hits::mark(frame_area, Target::Overlay);
@@ -85,7 +70,53 @@ pub fn palette(
         )),
     ];
     let selected = open.selected(found.len());
+    lines.extend(entry_lines(&found, selected, listed, inner, palette));
+    frame.render_widget(Paragraph::new(lines), inner);
+    let column = PROMPT.width() + query.cursor;
+    Some(Position::new(
+        inner.x
+            + u16::try_from(column)
+                .unwrap_or(0)
+                .min(inner.width.saturating_sub(1)),
+        inner.y,
+    ))
+}
+
+fn frame_block(matches: usize, palette: &Palette) -> Block<'static> {
+    Block::new()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(palette.fg(palette.accent))
+        .title(Span::styled(
+            " commands ",
+            palette.fg(palette.muted).add_modifier(Modifier::BOLD),
+        ))
+        .title_bottom(
+            Line::from(Span::styled(
+                format!(" {matches} "),
+                palette.fg(palette.faint),
+            ))
+            .right_aligned(),
+        )
+        .style(Style::new().bg(palette.panel).fg(palette.text))
+}
+
+/// Up to `listed` commands down to the `selected` one, under the query and its rule.
+fn entry_lines(
+    found: &[Match],
+    selected: usize,
+    listed: u16,
+    inner: Rect,
+    palette: &Palette,
+) -> Vec<Line<'static>> {
+    if found.is_empty() {
+        return vec![Line::from(Span::styled(
+            " no command matches",
+            palette.fg(palette.muted),
+        ))];
+    }
     let first = selected.saturating_sub(usize::from(listed).saturating_sub(1));
+    let mut lines = Vec::new();
     for (index, found) in found
         .iter()
         .enumerate()
@@ -100,21 +131,7 @@ pub fn palette(
         );
         lines.push(entry_line(found, index == selected, inner.width, palette));
     }
-    if found.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " no command matches",
-            palette.fg(palette.muted),
-        )));
-    }
-    frame.render_widget(Paragraph::new(lines), inner);
-    let column = PROMPT.width() + query.cursor;
-    Some(Position::new(
-        inner.x
-            + u16::try_from(column)
-                .unwrap_or(0)
-                .min(inner.width.saturating_sub(1)),
-        inner.y,
-    ))
+    lines
 }
 
 /// A command, the letters that match in bold, its shortcut on the right.
