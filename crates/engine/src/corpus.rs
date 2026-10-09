@@ -82,19 +82,21 @@ fn parse_words(raw: &str) -> Vec<String> {
 fn parse_quotes(raw: &str) -> Vec<Quote> {
     entries(raw)
         .into_iter()
-        .filter_map(|entry| {
-            let mut lines: Vec<&str> = entry.lines().collect();
-            let source = lines
-                .last()
-                .and_then(|line| line.strip_prefix("-- "))
-                .map(|source| source.trim().to_owned());
-            if source.is_some() {
-                lines.pop();
-            }
-            let text = normalize(&lines.join(" "));
-            (!text.is_empty()).then_some(Quote { text, source })
-        })
+        .filter_map(|entry| parse_quote(&entry))
         .collect()
+}
+
+fn parse_quote(entry: &str) -> Option<Quote> {
+    let mut lines: Vec<&str> = entry.lines().collect();
+    let source = lines
+        .last()
+        .and_then(|line| line.strip_prefix("-- "))
+        .map(|source| source.trim().to_owned());
+    if source.is_some() {
+        lines.pop();
+    }
+    let text = normalize(&lines.join(" "));
+    (!text.is_empty()).then_some(Quote { text, source })
 }
 
 fn parse_snippets(raw: &str) -> Vec<String> {
