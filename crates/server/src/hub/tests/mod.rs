@@ -53,6 +53,11 @@ impl Harness {
         self.hub.handle(Command::Message { id, message }, now);
     }
 
+    fn disconnect(&mut self, id: PlayerId, millis: u64) {
+        let now = self.at(millis);
+        self.hub.handle(Command::Disconnected { id }, now);
+    }
+
     fn tick(&mut self, millis: u64) {
         let now = self.at(millis);
         self.hub.tick(now);

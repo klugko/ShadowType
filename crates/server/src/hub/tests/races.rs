@@ -2,6 +2,13 @@ use code_racer_protocol::Phase;
 
 use super::*;
 
+fn one_minute_races() -> ServerConfig {
+    ServerConfig {
+        race_timeout: Duration::from_secs(60),
+        ..ServerConfig::default()
+    }
+}
+
 #[test]
 fn the_race_text_is_announced_before_the_countdown_view() {
     let mut harness = Harness::new(ServerConfig::default());
@@ -104,11 +111,7 @@ fn finishing_players_end_the_race_on_the_next_tick() {
 
 #[test]
 fn races_time_out() {
-    let config = ServerConfig {
-        race_timeout: Duration::from_secs(60),
-        ..ServerConfig::default()
-    };
-    let mut harness = Harness::new(config);
+    let mut harness = Harness::new(one_minute_races());
     harness.racing_room(0);
     harness.tick(62_999);
     assert!(harness.received(ALICE).is_empty());
@@ -118,11 +121,7 @@ fn races_time_out() {
 
 #[test]
 fn progress_arriving_after_the_race_timeout_is_ignored_and_the_results_shown_at_once() {
-    let config = ServerConfig {
-        race_timeout: Duration::from_secs(60),
-        ..ServerConfig::default()
-    };
-    let mut harness = Harness::new(config);
+    let mut harness = Harness::new(one_minute_races());
     harness.racing_room(0);
     harness.send(BOB, progress(5), 63_000);
     let messages = harness.received(BOB);
@@ -142,11 +141,7 @@ fn progress_arriving_after_the_race_timeout_is_ignored_and_the_results_shown_at_
 
 #[test]
 fn leaving_a_race_and_joining_it_again_waits_for_the_next_lobby() {
-    let config = ServerConfig {
-        race_timeout: Duration::from_secs(60),
-        ..ServerConfig::default()
-    };
-    let mut harness = Harness::new(config);
+    let mut harness = Harness::new(one_minute_races());
     let code = harness.racing_room(0);
     harness.send(BOB, ClientMessage::LeaveRoom, 3_100);
     harness.send(BOB, ClientMessage::JoinRoom { code: code.clone() }, 3_200);
@@ -164,11 +159,7 @@ fn leaving_a_race_and_joining_it_again_waits_for_the_next_lobby() {
 
 #[test]
 fn the_results_are_shown_before_a_return_to_the_lobby_that_beats_the_tick() {
-    let config = ServerConfig {
-        race_timeout: Duration::from_secs(60),
-        ..ServerConfig::default()
-    };
-    let mut harness = Harness::new(config);
+    let mut harness = Harness::new(one_minute_races());
     harness.racing_room(0);
     harness.send(ALICE, ClientMessage::ReturnToLobby, 63_000);
     let phases: Vec<Phase> = harness

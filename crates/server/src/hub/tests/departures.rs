@@ -21,9 +21,7 @@ fn a_client_that_stops_reading_mid_race_is_shown_offline() {
 fn disconnecting_in_the_lobby_removes_the_player_and_hands_over_the_host() {
     let mut harness = Harness::new(ServerConfig::default());
     harness.ready_room();
-    harness
-        .hub
-        .handle(Command::Disconnected { id: ALICE }, harness.at(1));
+    harness.disconnect(ALICE, 1);
     let view = harness.last_view(BOB);
     assert_eq!(view.players.len(), 1);
     assert_eq!(view.host, BOB);
@@ -34,9 +32,7 @@ fn disconnecting_mid_race_keeps_the_player_listed_offline() {
     let mut harness = Harness::new(ServerConfig::default());
     harness.racing_room(0);
     harness.send(BOB, progress(10), 4_000);
-    harness
-        .hub
-        .handle(Command::Disconnected { id: BOB }, harness.at(5_000));
+    harness.disconnect(BOB, 5_000);
     let view = harness.last_view(ALICE);
     let bob = view.player(BOB).expect("still listed");
     assert!(!bob.connected);
@@ -49,9 +45,7 @@ fn the_last_member_leaving_closes_the_room() {
     let mut harness = Harness::new(ServerConfig::default());
     let code = harness.ready_room();
     harness.send(BOB, ClientMessage::LeaveRoom, 1);
-    harness
-        .hub
-        .handle(Command::Disconnected { id: ALICE }, harness.at(2));
+    harness.disconnect(ALICE, 2);
     harness.send(BOB, ClientMessage::JoinRoom { code }, 3);
     assert_eq!(harness.errors(BOB), [ErrorCode::RoomNotFound]);
 }
@@ -65,9 +59,7 @@ fn returning_to_the_lobby_forgets_players_who_left_mid_race() {
     harness.send(CAROL, ClientMessage::SetReady { ready: true }, 1);
     harness.send(ALICE, ClientMessage::StartRace, 2);
     harness.tick(3_002);
-    harness
-        .hub
-        .handle(Command::Disconnected { id: CAROL }, harness.at(4_000));
+    harness.disconnect(CAROL, 4_000);
     harness.send(BOB, ClientMessage::LeaveRoom, 4_000);
     harness.send(ALICE, ClientMessage::ReturnToLobby, 4_001);
     assert_eq!(harness.errors(ALICE), [ErrorCode::RaceInProgress]);

@@ -1,11 +1,11 @@
 use std::{num::NonZeroUsize, time::Duration};
 
-use code_racer_protocol::{ErrorCode, PROTOCOL_VERSION, ServerMessage};
+use code_racer_protocol::{ErrorCode, PROTOCOL_VERSION};
 use code_racer_server::ServerConfig;
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 
-use crate::support::{Client, PATIENCE, assert_closed, hello, open, receive, send, start};
+use crate::support::{Client, PATIENCE, assert_closed, hello, open, refusal, send, start};
 
 #[tokio::test]
 async fn connections_beyond_the_limit_are_refused() {
@@ -18,9 +18,7 @@ async fn connections_beyond_the_limit_are_refused() {
 
     let mut socket = open(&server.url).await;
     send(&mut socket, &hello(PROTOCOL_VERSION, "Bob")).await;
-    let ServerMessage::Error(error) = receive(&mut socket).await else {
-        panic!("expected an error");
-    };
+    let error = refusal(&mut socket).await;
     assert_eq!(error.code, ErrorCode::ServerFull);
     assert_closed(&mut socket).await;
 }

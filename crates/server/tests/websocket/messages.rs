@@ -1,18 +1,16 @@
-use code_racer_protocol::{ClientMessage, ErrorCode, ServerMessage};
+use code_racer_protocol::{ClientMessage, ErrorCode};
 use code_racer_server::ServerConfig;
 use futures_util::SinkExt;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::support::{Client, assert_closed, five_words, hello, open, receive, send, start};
+use crate::support::{Client, assert_closed, five_words, hello, open, refusal, send, start};
 
 #[tokio::test]
 async fn an_incompatible_client_is_told_the_versions_and_disconnected() {
     let server = start(ServerConfig::default()).await;
     let mut socket = open(&server.url).await;
     send(&mut socket, &hello(1, "Old")).await;
-    let ServerMessage::Error(error) = receive(&mut socket).await else {
-        panic!("expected an error");
-    };
+    let error = refusal(&mut socket).await;
     assert_eq!(error.code, ErrorCode::IncompatibleVersion);
     assert_eq!(error.message, "server speaks protocol v3, client v1");
     assert_closed(&mut socket).await;
@@ -27,9 +25,7 @@ async fn the_first_message_must_be_hello() {
         &ClientMessage::CreateRoom { text: five_words() },
     )
     .await;
-    let ServerMessage::Error(error) = receive(&mut socket).await else {
-        panic!("expected an error");
-    };
+    let error = refusal(&mut socket).await;
     assert_eq!(error.code, ErrorCode::HandshakeRequired);
     assert_closed(&mut socket).await;
 }

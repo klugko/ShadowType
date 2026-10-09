@@ -102,7 +102,7 @@ pub(crate) async fn send(socket: &mut Socket, message: &ClientMessage) {
         .expect("send");
 }
 
-pub(crate) async fn receive(socket: &mut Socket) -> ServerMessage {
+async fn receive(socket: &mut Socket) -> ServerMessage {
     let next_text = async {
         loop {
             match socket.next().await {
@@ -118,6 +118,13 @@ pub(crate) async fn receive(socket: &mut Socket) -> ServerMessage {
     timeout(PATIENCE, next_text)
         .await
         .expect("a message in time")
+}
+
+pub(crate) async fn refusal(socket: &mut Socket) -> ServerError {
+    let ServerMessage::Error(error) = receive(socket).await else {
+        panic!("expected an error");
+    };
+    error
 }
 
 /// Reads until the server ends the connection, acknowledging its close like a real client.
