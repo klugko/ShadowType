@@ -1,5 +1,6 @@
 //! The event loop: keyboard, network and clock events drive the application,
-//! and the screen is redrawn only after something changed.
+//! and the screen is redrawn only after something changed, or while
+//! something moves on it.
 
 use std::{
     future::Future,
@@ -13,10 +14,9 @@ use futures_util::{
     FutureExt, StreamExt,
     future::{BoxFuture, select_all},
 };
-use tokio::time::MissedTickBehavior;
 
 use crate::{
-    app::{App, Viewport},
+    app::{App, Viewport, mouse::Hits},
     network::NetworkEvent,
     terminal::TerminalGuard,
     ui,
@@ -24,6 +24,9 @@ use crate::{
 
 /// Refresh rate of timers and live statistics while a session runs.
 const TICK: Duration = Duration::from_millis(100);
+/// Longest time an idle loop sleeps for, which only bounds a sleep that
+/// nothing waits on.
+const IDLE: Duration = Duration::from_secs(3_600);
 /// Longest wait, once the terminal is restored, for the room the player
 /// was in to hear that they left.
 const GOODBYE_TIME: Duration = Duration::from_secs(1);
@@ -43,21 +46,30 @@ async fn interact(app: &mut App) -> anyhow::Result<()> {
     let mut shutdown = pin!(shutdown_signal());
     let mut guard = TerminalGuard::enter()?;
     let mut events = EventStream::new();
-    let mut ticker = tokio::time::interval(TICK);
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut clock = Clock::default();
+    let mut hits = Hits::default();
     let mut dirty = true;
     while !app.should_quit() {
         if dirty {
             fit_to_terminal(app, &mut guard)?;
-            guard
-                .terminal()
-                .draw(|frame| ui::draw(frame, app, Instant::now()))?;
+            guard.set_mouse(app.config.mouse);
+            guard.terminal().draw(|frame| {
+                hits = ui::draw(frame, app, Instant::now());
+            })?;
         }
         let ticking = app.needs_ticks();
+        let period = [
+            ticking.then_some(TICK),
+            ui::frame_period(app, Instant::now()),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        let alarm = clock.next(period);
         tokio::select! {
             () = &mut shutdown => break,
             event = events.next() => match event {
-                Some(Ok(event)) => dirty = handle_terminal_event(app, event),
+                Some(Ok(event)) => dirty = handle_terminal_event(app, event, &hits),
                 Some(Err(error)) => return Err(error.into()),
                 None => break,
             },
@@ -68,8 +80,11 @@ async fn interact(app: &mut App) -> anyhow::Result<()> {
                 app.handle_network(event, Instant::now());
                 dirty = true;
             }
-            _ = ticker.tick(), if ticking => {
-                app.tick(Instant::now());
+            () = tokio::time::sleep_until(alarm), if period.is_some() => {
+                clock.rang();
+                if ticking {
+                    app.tick(Instant::now());
+                }
                 dirty = true;
             }
         }
@@ -77,7 +92,38 @@ async fn interact(app: &mut App) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_terminal_event(app: &mut App, event: Event) -> bool {
+/// When the loop wakes up by itself next: every period while there is one,
+/// without catching up on wake-ups missed while busy.
+#[derive(Debug, Default)]
+struct Clock {
+    next: Option<tokio::time::Instant>,
+}
+
+impl Clock {
+    /// The next wake-up for `period`, far off without one, when nothing
+    /// waits on it. A wake-up already set stays, so that events coming
+    /// faster than the period never put it off.
+    fn next(&mut self, period: Option<Duration>) -> tokio::time::Instant {
+        let now = tokio::time::Instant::now();
+        let Some(period) = period else {
+            self.next = None;
+            return now + IDLE;
+        };
+        let next = match self.next {
+            Some(next) if next <= now + period => next,
+            _ => now + period,
+        };
+        self.next = Some(next);
+        next
+    }
+
+    /// The wake-up came: the next one is to be set from now.
+    fn rang(&mut self) {
+        self.next = None;
+    }
+}
+
+fn handle_terminal_event(app: &mut App, event: Event, hits: &Hits) -> bool {
     match event {
         Event::Key(key) => {
             app.handle_key(key, Instant::now());
@@ -87,6 +133,7 @@ fn handle_terminal_event(app: &mut App, event: Event) -> bool {
             app.handle_paste(&text, Instant::now());
             true
         }
+        Event::Mouse(mouse) => app.handle_mouse(mouse, hits, Instant::now()),
         Event::Resize(..) => true,
         _ => false,
     }
@@ -194,7 +241,11 @@ mod tests {
             Launch::Home,
         );
         let before = app.viewport;
-        assert!(handle_terminal_event(&mut app, Event::Resize(121, 31)));
+        assert!(handle_terminal_event(
+            &mut app,
+            Event::Resize(121, 31),
+            &Hits::default()
+        ));
         assert_eq!(app.viewport, before, "the size is read before drawing");
         assert_ne!(
             app.viewport,

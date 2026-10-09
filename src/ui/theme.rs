@@ -1,10 +1,62 @@
 //! Colour palettes. `editor` uses true colours, `dark` the 16 ANSI colours of
 //! the terminal on a black background, `mono` no colour at all: it shows
 //! every state with bold, dim, underlined or reversed text instead.
+//! `vscode` takes the true colours of VS Code's default dark theme, Dark+,
+//! its blue status bar and its syntax colours included.
 
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::{config::Theme, ui::syntax::Token};
+
+/// The colours of the syntax of the code being typed.
+#[derive(Debug, Clone, Copy)]
+pub struct SyntaxColors {
+    pub keyword: Color,
+    pub kind: Color,
+    pub function: Color,
+    pub string: Color,
+    pub number: Color,
+    pub comment: Color,
+    pub punctuation: Color,
+    pub plain: Color,
+    /// Brackets, by how deep they are nested, like an editor's bracket
+    /// pair colouring.
+    pub brackets: [Color; 3],
+}
+
+impl SyntaxColors {
+    pub fn of(&self, token: Token) -> Color {
+        match token {
+            Token::Keyword => self.keyword,
+            Token::Type => self.kind,
+            Token::Function | Token::Macro => self.function,
+            Token::String => self.string,
+            Token::Number => self.number,
+            Token::Comment => self.comment,
+            Token::Punctuation => self.punctuation,
+            Token::Plain => self.plain,
+        }
+    }
+
+    /// The colour of a bracket nested `depth` deep.
+    pub fn bracket(&self, depth: usize) -> Color {
+        self.brackets[depth % self.brackets.len()]
+    }
+}
+
+/// `from` blended into `to` by `amount`, from 0 (all `from`) to 1 (all
+/// `to`), when both are true colours; `to` otherwise.
+pub fn blend(from: Color, to: Color, amount: f64) -> Color {
+    let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (from, to) else {
+        return to;
+    };
+    let amount = amount.clamp(0.0, 1.0);
+    let channel = |from: u8, to: u8| {
+        let value = f64::from(from) + (f64::from(to) - f64::from(from)) * amount;
+        value.round().clamp(0.0, 255.0) as u8
+    };
+    Color::Rgb(channel(r1, r2), channel(g1, g2), channel(b1, b2))
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {
@@ -46,6 +98,22 @@ pub struct Palette {
     pub comment: Color,
     pub punctuation: Color,
     pub on_accent: Color,
+    /// Code once typed: lit up, brighter than the code still to type.
+    pub lit: SyntaxColors,
+    /// Code still to type, in the colours of its syntax dimmed; `None`
+    /// where only grey tells it apart, as on 16 colours.
+    pub ghost: Option<SyntaxColors>,
+    /// What freshly typed text glows with before it dries, where colours
+    /// can blend.
+    pub glow: Option<Color>,
+    /// The status line, and the segments it sets apart such as the name of
+    /// the file.
+    pub status: Style,
+    pub status_item: Style,
+    /// The number of errors in the status line, once there are some.
+    pub status_alert: Color,
+    /// Whether the rows past the end of a buffer show `~`, as in Vim.
+    pub tildes: bool,
     pub mono: bool,
 }
 
@@ -55,7 +123,13 @@ impl Palette {
             Theme::Editor => EDITOR,
             Theme::Dark => DARK,
             Theme::Mono => MONO,
+            Theme::VsCode => VSCODE,
         }
+    }
+
+    /// Whether colours blend, for what fades in and out: true colours only.
+    pub fn blends(&self) -> bool {
+        self.glow.is_some()
     }
 
     pub fn base(&self) -> Style {
@@ -75,6 +149,37 @@ impl Palette {
                 .fg(self.on_accent)
                 .bg(color)
                 .add_modifier(Modifier::BOLD)
+        }
+    }
+
+    /// Code once typed, `None` for a character outside any token.
+    pub fn typed(&self, token: Option<Token>) -> Style {
+        let Some(token) = token else {
+            return self.fg(self.strong);
+        };
+        let style = Style::new().fg(self.lit.of(token));
+        if self.mono && token == Token::Keyword {
+            style.add_modifier(Modifier::BOLD)
+        } else {
+            style
+        }
+    }
+
+    /// Code still to type, `None` for a character outside any token.
+    pub fn ghost(&self, token: Option<Token>) -> Style {
+        match (self.ghost, token) {
+            (Some(ghost), Some(token)) => self.pending.fg(ghost.of(token)),
+            _ => self.pending,
+        }
+    }
+
+    /// A bracket nested `depth` deep, typed or still to type.
+    pub fn bracket(&self, depth: usize, typed: bool) -> Style {
+        match (typed, self.ghost) {
+            _ if self.mono => self.typed(Some(Token::Punctuation)),
+            (true, _) => Style::new().fg(self.lit.bracket(depth)),
+            (false, Some(ghost)) => self.pending.fg(ghost.bracket(depth)),
+            (false, None) => self.pending,
         }
     }
 
@@ -128,9 +233,12 @@ const EDITOR_ACCENT: Color = Color::Rgb(97, 166, 230);
 const EDITOR_ERROR: Color = Color::Rgb(226, 108, 117);
 const EDITOR_ON_ACCENT: Color = Color::Rgb(21, 24, 30);
 
+const EDITOR_PANEL: Color = Color::Rgb(21, 24, 30);
+const EDITOR_TEXT: Color = Color::Rgb(171, 178, 191);
+
 const EDITOR: Palette = Palette {
     background: Color::Rgb(26, 29, 36),
-    panel: Color::Rgb(21, 24, 30),
+    panel: EDITOR_PANEL,
     highlight: EDITOR_HIGHLIGHT,
     cursorline: Style::new().bg(EDITOR_HIGHLIGHT),
     cursor: block(EDITOR_ACCENT, EDITOR_ON_ACCENT),
@@ -138,7 +246,7 @@ const EDITOR: Palette = Palette {
     pending: Style::new().fg(EDITOR_PENDING),
     selection: highlighted(EDITOR_HIGHLIGHT, EDITOR_STRONG),
     border: Color::Rgb(44, 49, 60),
-    text: Color::Rgb(171, 178, 191),
+    text: EDITOR_TEXT,
     strong: EDITOR_STRONG,
     muted: EDITOR_MUTED,
     faint: Color::Rgb(70, 76, 89),
@@ -156,6 +264,41 @@ const EDITOR: Palette = Palette {
     comment: Color::Rgb(106, 114, 128),
     punctuation: Color::Rgb(150, 158, 172),
     on_accent: EDITOR_ON_ACCENT,
+    lit: SyntaxColors {
+        keyword: Color::Rgb(226, 197, 239),
+        kind: Color::Rgb(230, 204, 148),
+        function: Color::Rgb(176, 211, 243),
+        string: Color::Rgb(185, 216, 173),
+        number: Color::Rgb(234, 201, 174),
+        comment: Color::Rgb(178, 183, 191),
+        punctuation: Color::Rgb(203, 207, 214),
+        plain: EDITOR_STRONG,
+        brackets: [
+            Color::Rgb(242, 204, 0),
+            Color::Rgb(239, 192, 237),
+            Color::Rgb(155, 214, 255),
+        ],
+    },
+    ghost: Some(SyntaxColors {
+        keyword: Color::Rgb(173, 128, 192),
+        kind: Color::Rgb(171, 141, 78),
+        function: Color::Rgb(100, 149, 194),
+        string: Color::Rgb(116, 155, 101),
+        number: Color::Rgb(180, 136, 99),
+        comment: Color::Rgb(119, 124, 133),
+        punctuation: Color::Rgb(139, 145, 154),
+        plain: EDITOR_PENDING,
+        brackets: [
+            Color::Rgb(164, 145, 41),
+            Color::Rgb(190, 120, 188),
+            Color::Rgb(69, 151, 209),
+        ],
+    }),
+    glow: Some(EDITOR_ACCENT),
+    status: Style::new().bg(EDITOR_PANEL).fg(EDITOR_TEXT),
+    status_item: Style::new().bg(EDITOR_HIGHLIGHT).fg(EDITOR_STRONG),
+    status_alert: EDITOR_ERROR,
+    tildes: true,
     mono: false,
 };
 
@@ -194,6 +337,103 @@ const DARK: Palette = Palette {
     comment: Color::DarkGray,
     punctuation: Color::Gray,
     on_accent: DARK_ON_ACCENT,
+    lit: SyntaxColors {
+        keyword: Color::Magenta,
+        kind: Color::Yellow,
+        function: Color::Blue,
+        string: Color::Green,
+        number: Color::Cyan,
+        comment: Color::Gray,
+        punctuation: Color::Gray,
+        plain: DARK_STRONG,
+        brackets: [Color::Yellow, Color::Magenta, Color::Cyan],
+    },
+    ghost: None,
+    glow: None,
+    status: Style::new().bg(Color::Black).fg(Color::Gray),
+    status_item: Style::new().bg(DARK_HIGHLIGHT).fg(DARK_STRONG),
+    status_alert: DARK_ERROR,
+    tildes: true,
+    mono: false,
+};
+
+const VSCODE_BACKGROUND: Color = Color::Rgb(30, 30, 30);
+const VSCODE_CURRENT_LINE: Color = Color::Rgb(40, 40, 40);
+const VSCODE_FOREGROUND: Color = Color::Rgb(212, 212, 212);
+/// Text still to type: 4.6:1 on the current line, typed text 2.1:1 on it.
+const VSCODE_PENDING: Color = Color::Rgb(144, 144, 144);
+const VSCODE_BLUE: Color = Color::Rgb(0, 122, 204);
+const VSCODE_WHITE: Color = Color::Rgb(255, 255, 255);
+const VSCODE_ERROR: Color = Color::Rgb(241, 76, 76);
+
+/// VS Code's Dark+: its editor, side bar, list selection, blue status bar
+/// and syntax colours. Code still to type takes them dimmed.
+const VSCODE: Palette = Palette {
+    background: VSCODE_BACKGROUND,
+    panel: Color::Rgb(37, 37, 38),
+    highlight: Color::Rgb(42, 45, 46),
+    cursorline: Style::new().bg(VSCODE_CURRENT_LINE),
+    cursor: block(VSCODE_BLUE, VSCODE_WHITE),
+    mistake: underlined(VSCODE_ERROR),
+    pending: Style::new().fg(VSCODE_PENDING),
+    selection: Style::new()
+        .bg(Color::Rgb(4, 57, 94))
+        .fg(VSCODE_WHITE)
+        .add_modifier(Modifier::BOLD),
+    border: Color::Rgb(60, 60, 60),
+    text: Color::Rgb(204, 204, 204),
+    strong: VSCODE_FOREGROUND,
+    muted: Color::Rgb(133, 133, 133),
+    faint: Color::Rgb(110, 110, 110),
+    accent: VSCODE_BLUE,
+    success: Color::Rgb(137, 209, 133),
+    warning: Color::Rgb(204, 167, 0),
+    error: VSCODE_ERROR,
+    insert: Color::Rgb(22, 130, 93),
+    command: Color::Rgb(136, 23, 152),
+    keyword: Color::Rgb(86, 156, 214),
+    kind: Color::Rgb(78, 201, 176),
+    function: Color::Rgb(156, 220, 254),
+    string: Color::Rgb(206, 145, 120),
+    number: Color::Rgb(181, 206, 168),
+    comment: Color::Rgb(106, 153, 85),
+    punctuation: VSCODE_FOREGROUND,
+    on_accent: VSCODE_WHITE,
+    lit: SyntaxColors {
+        keyword: Color::Rgb(86, 156, 214),
+        kind: Color::Rgb(78, 201, 176),
+        function: Color::Rgb(220, 220, 170),
+        string: Color::Rgb(206, 145, 120),
+        number: Color::Rgb(181, 206, 168),
+        comment: Color::Rgb(106, 153, 85),
+        punctuation: VSCODE_FOREGROUND,
+        plain: Color::Rgb(156, 220, 254),
+        brackets: [
+            Color::Rgb(255, 215, 0),
+            Color::Rgb(218, 112, 214),
+            Color::Rgb(23, 159, 255),
+        ],
+    },
+    ghost: Some(SyntaxColors {
+        keyword: Color::Rgb(66, 119, 164),
+        kind: Color::Rgb(67, 147, 130),
+        function: Color::Rgb(153, 153, 84),
+        string: Color::Rgb(156, 102, 79),
+        number: Color::Rgb(125, 157, 109),
+        comment: Color::Rgb(94, 123, 82),
+        punctuation: Color::Rgb(149, 149, 149),
+        plain: Color::Rgb(110, 160, 190),
+        brackets: [
+            Color::Rgb(171, 149, 30),
+            Color::Rgb(176, 73, 173),
+            Color::Rgb(32, 120, 181),
+        ],
+    }),
+    glow: Some(Color::Rgb(55, 148, 255)),
+    status: Style::new().bg(VSCODE_BLUE).fg(VSCODE_WHITE),
+    status_item: Style::new().bg(Color::Rgb(0, 95, 160)).fg(VSCODE_WHITE),
+    status_alert: VSCODE_WHITE,
+    tildes: false,
     mono: false,
 };
 
@@ -231,5 +471,22 @@ const MONO: Palette = Palette {
     comment: Color::Reset,
     punctuation: Color::Reset,
     on_accent: Color::Reset,
+    lit: SyntaxColors {
+        keyword: Color::Reset,
+        kind: Color::Reset,
+        function: Color::Reset,
+        string: Color::Reset,
+        number: Color::Reset,
+        comment: Color::Reset,
+        punctuation: Color::Reset,
+        plain: Color::Reset,
+        brackets: [Color::Reset; 3],
+    },
+    ghost: None,
+    glow: None,
+    status: Style::new().bg(Color::Reset).fg(Color::Reset),
+    status_item: Style::new().bg(Color::Reset).fg(Color::Reset),
+    status_alert: Color::Reset,
+    tildes: true,
     mono: true,
 };

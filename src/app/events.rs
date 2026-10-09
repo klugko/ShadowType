@@ -14,10 +14,13 @@ const QUIET_PERIOD: Duration = Duration::from_millis(600);
 impl App {
     pub fn handle_paste(&mut self, text: &str, now: Instant) {
         self.begin_event();
+        self.last_input = Some(now);
         if self.is_quiet(now) {
             return;
         }
-        if let Some(prompt) = &mut self.prompt {
+        if let Some(palette) = &mut self.palette {
+            palette.query.insert_str(text);
+        } else if let Some(prompt) = &mut self.prompt {
             prompt.input.insert_str(text);
         } else if let Some(edit) = &mut self.editing {
             edit.input.insert_str(text);
@@ -68,6 +71,7 @@ impl App {
     /// wherever they were: a command line or a field being typed would
     /// otherwise take the first keystrokes of the race.
     fn show_race(&mut self) {
+        self.shuffle_look(rand::random());
         self.prompt = None;
         self.cancel_edit();
         self.open(Buffer::Session);

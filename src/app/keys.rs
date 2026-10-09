@@ -28,6 +28,7 @@ impl App {
             return;
         }
         self.begin_event();
+        self.last_input = Some(now);
         let key = normalized(key);
         if is_control(key, 'c') {
             self.quit = true;
@@ -47,9 +48,16 @@ impl App {
         }
     }
 
-    fn dispatch_key(&mut self, key: KeyEvent, now: Instant) {
+    pub(super) fn dispatch_key(&mut self, key: KeyEvent, now: Instant) {
+        let palette_key = is_control(key, 'p') || key.code == KeyCode::F(1);
         if is_control(key, 'b') {
             self.set_sidebar(!self.sidebar);
+        } else if key.code == KeyCode::F(12) {
+            self.set_discreet(!self.config.discreet);
+        } else if self.palette.is_some() {
+            self.palette_key(key);
+        } else if palette_key && self.editing.is_none() {
+            self.open_palette();
         } else if self.prompt.is_some() {
             self.prompt_key(key);
         } else if self.editing.is_some() {
@@ -61,7 +69,7 @@ impl App {
         }
     }
 
-    fn context_key(&mut self, key: KeyEvent, now: Instant) -> bool {
+    pub(super) fn context_key(&mut self, key: KeyEvent, now: Instant) -> bool {
         let shortcut = key.modifiers.contains(KeyModifiers::CONTROL);
         if self.focus == Focus::Explorer {
             return !shortcut && self.explorer_key(key);
@@ -177,7 +185,7 @@ impl App {
         match (intent, field) {
             (ValueIntent::Activate, practice::Field::Start) => self.start_practice(),
             _ => self.change_value(intent, |config, step| {
-                practice::adjust(&mut config.practice, field, step);
+                practice::adjust(config, field, step);
             }),
         }
     }
@@ -202,8 +210,8 @@ impl App {
         if self.edit_text_line(intent, field.text_field()) {
             return;
         }
-        if field == settings::Field::Theme {
-            self.change_value(intent, settings::cycle_theme);
+        if field.text_field().is_none() {
+            self.change_value(intent, |config, step| settings::adjust(config, field, step));
         }
     }
 

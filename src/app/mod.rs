@@ -11,16 +11,20 @@ mod events;
 pub mod form;
 pub mod help;
 pub mod history_log;
+pub mod ink;
 pub mod input;
 mod keys;
+pub mod mascot;
 mod messages;
+pub mod mouse;
+pub mod palette;
 pub mod practice;
 pub mod race;
 mod saved_config;
 pub mod settings;
 #[cfg(test)]
 pub(crate) mod test_support;
-mod text_event;
+pub(crate) mod text_event;
 pub mod text_settings;
 
 use std::{
@@ -34,14 +38,16 @@ use code_racer_protocol::{RoomCode, Username};
 
 use crate::{
     cli::Launch,
-    config::{Config, Theme},
+    config::{Config, Look, Theme},
     history::History,
     network::Connection,
 };
 use form::Cursor;
+use ink::Ink;
 use input::TextInput;
 use messages::Messages;
 pub use messages::{Message, MessageKind};
+use palette::CommandPalette;
 use practice::SoloRun;
 use race::RaceClient;
 use saved_config::SavedConfig;
@@ -222,6 +228,31 @@ pub struct SessionView<'a> {
     /// When the race ended for a player who had not finished its text: their
     /// clock stops there. A finished text stops its clock by itself.
     pub stopped_at: Option<Instant>,
+    /// When each character was typed.
+    pub ink: Option<&'a Ink>,
+    /// What the text looks like when it is prose; code looks like code.
+    pub disguise: Option<Disguise<'a>>,
+}
+
+/// What a prose text looks like on screen, and what its look takes from
+/// the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Disguise<'a> {
+    pub look: Look,
+    /// The language of the code a doc comment documents.
+    pub language: CodeLanguage,
+    /// Who signs an email draft.
+    pub author: &'a str,
+}
+
+impl Default for Disguise<'_> {
+    fn default() -> Self {
+        Self {
+            look: Look::Notes,
+            language: CodeLanguage::default(),
+            author: "",
+        }
+    }
 }
 
 impl SessionView<'_> {
@@ -256,6 +287,8 @@ pub struct App {
     pub help_scroll: usize,
     pub editing: Option<FieldEdit>,
     pub prompt: Option<Prompt>,
+    /// The command palette, while it is open.
+    pub palette: Option<CommandPalette>,
     messages: Messages,
     pub activity: Option<Activity>,
     /// Whether the explorer is shown. The explorer has the focus only while
@@ -272,6 +305,15 @@ pub struct App {
     quiet_until: Option<Instant>,
     /// When Esc was pressed once to leave a session in progress.
     leave_armed: Option<Instant>,
+    /// The look drawn for the session when the settings shuffle looks.
+    shuffled: Look,
+    /// When the app started.
+    born: Instant,
+    /// When the player last pressed a key, pasted or clicked.
+    last_input: Option<Instant>,
+    /// The name of the directory the app runs in, which the explorer shows
+    /// in discreet mode, as an editor shows the project it opened.
+    pub workspace: String,
     quit: bool,
 }
 
@@ -303,6 +345,7 @@ impl App {
             help_scroll: 0,
             editing: None,
             prompt: None,
+            palette: None,
             messages: Messages::default(),
             activity: None,
             sidebar: true,
@@ -311,6 +354,10 @@ impl App {
             pending: None,
             quiet_until: None,
             leave_armed: None,
+            shuffled: Look::Notes,
+            born: Instant::now(),
+            last_input: None,
+            workspace: workspace_name(),
             quit: false,
         };
         for warning in warnings {
@@ -348,8 +395,8 @@ impl App {
     /// Name of a buffer as shown in the explorer and the tab line.
     pub fn buffer_name(&self, buffer: Buffer) -> String {
         match (buffer, &self.activity) {
-            (Buffer::Session, Some(Activity::Solo(run))) => run.plan.title(),
-            (Buffer::Session, Some(Activity::Race(client))) => client.title(),
+            (Buffer::Session, Some(Activity::Solo(run))) => run.plan.title(self.disguise()),
+            (Buffer::Session, Some(Activity::Race(client))) => client.title(self.disguise()),
             _ => buffer.file_name().to_owned(),
         }
     }
@@ -363,7 +410,7 @@ impl App {
     }
 
     pub fn editor_mode(&self) -> EditorMode {
-        if self.prompt.is_some() {
+        if self.prompt.is_some() || self.palette.is_some() {
             EditorMode::Command
         } else if self.editing.is_some() || self.is_typing() {
             EditorMode::Insert
@@ -387,15 +434,38 @@ impl App {
     }
 
     pub fn session_view(&self) -> Option<SessionView<'_>> {
-        match &self.activity {
-            Some(Activity::Solo(run)) => Some(SessionView {
-                session: run.session(),
-                syntax: run.plan.syntax(),
-                attribution: run.attribution.as_deref(),
-                stopped_at: None,
-            }),
-            Some(Activity::Race(client)) => client.session_view(),
-            None => None,
+        let (view, prose) = match &self.activity {
+            Some(Activity::Solo(run)) => {
+                let view = SessionView {
+                    session: run.session(),
+                    syntax: run.plan.syntax(),
+                    attribution: run.attribution.as_deref(),
+                    stopped_at: None,
+                    ink: Some(run.ink()),
+                    disguise: None,
+                };
+                (view, run.plan.is_prose())
+            }
+            Some(Activity::Race(client)) => (client.session_view()?, client.syntax().is_none()),
+            None => return None,
+        };
+        Some(SessionView {
+            disguise: prose.then(|| self.disguise()),
+            ..view
+        })
+    }
+
+    /// What prose looks like in the session: the look of the settings, or
+    /// for a shuffle the one drawn for the session.
+    pub fn disguise(&self) -> Disguise<'_> {
+        let look = match self.config.look {
+            Look::Shuffle => self.shuffled,
+            look => look,
+        };
+        Disguise {
+            look,
+            language: self.config.practice.code_language,
+            author: &self.config.username,
         }
     }
 
@@ -551,6 +621,18 @@ impl App {
         self.editing = None;
         self.pending = None;
     }
+}
+
+/// The name of the current directory, `workspace` when it has none.
+fn workspace_name() -> String {
+    std::env::current_dir()
+        .ok()
+        .and_then(|directory| {
+            directory
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| "workspace".to_owned())
 }
 
 #[cfg(test)]

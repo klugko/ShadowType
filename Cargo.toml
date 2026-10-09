@@ -70,6 +70,7 @@ toml = "1"
 toml_edit = "0.25"
 tracing.workspace = true
 tracing-subscriber.workspace = true
+unicode-normalization.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 

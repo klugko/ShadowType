@@ -6,12 +6,13 @@
 //! file holds at that moment, not to what it held at start-up.
 
 use std::{
+    collections::BTreeSet,
     io,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveDate};
 use code_racer_engine::Stats;
 use serde::{Deserialize, Serialize};
 
@@ -152,6 +153,36 @@ impl History {
             best_accuracy: maximum(self.records.iter().map(|record| record.accuracy)),
             total_time: total_time(&self.records),
         }
+    }
+
+    /// What was practised on `day`: how many sessions, for how long.
+    pub fn day(&self, day: NaiveDate) -> (usize, Duration) {
+        let records: Vec<&Record> = self
+            .records
+            .iter()
+            .filter(|record| record.date.date_naive() == day)
+            .collect();
+        let seconds: f64 = records.iter().map(|record| record.duration).sum();
+        (records.len(), Duration::from_secs_f64(seconds.max(0.0)))
+    }
+
+    /// How many days in a row, up to `today`, have at least one session.
+    /// A streak still counts on a day not practised yet when the day
+    /// before was.
+    pub fn streak(&self, today: NaiveDate) -> usize {
+        let days: BTreeSet<NaiveDate> = self
+            .records
+            .iter()
+            .map(|record| record.date.date_naive())
+            .collect();
+        let start = if days.contains(&today) {
+            Some(today)
+        } else {
+            today
+                .pred_opt()
+                .filter(|yesterday| days.contains(yesterday))
+        };
+        std::iter::successors(start, |day| day.pred_opt().filter(|day| days.contains(day))).count()
     }
 
     /// Best speed ever reached in this mode and language.
@@ -352,6 +383,51 @@ mod tests {
                 .expect("in-memory add");
         }
         history
+    }
+
+    /// A history with a 30-second session on each of `days`.
+    fn practised_on(days: &[&str]) -> History {
+        let mut history = History::in_memory();
+        for day in days {
+            let date = DateTime::parse_from_rfc3339(&format!("{day}T12:00:00+00:00"))
+                .expect("valid date")
+                .with_timezone(&Local);
+            history
+                .add(Record {
+                    date,
+                    ..record("words 50", "english", 60.0, 95.0)
+                })
+                .expect("in-memory add");
+        }
+        history
+    }
+
+    fn date(day: &str) -> NaiveDate {
+        let noon = DateTime::parse_from_rfc3339(&format!("{day}T12:00:00+00:00"))
+            .expect("valid date")
+            .with_timezone(&Local);
+        noon.date_naive()
+    }
+
+    #[test]
+    fn a_day_counts_its_sessions_and_their_time() {
+        let history = practised_on(&["2026-05-01", "2026-05-01", "2026-05-02"]);
+        let (sessions, time) = history.day(date("2026-05-01"));
+        assert_eq!((sessions, time), (2, Duration::from_secs(60)));
+        assert_eq!(history.day(date("2026-05-03")).0, 0);
+    }
+
+    #[test]
+    fn a_streak_counts_the_days_in_a_row() {
+        let history = practised_on(&["2026-05-01", "2026-05-03", "2026-05-04", "2026-05-05"]);
+        assert_eq!(history.streak(date("2026-05-05")), 3);
+        assert_eq!(
+            history.streak(date("2026-05-06")),
+            3,
+            "today may still come"
+        );
+        assert_eq!(history.streak(date("2026-05-07")), 0, "a day was missed");
+        assert_eq!(History::in_memory().streak(date("2026-05-07")), 0);
     }
 
     #[test]

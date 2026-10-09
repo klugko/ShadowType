@@ -13,15 +13,16 @@ use code_racer_protocol::{
 
 use crate::{
     app::{
-        SessionView, TextField,
+        Disguise, SessionView, TextField,
         form::{Row, Step, Value},
-        practice::{Plan, code_file_name},
+        ink::Ink,
+        practice::{Plan, code_file_name, disguised_name},
         settings,
         text_event::TextEvent,
         text_settings::{self, TextSetting},
     },
     cli::Launch,
-    config::{Config, Mode, Practice},
+    config::{Config, Look, Mode, Practice},
     history::Record,
     network::{self, Connection, NetworkEvent},
 };
@@ -87,8 +88,9 @@ pub fn section(field: Field) -> Option<&'static str> {
 
 pub fn row(config: &Config, room_code: &str, field: Field) -> Row {
     match field {
-        Field::Room => Row::new("room", Value::Text(room_code.to_owned()))
-            .hint("code shared by the host, Enter to type it"),
+        Field::Room => {
+            Row::new("room", Value::Text(room_code.to_owned())).hint("Enter to type the code")
+        }
         Field::Join => Row::action("join room"),
         Field::Text(setting) => text_settings::row(&config.race, setting, &RACE_MODES),
         Field::Create => Row::action("create room"),
@@ -155,6 +157,7 @@ pub enum RoomRequest {
 #[derive(Debug)]
 struct LiveRace {
     session: TypingSession,
+    ink: Ink,
     countdown_ends: Instant,
     /// When the room finished the race, which stops the clock of a text
     /// the player had not finished.
@@ -312,13 +315,17 @@ impl RaceClient {
             syntax: self.syntax(),
             attribution: None,
             stopped_at: race.ended_at,
+            ink: Some(&race.ink),
+            disguise: None,
         })
     }
 
-    /// File name shown in the editor for the race text.
-    pub fn title(&self) -> String {
+    /// File name shown in the editor for the race text: prose is in a file
+    /// named after the room, unless `disguise` makes it another kind of file.
+    pub fn title(&self, disguise: Disguise<'_>) -> String {
         match self.room.as_ref().map(|room| room.text) {
             Some(TextSource::Code { language }) => code_file_name(language),
+            Some(_) if disguise.look != Look::Notes => disguised_name(disguise),
             Some(_) => format!("{}.md", self.room_label()),
             None => "race.md".to_owned(),
         }
@@ -376,7 +383,7 @@ impl RaceClient {
     pub fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
         let open = event == TextEvent::Tick || self.accepts_typing();
         let taken = match &mut self.race {
-            Some(race) if open => event.apply_to(&mut race.session, now),
+            Some(race) if open => race.ink.apply(event, &mut race.session, now),
             _ => false,
         };
         self.report_progress(now);
@@ -494,6 +501,7 @@ impl RaceClient {
         };
         self.race = Some(LiveRace {
             session: TypingSession::new(text, options),
+            ink: Ink::default(),
             countdown_ends: now + Duration::from_millis(duration_ms.into()),
             ended_at: None,
             recorded: false,

@@ -32,16 +32,46 @@ pub enum Theme {
     Dark,
     /// Monochrome, for terminals without colors.
     Mono,
+    /// The colours of VS Code's default dark theme, its blue status bar
+    /// included.
+    #[value(name = "vscode")]
+    VsCode,
 }
 
 impl Theme {
-    pub const ALL: [Self; 3] = [Self::Editor, Self::Dark, Self::Mono];
+    pub const ALL: [Self; 4] = [Self::Editor, Self::Dark, Self::Mono, Self::VsCode];
 
     pub const fn name(self) -> &'static str {
         match self {
             Self::Editor => "editor",
             Self::Dark => "dark",
             Self::Mono => "mono",
+            Self::VsCode => "vscode",
+        }
+    }
+}
+
+/// The icons in front of file names, in the explorer and the tabs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Icons {
+    /// Symbols every terminal font has, coloured by file type.
+    #[default]
+    Unicode,
+    /// The icons of a Nerd Font, as in a code editor's file icon theme.
+    Nerd,
+    /// No icons.
+    None,
+}
+
+impl Icons {
+    pub const ALL: [Self; 3] = [Self::Unicode, Self::Nerd, Self::None];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Unicode => "unicode",
+            Self::Nerd => "nerd",
+            Self::None => "none",
         }
     }
 }
@@ -84,7 +114,86 @@ macro_rules! display_by_name {
     )+};
 }
 
-display_by_name!(Theme, Mode);
+/// What a prose text looks like on screen: the kind of file it is typed in,
+/// so that a glance at the screen shows someone writing, not practising.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Look {
+    /// Markdown notes: the text as it comes.
+    #[default]
+    Notes,
+    /// A markdown checklist, ticked off row by row.
+    Todo,
+    /// A git commit message, git's template under it.
+    Commit,
+    /// The documentation comment of a function, in the code language.
+    Docs,
+    /// A log, each row stamped with the time it was typed.
+    Log,
+    /// An email draft.
+    Mail,
+    /// Another of the others for every text.
+    Shuffle,
+}
+
+impl Look {
+    pub const ALL: [Self; 7] = [
+        Self::Notes,
+        Self::Todo,
+        Self::Commit,
+        Self::Docs,
+        Self::Log,
+        Self::Mail,
+        Self::Shuffle,
+    ];
+    /// The looks a text can have on screen, every one but [`Look::Shuffle`].
+    pub const DISGUISES: [Self; 6] = [
+        Self::Notes,
+        Self::Todo,
+        Self::Commit,
+        Self::Docs,
+        Self::Log,
+        Self::Mail,
+    ];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Notes => "notes",
+            Self::Todo => "todo",
+            Self::Commit => "commit",
+            Self::Docs => "docs",
+            Self::Log => "log",
+            Self::Mail => "mail",
+            Self::Shuffle => "shuffle",
+        }
+    }
+
+    /// What the look makes texts look like, for messages and hints.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::Notes => "markdown notes",
+            Self::Todo => "a todo list",
+            Self::Commit => "a commit message",
+            Self::Docs => "a doc comment",
+            Self::Log => "a log file",
+            Self::Mail => "an email draft",
+            Self::Shuffle => "a different file every time",
+        }
+    }
+
+    /// The look a shuffle gives the text after one that looked like
+    /// `previous`: another of the [`Look::DISGUISES`], picked with `seed`.
+    pub fn shuffled_after(previous: Self, seed: u64) -> Self {
+        let others: Vec<Self> = Self::DISGUISES
+            .into_iter()
+            .filter(|look| *look != previous)
+            .collect();
+        let index = seed % u64::try_from(others.len()).unwrap_or(1);
+        others[usize::try_from(index).unwrap_or(0)]
+    }
+}
+
+display_by_name!(Theme, Mode, Look, Icons);
 
 /// Settings of the last solo session or race, reused as the next defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,6 +321,24 @@ impl Default for Multiplayer {
 pub struct Config {
     pub username: String,
     pub theme: Theme,
+    /// The icons in front of file names.
+    pub icons: Icons,
+    /// What prose texts look like on screen.
+    pub look: Look,
+    /// Whether the mascot lives at the bottom of the explorer.
+    pub mascot: bool,
+    /// Whether things move on screen: the ink of typed text drying, the
+    /// cursor breathing, the mascot, the results counting up.
+    pub animations: bool,
+    /// Whether the typing cursor leaves a trail behind it as it moves,
+    /// like a smooth cursor in a code editor.
+    pub trail: bool,
+    /// Whether the mouse clicks and scrolls in the interface. Off, it is
+    /// left to the terminal, to select and copy text.
+    pub mouse: bool,
+    /// Whether the screen shows an editor and nothing else: no speed in the
+    /// status line, no records, no mascot, no name of the application.
+    pub discreet: bool,
     /// Settings of solo sessions, kept at the top level of the file as in
     /// earlier versions.
     #[serde(flatten)]
@@ -227,6 +354,13 @@ impl Default for Config {
         Self {
             username: String::new(),
             theme: Theme::default(),
+            icons: Icons::default(),
+            look: Look::default(),
+            mascot: true,
+            animations: true,
+            trail: true,
+            mouse: true,
+            discreet: false,
             practice: Practice::default(),
             race: Practice::default().for_race(),
             multiplayer: Multiplayer::default(),
@@ -249,12 +383,26 @@ impl Config {
         let Self {
             username,
             theme,
+            icons,
+            look,
+            mascot,
+            animations,
+            trail,
+            mouse,
+            discreet,
             practice,
             race,
             multiplayer: Multiplayer { server },
         } = after;
         adopt(&mut self.username, &before.username, username);
         adopt(&mut self.theme, &before.theme, theme);
+        adopt(&mut self.icons, &before.icons, icons);
+        adopt(&mut self.look, &before.look, look);
+        adopt(&mut self.mascot, &before.mascot, mascot);
+        adopt(&mut self.animations, &before.animations, animations);
+        adopt(&mut self.trail, &before.trail, trail);
+        adopt(&mut self.mouse, &before.mouse, mouse);
+        adopt(&mut self.discreet, &before.discreet, discreet);
         self.practice.adopt_changes(&before.practice, practice);
         self.race.adopt_changes(&before.race, race);
         adopt(
@@ -491,6 +639,7 @@ server = "ws://127.0.0.1:8080"
                 multiplayer: Multiplayer {
                     server: "ws://127.0.0.1:8080".to_owned(),
                 },
+                ..Config::default()
             })
         );
         assert_eq!(
@@ -601,6 +750,13 @@ server = "ws://127.0.0.1:8080"
         let config = Config {
             username: "Élodie".to_owned(),
             theme: Theme::Mono,
+            icons: Icons::Nerd,
+            look: Look::Commit,
+            mascot: false,
+            animations: false,
+            trail: false,
+            mouse: false,
+            discreet: true,
             practice: Practice {
                 mode: Mode::Time,
                 language: Language::French,
@@ -977,5 +1133,46 @@ server = "ws://127.0.0.1:8080"
             let value = mode.to_possible_value().expect("possible value");
             assert_eq!(value.get_name(), mode.to_string());
         }
+        for look in Look::ALL {
+            let value = look.to_possible_value().expect("possible value");
+            assert_eq!(value.get_name(), look.name());
+            assert_eq!(Look::from_str(look.name(), true), Ok(look));
+        }
+        for icons in Icons::ALL {
+            let value = icons.to_possible_value().expect("possible value");
+            assert_eq!(value.get_name(), icons.name());
+        }
+        let vscode = toml::to_string(&Config {
+            theme: Theme::VsCode,
+            ..Config::default()
+        })
+        .expect("serialized");
+        assert!(vscode.contains("theme = \"vscode\""), "{vscode}");
+    }
+
+    #[test]
+    fn a_shuffle_never_gives_the_same_look_twice_in_a_row() {
+        let picked: std::collections::HashSet<Look> = (0..60)
+            .map(|seed| Look::shuffled_after(Look::Todo, seed))
+            .collect();
+        assert_eq!(picked.len(), Look::DISGUISES.len() - 1);
+        assert!(!picked.contains(&Look::Todo));
+        assert!(!picked.contains(&Look::Shuffle));
+    }
+
+    #[test]
+    fn the_new_settings_default_to_on_and_load_from_their_keys() {
+        let dir = TempDir::new();
+        assert_eq!(Config::default().look, Look::Notes);
+        assert!(Config::default().mascot && Config::default().animations);
+        assert!(Config::default().mouse);
+        let contents = "look = \"log\"
+mascot = false
+animations = false
+mouse = false
+";
+        let loaded = load(&write_config(&dir, contents)).value;
+        assert_eq!(loaded.look, Look::Log);
+        assert!(!loaded.mascot && !loaded.animations && !loaded.mouse);
     }
 }

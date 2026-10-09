@@ -8,7 +8,10 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::ui::theme::Palette;
+use crate::{
+    app::mouse::Target,
+    ui::{hits, theme::Palette},
+};
 
 /// One row of a buffer.
 #[derive(Debug, Clone, Default)]
@@ -17,6 +20,9 @@ pub struct Row {
     pub number: Option<usize>,
     pub spans: Vec<Span<'static>>,
     pub current: bool,
+    /// Keys shown in the row that a click presses: their first column in
+    /// the text, their width and what they press.
+    pub keys: Vec<(u16, u16, Target)>,
 }
 
 impl Row {
@@ -25,6 +31,7 @@ impl Row {
             number: None,
             spans,
             current: false,
+            keys: Vec::new(),
         }
     }
 
@@ -64,15 +71,24 @@ pub fn render(
     let lines: Vec<Line> = (0..usize::from(area.height))
         .map(|offset| match rows.get(scroll + offset) {
             Some(row) => buffer_line(row, gutter, palette),
-            None => Line::from(Span::styled("~", palette.fg(palette.faint))),
+            None if palette.tildes => Line::from(Span::styled("~", palette.fg(palette.faint))),
+            None => Line::default(),
         })
         .collect();
     frame.render_widget(Paragraph::new(lines).style(palette.base()), area);
-    Rect {
+    let text = Rect {
         x: area.x + gutter,
         width: area.width.saturating_sub(gutter),
         ..area
+    };
+    let shown = rows.iter().skip(scroll).take(usize::from(area.height));
+    for (y, row) in (text.y..).zip(shown) {
+        for (column, width, target) in &row.keys {
+            let key = Rect::new(text.x.saturating_add(*column), y, *width, 1);
+            hits::mark(key.intersection(text), *target);
+        }
     }
+    text
 }
 
 /// Text width available next to the gutter.

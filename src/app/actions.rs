@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     cli::Launch,
-    config::{Mode, Practice},
+    config::{Look, Mode, Practice},
     network::{self, Connection},
 };
 
@@ -73,9 +73,16 @@ impl App {
             return;
         }
         self.end_activity();
-        let run = SoloRun::start(plan, rand::random());
+        let seed = rand::random();
+        self.shuffle_look(seed);
+        let run = SoloRun::start(plan, seed);
         self.activity = Some(Activity::Solo(Box::new(run)));
         self.open(Buffer::Session);
+    }
+
+    /// Draws the look of the next text, for when the settings shuffle looks.
+    pub(super) fn shuffle_look(&mut self, seed: u64) {
+        self.shuffled = Look::shuffled_after(self.shuffled, seed.rotate_right(11));
     }
 
     pub(super) fn restart_solo(&mut self) {

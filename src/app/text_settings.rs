@@ -49,11 +49,8 @@ pub fn row(practice: &Practice, setting: TextSetting, modes: &[Mode]) -> Row {
             .hint(choices(Practice::WORD_COUNT_PRESETS)),
         TextSetting::Duration => Row::new("seconds", Value::Number(practice.duration.into()))
             .hint(choices(Practice::DURATION_PRESETS)),
-        TextSetting::Punctuation => Row::new("punctuation", Value::Bool(practice.punctuation))
-            .hint("capitals, commas, quotes, full stops"),
-        TextSetting::Numbers => {
-            Row::new("numbers", Value::Bool(practice.numbers)).hint("digits mixed with words")
-        }
+        TextSetting::Punctuation => Row::new("punctuation", Value::Bool(practice.punctuation)),
+        TextSetting::Numbers => Row::new("numbers", Value::Bool(practice.numbers)),
     }
 }
 

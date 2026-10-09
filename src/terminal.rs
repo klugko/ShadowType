@@ -10,7 +10,7 @@ use std::{
 
 use crossterm::{
     cursor::{SetCursorStyle, Show},
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -23,6 +23,8 @@ pub type Backend = CrosstermBackend<Stdout>;
 /// screen again moves the cursor back over what was printed meanwhile, such
 /// as a panic report.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Whether the terminal reports the mouse, which restoring turns off.
+static MOUSE: AtomicBool = AtomicBool::new(false);
 
 /// Owns the terminal while the interface runs.
 #[derive(Debug)]
@@ -53,6 +55,22 @@ impl TerminalGuard {
     pub fn terminal(&mut self) -> &mut Terminal<Backend> {
         &mut self.terminal
     }
+
+    /// Asks the terminal to report the mouse, or to keep it for selecting
+    /// text. Terminals without mouse reports run the interface all the same.
+    pub fn set_mouse(&mut self, captured: bool) {
+        if MOUSE.load(Ordering::SeqCst) == captured {
+            return;
+        }
+        let changed = if captured {
+            execute!(io::stdout(), EnableMouseCapture)
+        } else {
+            execute!(io::stdout(), DisableMouseCapture)
+        };
+        if changed.is_ok() {
+            MOUSE.store(captured, Ordering::SeqCst);
+        }
+    }
 }
 
 impl Drop for TerminalGuard {
@@ -76,9 +94,14 @@ fn restore() {
     if !ACTIVE.swap(false, Ordering::SeqCst) {
         return;
     }
+    let mut stdout = io::stdout();
+    // Before raw mode goes: on Windows, it gives the console back the mode
+    // it had when the capture began, which raw mode would undo.
+    if MOUSE.swap(false, Ordering::SeqCst) {
+        let _ = execute!(stdout, DisableMouseCapture);
+    }
     let _ = disable_raw_mode();
     window_input::restore();
-    let mut stdout = io::stdout();
     let _ = execute!(stdout, DisableBracketedPaste);
     let _ = execute!(stdout, LeaveAlternateScreen);
     let _ = execute!(stdout, SetCursorStyle::DefaultUserShape);

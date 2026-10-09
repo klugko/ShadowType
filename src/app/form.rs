@@ -109,6 +109,11 @@ impl Cursor {
     pub fn first(&mut self) {
         self.index = 0;
     }
+
+    /// Selects the line `index` of a form of `len` lines.
+    pub fn select(&mut self, index: usize, len: usize) {
+        self.index = index.min(len.saturating_sub(1));
+    }
 }
 
 #[cfg(test)]

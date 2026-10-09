@@ -37,7 +37,17 @@ impl App {
             Setting::Punctuation(enabled) => self.change_text(|text| text.punctuation = enabled),
             Setting::Numbers(enabled) => self.change_text(|text| text.numbers = enabled),
             Setting::Sidebar(visible) => self.set_sidebar(visible),
+            Setting::Mascot(shown) => self.choose(|config| config.mascot = shown),
+            Setting::Animations(on) => self.choose(|config| config.animations = on),
+            Setting::Trail(on) => self.choose(|config| config.trail = on),
+            Setting::Icons(icons) => self.choose(|config| config.icons = icons),
+            Setting::Mouse(on) => self.choose(|config| config.mouse = on),
+            Setting::Discreet(on) => self.set_discreet(on),
             Setting::Theme(theme) => self.choose(|config| config.theme = theme),
+            Setting::Look(look) => {
+                self.choose(|config| config.look = look);
+                self.info(format!("prose now looks like {}", look.describe()));
+            }
             Setting::Server(server) => {
                 if let Err(error) = self.set_server(&server) {
                     self.error(error);
@@ -48,6 +58,14 @@ impl App {
                     self.error(error);
                 }
             }
+        }
+    }
+
+    /// Shows an editor and nothing else, or the application again.
+    pub(super) fn set_discreet(&mut self, on: bool) {
+        self.choose(|config| config.discreet = on);
+        if !on {
+            self.info("discreet mode off, F12 turns it back on");
         }
     }
 

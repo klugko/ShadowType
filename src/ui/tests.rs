@@ -50,7 +50,11 @@ fn screen_at(app: &App, width: u16, height: u16, now: Instant) -> String {
 /// A terminal of `width` by `height` with the app drawn on it at `now`.
 fn drawn(app: &App, width: u16, height: u16, now: Instant) -> Terminal<TestBackend> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
-    terminal.draw(|frame| draw(frame, app, now)).expect("draw");
+    terminal
+        .draw(|frame| {
+            draw(frame, app, now);
+        })
+        .expect("draw");
     terminal
 }
 
@@ -212,10 +216,7 @@ fn the_smallest_size_gives_the_explorer_columns_to_whole_buffer_lines() {
     app.resize(MIN_WIDTH, MIN_HEIGHT);
     let home = screen(&app, MIN_WIDTH, MIN_HEIGHT);
     assert!(!home.contains("EXPLORER"), "{home}");
-    assert!(
-        home.contains("# capitals, commas, quotes, full stops"),
-        "{home}"
-    );
+    assert!(home.contains("# 10 · 25 · 50 · 100"), "{home}");
     for (page, line) in [
         ("history", "acc  err"),
         ("help", "edit a text value, Enter saves, Esc cancels"),
@@ -307,6 +308,7 @@ fn typing_screen_shows_insert_mode_and_live_statistics() {
 fn typing_cells(theme: Theme) -> [Style; 4] {
     let mut app = app();
     app.config.theme = theme;
+    app.config.animations = false;
     app.resize(MIN_WIDTH, MIN_HEIGHT);
     command(&mut app, "words 10");
     type_prefix(&mut app, 1);
@@ -649,20 +651,95 @@ fn command_line_hints_are_readable_in_every_theme() {
 
 #[test]
 fn text_still_to_type_is_readable_on_the_cursor_line() {
-    let palette = Palette::of(Theme::Editor);
-    let pending = palette.pending.fg.expect("a colour");
-    for (place, background) in [
-        ("cursor line", palette.highlight),
-        ("buffer", palette.background),
-    ] {
-        let ratio = contrast(pending, background).expect("true colours");
-        assert!(ratio >= 4.5, "{place}: {ratio:.2}");
+    for theme in [Theme::Editor, Theme::VsCode] {
+        let palette = Palette::of(theme);
+        let pending = palette.pending.fg.expect("a colour");
+        let line = palette.cursorline.bg.expect("a current line");
+        for (place, background) in [("cursor line", line), ("buffer", palette.background)] {
+            let ratio = contrast(pending, background).expect("true colours");
+            assert!(ratio >= 4.5, "{theme} {place}: {ratio:.2}");
+        }
+        let typed = contrast(palette.strong, pending).expect("true colours");
+        assert!(
+            typed >= 2.0,
+            "{theme}: typed text stands out from the rest: {typed:.2}"
+        );
     }
-    let typed = contrast(palette.strong, pending).expect("true colours");
-    assert!(
-        typed >= 2.0,
-        "typed text stands out from the rest: {typed:.2}"
+}
+
+#[test]
+fn code_still_to_type_stays_readable_and_apart_from_typed_code() {
+    use crate::ui::syntax::Token;
+    let tokens = [
+        Token::Keyword,
+        Token::Type,
+        Token::Function,
+        Token::String,
+        Token::Number,
+        Token::Punctuation,
+        Token::Plain,
+    ];
+    for theme in [Theme::Editor, Theme::VsCode] {
+        let palette = Palette::of(theme);
+        let ghost = palette.ghost.expect("syntax colours");
+        let line = palette.cursorline.bg.expect("a current line");
+        for token in tokens {
+            let (dim, lit) = (ghost.of(token), palette.lit.of(token));
+            let readable = contrast(dim, line).expect("true colours");
+            assert!(readable >= 3.0, "{theme} {token:?}: {readable:.2}");
+            let apart = contrast(lit, dim).expect("true colours");
+            assert!(apart >= 1.6, "{theme} {token:?}: {apart:.2}");
+        }
+    }
+}
+
+#[test]
+fn the_vscode_theme_has_a_blue_status_bar_and_no_tildes() {
+    let mut app = app();
+    app.config.theme = Theme::VsCode;
+    let terminal = drawn(&app, 120, 30, Instant::now());
+    let palette = Palette::of(Theme::VsCode);
+    let status = 28;
+    for column in [0, 60, 119] {
+        let style = style_at(&terminal, (column, status));
+        assert!(style.bg.is_some(), "column {column}: {style:?}");
+    }
+    assert_eq!(
+        style_at(&terminal, (60, status)).bg,
+        palette.status.bg,
+        "the bar between its items"
     );
+    assert_eq!(palette.status.bg, Some(Color::Rgb(0, 122, 204)));
+    assert!(!text_of(&terminal).contains('~'), "{}", text_of(&terminal));
+    let ratio = contrast(Color::Rgb(255, 255, 255), Color::Rgb(0, 122, 204)).expect("rgb");
+    assert!(ratio >= 4.5, "white on the bar: {ratio:.2}");
+}
+
+#[test]
+fn files_have_icons_in_the_explorer_and_the_tabs() {
+    use crate::config::Icons;
+    let mut app = app();
+    command(&mut app, "set look=commit");
+    command(&mut app, "words 10");
+    type_prefix(&mut app, 1);
+    let text = screen(&app, 120, 30);
+    for expected in [
+        "§ practice.toml",
+        "¶ help.md",
+        "≡ history.log",
+        "± COMMIT_EDITMSG",
+    ] {
+        assert!(text.contains(expected), "missing {expected}:\n{text}");
+    }
+    let tab = text.lines().next().unwrap_or_default();
+    assert!(tab.contains("± COMMIT_EDITMSG ●"), "{tab}");
+    app.config.icons = Icons::Nerd;
+    let text = screen(&app, 120, 30);
+    assert!(text.contains("\u{e615} practice.toml"), "{text}");
+    assert!(text.contains("\u{f07c} code-racer"), "{text}");
+    app.config.icons = Icons::None;
+    let text = screen(&app, 120, 30);
+    assert!(text.contains("     practice.toml"), "{text}");
 }
 
 #[test]
@@ -698,8 +775,8 @@ fn the_dark_theme_draws_on_black_with_visible_selections() {
     let terminal = drawn(&app, 120, 30, Instant::now());
     let blank = find(&terminal, "~").expect("an empty line");
     assert_eq!(style_at(&terminal, blank).bg, Some(Color::Black));
-    let entry = find(&terminal, "    practice.toml").expect("the explorer entry");
-    let selected = style_at(&terminal, (entry.0 + 4, entry.1));
+    let entry = find(&terminal, "   § practice.toml").expect("the explorer entry");
+    let selected = style_at(&terminal, (entry.0 + 5, entry.1));
     assert_eq!(selected.bg, Some(palette.highlight));
     assert_ne!(palette.highlight, palette.background);
 
@@ -721,8 +798,8 @@ fn the_mono_theme_shows_which_side_has_the_focus_without_colour() {
     app.config.theme = Theme::Mono;
     let selected_entry = |app: &App| {
         let terminal = drawn(app, 120, 30, Instant::now());
-        let entry = find(&terminal, "    practice.toml").expect("the explorer entry");
-        style_at(&terminal, (entry.0 + 4, entry.1))
+        let entry = find(&terminal, "   § practice.toml").expect("the explorer entry");
+        style_at(&terminal, (entry.0 + 5, entry.1))
     };
     let in_explorer = selected_entry(&app);
     press(&mut app, KeyCode::Enter);
@@ -750,8 +827,8 @@ fn the_terminal_cursor_follows_the_value_being_typed() {
     press(&mut app, KeyCode::Left);
     press(&mut app, KeyCode::Left);
     let (cursor, terminal) = cursor_of(&app, 120, 30);
-    let (x, y) = find(&terminal, "username = \"jean\"").expect("the line");
-    assert_eq!(cursor, Position::new(x + 14, y), "after \"je\"");
+    let (x, y) = find(&terminal, "username   = \"jean\"").expect("the line");
+    assert_eq!(cursor, Position::new(x + 16, y), "after \"je\"");
 
     press(&mut app, KeyCode::Esc);
     command(&mut app, "race");
@@ -806,9 +883,7 @@ fn a_value_longer_than_its_field_scrolls_to_keep_the_cursor_in_view() {
     let mut app = app();
     app.resize(MIN_WIDTH, MIN_HEIGHT);
     command(&mut app, "config");
-    for _ in 0..2 {
-        press(&mut app, KeyCode::Char('j'));
-    }
+    press(&mut app, KeyCode::Char('G'));
     press(&mut app, KeyCode::Enter);
     app.handle_key(
         KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
@@ -821,7 +896,7 @@ fn a_value_longer_than_its_field_scrolls_to_keep_the_cursor_in_view() {
     let (x, y) = find(&terminal, "example.com:8080\"").expect("the end of the value");
     assert_eq!(cursor, Position::new(x + 16, y), "just after it:\n{text}");
     let row = text.lines().nth(usize::from(y)).unwrap_or_default();
-    assert!(row.contains("server   = \"…"), "the start is cut: {row}");
+    assert!(row.contains("server     = \"…"), "the start is cut: {row}");
 }
 
 #[tokio::test]
@@ -1000,6 +1075,214 @@ fn type_whole_text(app: &mut App, duration: Duration) -> Instant {
     end
 }
 
+/// Where the things a click acts on lie once `app` is drawn at `now`.
+fn hits_of(app: &App, width: u16, height: u16, now: Instant) -> crate::app::mouse::Hits {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
+    let mut hits = crate::app::mouse::Hits::default();
+    terminal
+        .draw(|frame| {
+            hits = draw(frame, app, now);
+        })
+        .expect("draw");
+    hits
+}
+
+#[test]
+fn what_the_screen_shows_is_where_a_click_lands() {
+    use crate::app::{Buffer, mouse::Target};
+    let mut app = app();
+    app.history.add(record(70.0)).expect("in memory");
+    command(&mut app, "words 10");
+    let end = type_whole_text(&mut app, Duration::from_secs(10));
+    let now = end + Duration::from_secs(5);
+    app.handle_key(KeyEvent::from(KeyCode::Char('e')), now);
+    assert_eq!(
+        app.buffer,
+        Buffer::Practice,
+        "the results open the settings"
+    );
+    let terminal = drawn(&app, 120, 30, now);
+    let hits = hits_of(&app, 120, 30, now);
+    let (x, y) = find(&terminal, "history.log").expect("the entry");
+    assert_eq!(hits.at(x, y), Some(Target::Entry(Buffer::History)));
+    let (x, y) = find(&terminal, "notes.md").expect("the session tab");
+    assert_eq!(hits.at(x, y), Some(Target::Tab(Buffer::Session)));
+    let (_, folder) = find(&terminal, "▾ session").expect("the session folder");
+    assert_eq!(hits.at(5, folder + 1), Some(Target::Entry(Buffer::Session)));
+    let (x, y) = find(&terminal, "language    =").expect("a form line");
+    assert_eq!(hits.at(x, y), Some(Target::FormLine(1)));
+    let (x, y) = find(&terminal, " NORMAL ").expect("the mode");
+    assert_eq!(hits.at(x, y), Some(Target::Mode));
+    let (x, y) = find(&terminal, "~").expect("the end of the buffer");
+    assert_eq!(hits.at(x, y), Some(Target::Editor));
+}
+
+#[test]
+fn the_keys_under_the_results_can_be_clicked() {
+    use crate::app::mouse::Target;
+    let mut app = app();
+    command(&mut app, "words 10");
+    let end = type_whole_text(&mut app, Duration::from_secs(10));
+    let later = end + Duration::from_secs(5);
+    let terminal = drawn(&app, 100, 30, later);
+    let hits = hits_of(&app, 100, 30, later);
+    let (x, y) = find(&terminal, "r  new text").expect("the keys");
+    assert_eq!(
+        hits.at(x + 3, y),
+        Some(Target::Key {
+            code: KeyCode::Char('r'),
+            times: 1
+        })
+    );
+}
+
+#[test]
+fn the_command_palette_finds_and_runs_a_command() {
+    let mut app = app();
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+        Instant::now(),
+    );
+    let text = screen(&app, 100, 30);
+    for expected in ["commands", "Start a session", "COMMAND", "Enter run"] {
+        assert!(text.contains(expected), "missing {expected}:\n{text}");
+    }
+    type_keys(&mut app, "hist");
+    let text = screen(&app, 100, 30);
+    assert!(text.contains("Open history.log"), "{text}");
+    assert!(!text.contains("Start a session"), "{text}");
+    press(&mut app, KeyCode::Enter);
+    assert!(app.palette.is_none());
+    assert_eq!(app.buffer, crate::app::Buffer::History);
+}
+
+#[test]
+fn f1_opens_the_palette_even_while_typing_and_esc_closes_it() {
+    let mut app = app();
+    command(&mut app, "words 10");
+    type_prefix(&mut app, 2);
+    press(&mut app, KeyCode::F(1));
+    assert!(app.palette.is_some());
+    press(&mut app, KeyCode::Esc);
+    assert!(app.palette.is_none());
+    assert!(app.is_typing(), "Esc closed the palette, not the session");
+}
+
+#[test]
+fn the_mascot_lives_at_the_bottom_of_the_explorer_when_there_is_room() {
+    let mut app = app();
+    app.resize(120, 30);
+    let text = screen(&app, 120, 30);
+    let sidebar: Vec<String> = text
+        .lines()
+        .map(|line| line.chars().take(usize::from(SIDEBAR_WIDTH)).collect())
+        .collect();
+    let body = sidebar.len() - 2;
+    let ghost = sidebar[..body]
+        .iter()
+        .rposition(|line| line.contains('█'))
+        .expect("the ghost");
+    assert!(ghost >= body - 3, "at the bottom:\n{text}");
+    assert!(chrome::shows_mascot(&app));
+    app.config.mascot = false;
+    assert!(!screen(&app, 120, 30).contains('█'));
+    app.config.mascot = true;
+    app.history.add(record(70.0)).expect("in memory");
+    app.resize(120, MIN_HEIGHT);
+    assert!(
+        !chrome::shows_mascot(&app),
+        "no room under the explorer and the records"
+    );
+    assert!(!screen(&app, 120, MIN_HEIGHT).contains('█'));
+}
+
+#[test]
+fn nothing_moves_once_the_mascot_is_asleep_or_animations_are_off() {
+    let mut app = app();
+    app.resize(120, 30);
+    let start = Instant::now();
+    assert_eq!(frame_period(&app, start), Some(MASCOT_FRAME));
+    let napping = start + crate::app::mascot::NAP_AFTER + Duration::from_secs(1);
+    assert_eq!(
+        frame_period(&app, napping),
+        None,
+        "asleep, no processor time"
+    );
+    assert!(screen_at(&app, 120, 30, napping).contains('Z'), "it snores");
+    app.config.animations = false;
+    assert_eq!(frame_period(&app, start), None);
+}
+
+#[test]
+fn typing_redraws_often_while_the_ink_dries() {
+    let mut app = app();
+    command(&mut app, "words 10");
+    let now = Instant::now();
+    type_next(&mut app, now);
+    assert_eq!(frame_period(&app, now), Some(TEXT_FRAME));
+}
+
+#[test]
+fn a_look_names_the_file_and_its_type() {
+    let mut app = app();
+    command(&mut app, "set look=commit");
+    command(&mut app, "words 10");
+    let text = screen(&app, 100, 30);
+    assert!(text.contains("COMMIT_EDITMSG"), "{text}");
+    assert!(text.contains("# On branch main"), "{text}");
+    assert!(status_line(&text).trim_end().ends_with('%'), "{text}");
+    press(&mut app, KeyCode::Esc);
+    command(&mut app, "set look=mail");
+    command(&mut app, "quote");
+    let text = screen(&app, 100, 30);
+    assert!(text.contains("draft.eml") && text.contains("From: jean <jean@localhost>"));
+}
+
+#[test]
+fn discreet_mode_shows_an_editor_and_nothing_else() {
+    let mut app = app();
+    app.history.add(record(70.0)).expect("in memory");
+    app.resize(120, 30);
+    press(&mut app, KeyCode::F(12));
+    assert!(app.config.discreet);
+    command(&mut app, "words 10");
+    type_prefix(&mut app, 3);
+    let text = screen(&app, 120, 30);
+    let status = status_line(&text);
+    for expected in ["Ln 1, Col 4", "UTF-8", "markdown", "⎇ main"] {
+        assert!(status.contains(expected), "missing {expected}: {status}");
+    }
+    for hidden in ["wpm", "RECORDS", "code-racer", "words 10", "Esc Esc", "█"] {
+        assert!(!text.contains(hidden), "{hidden} shows:\n{text}");
+    }
+    press(&mut app, KeyCode::F(12));
+    assert!(!app.config.discreet);
+    assert!(status_line(&screen(&app, 120, 30)).contains("wpm"));
+}
+
+#[test]
+fn the_results_name_the_characters_missed() {
+    let mut app = app();
+    command(&mut app, "words 10");
+    mistake(&mut app);
+    press(&mut app, KeyCode::Backspace);
+    let end = type_whole_text(&mut app, Duration::from_secs(10));
+    let text = screen_at(&app, 100, 30, end + Duration::from_secs(5));
+    assert!(text.contains("missed      = { "), "{text}");
+}
+
+#[test]
+fn the_results_count_up_when_they_come_on_screen() {
+    let mut app = app();
+    command(&mut app, "words 10");
+    let end = type_whole_text(&mut app, Duration::from_secs(10));
+    let early = screen_at(&app, 100, 30, end);
+    assert!(early.contains("wpm         = 0.0"), "{early}");
+    app.config.animations = false;
+    let still = screen_at(&app, 100, 30, end);
+    assert!(!still.contains("wpm         = 0.0"), "{still}");
+}
+
 /// Sizes the preview draws every screen at: the smallest supported and a
 /// large one.
 const PREVIEW_SIZES: [(u16, u16); 2] = [(MIN_WIDTH, MIN_HEIGHT), (200, 60)];
@@ -1071,9 +1354,45 @@ async fn preview_screens() {
         &mut in_room_at(results, Instant::now()),
     ));
     screens.extend(long_input_shots());
+    screens.extend(look_shots());
+    screens.extend(vscode_shots());
     for (name, text) in screens {
         println!("──── {name}\n{text}");
     }
+}
+
+/// A code session in the VS Code theme.
+fn vscode_shots() -> Vec<(String, String)> {
+    let mut vscode = app();
+    vscode.config.theme = Theme::VsCode;
+    command(&mut vscode, "code typescript");
+    type_prefix(&mut vscode, 40);
+    shots("vscode", &mut vscode)
+}
+
+/// The command palette, then a words session in every look.
+fn look_shots() -> Vec<(String, String)> {
+    let mut app = app();
+    for wpm in [58.0, 61.0] {
+        app.history.add(record(wpm)).expect("in memory");
+    }
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+        Instant::now(),
+    );
+    let mut screens = shots("palette", &mut app);
+    type_keys(&mut app, "cod");
+    screens.extend(shots("palette code", &mut app));
+    press(&mut app, KeyCode::Esc);
+    for look in crate::config::Look::DISGUISES {
+        command(&mut app, &format!("set look={look}"));
+        command(&mut app, "words 25");
+        type_prefix(&mut app, 70);
+        screens.extend(shots(&format!("look {look}"), &mut app));
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Esc);
+    }
+    screens
 }
 
 /// A server address and then a command too long for their line, being typed.

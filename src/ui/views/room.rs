@@ -18,6 +18,7 @@ use crate::{
         race::{RaceClient, Stage},
     },
     ui::{
+        Moment,
         editor::{self, Row},
         format::{self, ordinal, percent_done, race_time},
         theme::Palette,
@@ -41,12 +42,12 @@ pub fn render(
             frame,
             area,
             app,
-            client,
             room,
             Some(left.as_secs() + 1),
             palette,
+            now,
         ),
-        (Some(room), Stage::Racing) => race(frame, area, app, client, room, None, palette),
+        (Some(room), Stage::Racing) => race(frame, area, app, room, None, palette, now),
         (Some(room), Stage::Finished) => results(frame, area, client, room, palette),
         _ => connecting(frame, area, client, palette),
     }
@@ -200,15 +201,19 @@ fn lobby_hint(client: &RaceClient, room: &RoomView, palette: &Palette) -> Row {
     doc::comment(hint, palette)
 }
 
+/// The race of the room of `app`: its text, the standings under it.
 fn race(
     frame: &mut Frame,
     area: Rect,
     app: &App,
-    client: &RaceClient,
     room: &RoomView,
     countdown: Option<u64>,
     palette: &Palette,
+    now: Instant,
 ) {
+    let Some(client) = app.race() else {
+        return;
+    };
     let panel_height = u16::try_from(room.players.len() + 2)
         .unwrap_or(u16::MAX)
         .min(area.height / 2);
@@ -216,7 +221,8 @@ fn race(
         Layout::vertical([Constraint::Min(3), Constraint::Length(panel_height)]).areas(area);
     if let Some(view) = app.session_view() {
         let active = countdown.is_none() && app.is_typing();
-        let (rows, cursor_row) = text_rows(&view, text_area, palette, active);
+        let moment = Moment::of_app(app, now);
+        let (rows, cursor_row) = text_rows(&view, text_area, palette, active, moment);
         let scroll = editor::scroll_for(cursor_row, text_area.height, rows.len());
         editor::render(frame, text_area, &rows, scroll, palette);
     }

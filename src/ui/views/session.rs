@@ -1,5 +1,7 @@
 //! A solo session: the text while typing, then the results.
 
+use std::time::Duration;
+
 use code_racer_engine::Status;
 use ratatui::{Frame, layout::Rect, style::Modifier, text::Span};
 
@@ -10,6 +12,7 @@ use crate::{
         practice::{SoloResult, SoloRun},
     },
     ui::{
+        Moment,
         editor::{self, Row},
         format::race_time,
         theme::Palette,
@@ -23,40 +26,61 @@ const MAX_CHART_HEIGHT: usize = 8;
 /// Fewest rows worth drawing the speed chart in.
 const MIN_CHART_HEIGHT: usize = 4;
 
-pub fn render(frame: &mut Frame, area: Rect, app: &App, run: &SoloRun, palette: &Palette) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    run: &SoloRun,
+    palette: &Palette,
+    moment: Moment,
+) {
     match &run.result {
-        Some(result) => results(frame, area, run, result, palette),
-        None => text(frame, area, app, palette),
+        Some(result) => results(frame, area, run, result, palette, moment),
+        None => text(frame, area, app, palette, moment),
     }
 }
 
-fn text(frame: &mut Frame, area: Rect, app: &App, palette: &Palette) {
+/// How long the results take to come up: the figures count up and the
+/// chart draws itself from left to right.
+const REVEAL: Duration = Duration::from_millis(800);
+
+/// How far the results are revealed at `moment`, from 0 to 1, eased.
+fn revealed(result: &SoloResult, moment: Moment) -> f64 {
+    if !moment.animate {
+        return 1.0;
+    }
+    let age = moment.now.saturating_duration_since(result.at);
+    let progress = (age.as_secs_f64() / REVEAL.as_secs_f64()).min(1.0);
+    1.0 - (1.0 - progress).powi(3)
+}
+
+/// Whether the results are still coming up at `moment`.
+pub fn reveals(result: &SoloResult, moment: Moment) -> bool {
+    moment.animate && moment.now.saturating_duration_since(result.at) < REVEAL
+}
+
+fn text(frame: &mut Frame, area: Rect, app: &App, palette: &Palette, moment: Moment) {
     let Some(view) = app.session_view() else {
         return;
     };
-    let (mut rows, cursor_row) = text_rows(&view, area, palette, app.is_typing());
-    if let Some(source) = view.attribution {
-        rows.push(Row::blank());
-        rows.push(Row::new(vec![Span::styled(
-            format!("-- {source}"),
-            palette.fg(palette.comment).add_modifier(Modifier::ITALIC),
-        )]));
-    }
+    let (rows, cursor_row) = text_rows(&view, area, palette, app.is_typing(), moment);
     let scroll = editor::scroll_for(cursor_row, area.height, rows.len());
     editor::render(frame, area, &rows, scroll, palette);
 }
 
-/// Rows of a session text laid out for `area`, and the row of the cursor.
+/// Rows of a session text laid out for `area` at `moment`, and the row of
+/// the cursor.
 pub fn text_rows(
     view: &SessionView<'_>,
     area: Rect,
     palette: &Palette,
     active: bool,
+    moment: Moment,
 ) -> (Vec<Row>, usize) {
     let mut highest = 999;
     loop {
         let width = editor::text_width(area.width, highest);
-        let layout = typing::layout(view, width, palette, active);
+        let layout = typing::layout(view, width, palette, active, moment);
         if layout.rows.len() <= highest {
             return (layout.rows, layout.cursor_row);
         }
@@ -64,7 +88,15 @@ pub fn text_rows(
     }
 }
 
-fn results(frame: &mut Frame, area: Rect, run: &SoloRun, result: &SoloResult, palette: &Palette) {
+fn results(
+    frame: &mut Frame,
+    area: Rect,
+    run: &SoloRun,
+    result: &SoloResult,
+    palette: &Palette,
+    moment: Moment,
+) {
+    let reveal = revealed(result, moment);
     let stats = result.stats;
     let heading = match run.session().status() {
         Status::TimeUp => "time's up",
@@ -76,25 +108,25 @@ fn results(frame: &mut Frame, area: Rect, run: &SoloRun, result: &SoloResult, pa
         doc::blank(),
         metric(
             "wpm",
-            format!("{:.1}", stats.wpm),
+            format!("{:.1}", stats.wpm * reveal),
             palette.fg(palette.number).add_modifier(Modifier::BOLD),
             palette,
         ),
         metric(
             "raw",
-            format!("{:.1}", stats.raw_wpm),
+            format!("{:.1}", stats.raw_wpm * reveal),
             palette.fg(palette.number),
             palette,
         ),
         metric(
             "accuracy",
-            format!("{:.1}%", stats.accuracy),
+            format!("{:.1}%", stats.accuracy * reveal),
             palette.fg(palette.number),
             palette,
         ),
         metric(
             "errors",
-            stats.errors.to_string(),
+            format!("{:.0}", stats.errors as f64 * reveal),
             palette.fg(palette.number),
             palette,
         ),
@@ -119,9 +151,16 @@ fn results(frame: &mut Frame, area: Rect, run: &SoloRun, result: &SoloResult, pa
             palette.fg(palette.number),
             palette,
         ),
-        doc::blank(),
-        personal_best(result, palette),
     ];
+    if !result.missed.is_empty() {
+        let mut spans = doc::assignment("missed", RESULT_KEY_WIDTH, Span::raw(""), palette);
+        spans.pop();
+        spans.extend(missed_table(&result.missed, palette));
+        rows.push(Row::new(spans));
+    }
+    rows.push(doc::blank());
+    rows.push(personal_best(result, palette));
+    rows.extend(comparison(result, palette));
     let footer = [
         doc::blank(),
         doc::keys(
@@ -138,11 +177,76 @@ fn results(frame: &mut Frame, area: Rect, run: &SoloRun, result: &SoloResult, pa
         let width = editor::text_width(area.width, lines);
         let height = u16::try_from(height).unwrap_or(u16::MAX);
         rows.extend(heading);
-        rows.extend(doc::chart(&wpm, width, height, palette));
+        let mut chart = doc::chart(&wpm, width, height, palette);
+        unveil(&mut chart, reveal);
+        rows.extend(chart);
     }
     rows.extend(footer);
     editor::number_rows(&mut rows);
     editor::render(frame, area, &rows, 0, palette);
+}
+
+/// Hides the part of every row of `chart` past `reveal` of its width, for
+/// it to draw itself from left to right.
+fn unveil(chart: &mut [Row], reveal: f64) {
+    if reveal >= 1.0 {
+        return;
+    }
+    for row in chart {
+        for span in &mut row.spans {
+            let width = span.content.chars().count();
+            let shown = (width as f64 * reveal).round() as usize;
+            let text: String = span
+                .content
+                .chars()
+                .enumerate()
+                .map(|(column, ch)| if column < shown { ch } else { ' ' })
+                .collect();
+            span.content = text.into();
+        }
+    }
+}
+
+/// The characters missed most as a TOML inline table, such as
+/// `{ e = 3, ";" = 1 }`.
+fn missed_table(missed: &[(String, u32)], palette: &Palette) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled("{ ", palette.fg(palette.punctuation))];
+    for (index, (expected, times)) in missed.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(", ", palette.fg(palette.punctuation)));
+        }
+        let bare = expected
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-');
+        let key = match expected.as_str() {
+            "\n" => r#""\n""#.to_owned(),
+            "\"" => r#""\"""#.to_owned(),
+            "\\" => r#""\\""#.to_owned(),
+            _ if bare => expected.clone(),
+            _ => format!("\"{expected}\""),
+        };
+        spans.push(Span::styled(key, palette.fg(palette.function)));
+        spans.push(Span::styled(" = ", palette.fg(palette.punctuation)));
+        spans.push(Span::styled(times.to_string(), palette.fg(palette.number)));
+    }
+    spans.push(Span::styled(" }", palette.fg(palette.punctuation)));
+    spans
+}
+
+/// How the speed compares with the recent sessions before it, as a comment.
+fn comparison(result: &SoloResult, palette: &Palette) -> Option<Row> {
+    let recent = result.recent_wpm?;
+    let difference = result.stats.wpm - recent;
+    let text = if difference.abs() < 0.05 {
+        format!("right on your recent average of {recent:.1} wpm")
+    } else {
+        let side = if difference > 0.0 { "above" } else { "below" };
+        format!(
+            "{:.1} wpm {side} your recent average of {recent:.1} wpm",
+            difference.abs()
+        )
+    };
+    Some(doc::comment(text, palette))
 }
 
 fn metric(name: &str, value: String, style: ratatui::style::Style, palette: &Palette) -> Row {

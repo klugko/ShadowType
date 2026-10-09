@@ -16,11 +16,13 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     app::{
-        form::{Row, Step},
+        Disguise,
+        form::{Row, Step, Value, choices, cycle},
+        ink::Ink,
         text_event::TextEvent,
         text_settings::{self, TextSetting},
     },
-    config::{Mode, Practice},
+    config::{Config, Look, Mode, Practice},
     history::{History, Record},
 };
 
@@ -36,28 +38,39 @@ const MAX_FILE_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Text(TextSetting),
+    /// What prose looks like on screen; code always looks like code.
+    Look,
     Start,
 }
 
 /// Lines of the practice form for the current mode.
 pub fn fields(practice: &Practice) -> Vec<Field> {
+    let look = (practice.mode != Mode::Code).then_some(Field::Look);
     text_settings::settings(practice)
         .into_iter()
         .map(Field::Text)
+        .chain(look)
         .chain([Field::Start])
         .collect()
 }
 
-pub fn row(practice: &Practice, field: Field) -> Row {
+pub fn row(config: &Config, field: Field) -> Row {
     match field {
-        Field::Text(setting) => text_settings::row(practice, setting, &Mode::ALL),
+        Field::Text(setting) => text_settings::row(&config.practice, setting, &Mode::ALL),
+        Field::Look => {
+            Row::new("look", Value::Text(config.look.to_string())).hint(choices(Look::ALL))
+        }
         Field::Start => Row::action("start session"),
     }
 }
 
-pub fn adjust(practice: &mut Practice, field: Field, step: Step) {
-    if let Field::Text(setting) = field {
-        text_settings::adjust(practice, setting, step, &Mode::ALL);
+pub fn adjust(config: &mut Config, field: Field, step: Step) {
+    match field {
+        Field::Text(setting) => {
+            text_settings::adjust(&mut config.practice, setting, step, &Mode::ALL);
+        }
+        Field::Look => config.look = cycle(&Look::ALL, config.look, step),
+        Field::Start => {}
     }
 }
 
@@ -185,14 +198,16 @@ impl Plan {
         )
     }
 
-    /// File name shown in the editor for this session.
-    pub fn title(&self) -> String {
+    /// File name shown in the editor for this session, the name of the
+    /// file prose is disguised as in a look other than notes.
+    pub fn title(&self, disguise: Disguise<'_>) -> String {
         match self {
+            Self::Text(TextSource::Code { language }) => code_file_name(*language),
+            Self::File(custom) => custom.name.clone(),
+            _ if disguise.look != Look::Notes => disguised_name(disguise),
             Self::Text(TextSource::Words { .. }) => "notes.md".to_owned(),
             Self::Timed { .. } => "scratch.txt".to_owned(),
             Self::Text(TextSource::Quote { .. }) => "README.md".to_owned(),
-            Self::Text(TextSource::Code { language }) => code_file_name(*language),
-            Self::File(custom) => custom.name.clone(),
         }
     }
 
@@ -213,6 +228,15 @@ impl Plan {
             }
         }
         parts
+    }
+
+    /// Whether the text is prose, which a look can disguise, rather than
+    /// code or a file of the player's.
+    pub fn is_prose(&self) -> bool {
+        matches!(
+            self,
+            Self::Timed { .. } | Self::Text(TextSource::Words { .. } | TextSource::Quote { .. })
+        )
     }
 
     pub fn syntax(&self) -> Option<CodeLanguage> {
@@ -246,6 +270,27 @@ impl Plan {
     }
 }
 
+/// The name of the file prose is typed in, in a look other than notes.
+pub fn disguised_name(disguise: Disguise<'_>) -> String {
+    match disguise.look {
+        Look::Todo => "TODO.md".to_owned(),
+        Look::Commit => "COMMIT_EDITMSG".to_owned(),
+        Look::Docs => {
+            let stem = match disguise.language {
+                CodeLanguage::Rust => "lib",
+                CodeLanguage::Python => "utils",
+                CodeLanguage::TypeScript => "api",
+                CodeLanguage::JavaScript => "helpers",
+                CodeLanguage::Sql => "schema",
+            };
+            format!("{stem}.{}", disguise.language.extension())
+        }
+        Look::Log => "server.log".to_owned(),
+        Look::Mail => "draft.eml".to_owned(),
+        Look::Notes | Look::Shuffle => "notes.md".to_owned(),
+    }
+}
+
 pub fn code_file_name(language: CodeLanguage) -> String {
     let stem = match language {
         CodeLanguage::Rust => "main",
@@ -261,10 +306,14 @@ pub fn code_file_name(language: CodeLanguage) -> String {
 pub struct SoloRun {
     pub plan: Plan,
     session: TypingSession,
+    ink: Ink,
     pub attribution: Option<String>,
     pub result: Option<SoloResult>,
     feed: Option<WordStream>,
 }
+
+/// Most missed characters the results list.
+const MISSED_SHOWN: usize = 5;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SoloResult {
@@ -272,6 +321,12 @@ pub struct SoloResult {
     pub samples: Vec<Sample>,
     pub consistency: f64,
     pub previous_best: Option<f64>,
+    /// Average speed of the recent sessions before this one, if any.
+    pub recent_wpm: Option<f64>,
+    /// The characters missed most, with how many times.
+    pub missed: Vec<(String, u32)>,
+    /// When the session ended and the results came on screen.
+    pub at: Instant,
 }
 
 impl SoloResult {
@@ -311,6 +366,7 @@ impl SoloRun {
         Self {
             plan,
             session,
+            ink: Ink::default(),
             attribution,
             result: None,
             feed,
@@ -321,10 +377,14 @@ impl SoloRun {
         &self.session
     }
 
+    pub fn ink(&self) -> &Ink {
+        &self.ink
+    }
+
     /// Hands `event` to the session, refilling a timed text that runs low.
     /// Returns whether the session took the key.
     pub fn text_event(&mut self, event: TextEvent, now: Instant) -> bool {
-        let taken = event.apply_to(&mut self.session, now);
+        let taken = self.ink.apply(event, &mut self.session, now);
         if taken {
             self.refill();
         }
@@ -350,9 +410,13 @@ impl SoloRun {
         let samples = self.session.samples(now);
         let mode = self.plan.mode_label();
         let language = self.plan.language_label();
+        let summary = history.summary();
         let result = SoloResult {
             consistency: consistency(&samples),
             previous_best: history.personal_best(&mode, &language),
+            recent_wpm: (summary.sessions > 0).then_some(summary.recent_wpm),
+            missed: self.ink.most_missed(MISSED_SHOWN),
+            at: now,
             stats,
             samples,
         };
@@ -403,11 +467,29 @@ mod tests {
                 Field::Start
             ]
         );
-        let mut settings = practice(Mode::Words);
-        adjust(&mut settings, Field::Text(TextSetting::Mode), Step::Next);
-        assert_eq!(settings.mode, Mode::Time);
-        adjust(&mut settings, Field::Start, Step::Next);
-        assert_eq!(settings.mode, Mode::Time, "the start line has no value");
+        let mut config = Config::default();
+        adjust(&mut config, Field::Text(TextSetting::Mode), Step::Next);
+        assert_eq!(config.practice.mode, Mode::Time);
+        adjust(&mut config, Field::Start, Step::Next);
+        assert_eq!(
+            config.practice.mode,
+            Mode::Time,
+            "the start line has no value"
+        );
+    }
+
+    #[test]
+    fn prose_offers_a_look_and_code_does_not() {
+        let words = fields(&practice(Mode::Words));
+        assert_eq!(words[words.len() - 2], Field::Look);
+        assert!(!fields(&practice(Mode::Code)).contains(&Field::Look));
+        let mut config = Config::default();
+        adjust(&mut config, Field::Look, Step::Next);
+        assert_eq!(config.look, Look::Todo);
+        adjust(&mut config, Field::Look, Step::Previous);
+        adjust(&mut config, Field::Look, Step::Previous);
+        assert_eq!(config.look, Look::Shuffle);
+        assert_eq!(row(&config, Field::Look).hint, choices(Look::ALL));
     }
 
     #[test]
@@ -417,10 +499,19 @@ mod tests {
         settings.punctuation = true;
         let plan = Plan::from_practice(&settings);
         assert_eq!(plan.label(), "words 25 · english · punctuation");
-        assert_eq!(plan.title(), "notes.md");
+        assert_eq!(plan.title(Disguise::default()), "notes.md");
+        let commit = Disguise {
+            look: Look::Commit,
+            ..Disguise::default()
+        };
+        assert_eq!(plan.title(commit), "COMMIT_EDITMSG");
         settings.mode = Mode::Code;
         settings.code_language = CodeLanguage::Sql;
-        assert_eq!(Plan::from_practice(&settings).title(), "query.sql");
+        assert_eq!(
+            Plan::from_practice(&settings).title(commit),
+            "query.sql",
+            "code looks like code"
+        );
         assert_eq!(
             Plan::from_practice(&settings).syntax(),
             Some(CodeLanguage::Sql)
@@ -537,7 +628,7 @@ mod tests {
         let custom = CustomText::load(&path).expect("load");
         assert_eq!(custom.text, "fn main() {\n    let x = 1;\n}");
         assert_eq!(custom.language, Some(CodeLanguage::Rust));
-        assert_eq!(Plan::File(custom).title(), "lib.rs");
+        assert_eq!(Plan::File(custom).title(Disguise::default()), "lib.rs");
         fs::write(&path, [0u8, 159, 146, 150]).expect("write binary");
         assert!(matches!(CustomText::load(&path), Err(FileError::Binary(_))));
     }
