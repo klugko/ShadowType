@@ -59,11 +59,7 @@ async fn interact(app: &mut App) -> anyhow::Result<()> {
     let mut dirty = true;
     while !app.should_quit() {
         if dirty {
-            fit_to_terminal(app, &mut guard)?;
-            guard.set_mouse(app.config.mouse);
-            guard.terminal().draw(|frame| {
-                hits = ui::draw(frame, app, Instant::now());
-            })?;
+            hits = redraw(app, &mut guard)?;
         }
         let ticking = app.needs_ticks();
         let period = [
@@ -82,9 +78,6 @@ async fn interact(app: &mut App) -> anyhow::Result<()> {
                 None => break,
             },
             event = next_network_event(app) => {
-                let event = event.unwrap_or_else(|| NetworkEvent::Closed {
-                    reason: "connection lost".to_owned(),
-                });
                 app.handle_network(event, Instant::now());
                 dirty = true;
             }
@@ -151,6 +144,16 @@ fn handle_terminal_event(app: &mut App, event: Event, hits: &Hits) -> bool {
     }
 }
 
+fn redraw(app: &mut App, guard: &mut TerminalGuard) -> io::Result<Hits> {
+    fit_to_terminal(app, guard)?;
+    guard.set_mouse(app.config.mouse);
+    let mut hits = Hits::default();
+    guard.terminal().draw(|frame| {
+        hits = ui::draw(frame, app, Instant::now());
+    })?;
+    Ok(hits)
+}
+
 /**
  * Gives `app` the size of the terminal, read before each draw rather than
  * taken from resize events: Windows reports in them the size of the
@@ -169,11 +172,16 @@ fn fit_to_terminal(app: &mut App, guard: &mut TerminalGuard) -> io::Result<()> {
     Ok(())
 }
 
-async fn next_network_event(app: &mut App) -> Option<NetworkEvent> {
-    match app.connection_mut() {
-        Some(connection) => connection.next_event().await,
-        None => std::future::pending().await,
-    }
+async fn next_network_event(app: &mut App) -> NetworkEvent {
+    let Some(connection) = app.connection_mut() else {
+        return std::future::pending().await;
+    };
+    connection
+        .next_event()
+        .await
+        .unwrap_or_else(|| NetworkEvent::Closed {
+            reason: "connection lost".to_owned(),
+        })
 }
 
 /**
