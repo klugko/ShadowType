@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use super::{
-    App, TextField,
+    App, Buffer, TextField,
     form::{Cursor, Step},
     practice, race, settings,
 };
@@ -12,6 +12,17 @@ pub(super) enum FormKind {
     Practice,
     Race,
     Settings,
+}
+
+impl FormKind {
+    pub(super) fn of(buffer: Buffer) -> Option<Self> {
+        match buffer {
+            Buffer::Practice => Some(Self::Practice),
+            Buffer::Race => Some(Self::Race),
+            Buffer::Settings => Some(Self::Settings),
+            Buffer::History | Buffer::Help | Buffer::Session => None,
+        }
+    }
 }
 
 /// What a key does to the selected line of a form.
@@ -45,7 +56,7 @@ impl App {
         true
     }
 
-    fn form_len(&self, kind: FormKind) -> usize {
+    pub(super) fn form_len(&self, kind: FormKind) -> usize {
         match kind {
             FormKind::Practice => practice::fields(&self.config.practice).len(),
             FormKind::Race => race::fields(&self.config.race).len(),
@@ -53,11 +64,24 @@ impl App {
         }
     }
 
-    fn form_cursor(&mut self, kind: FormKind) -> &mut Cursor {
+    pub(super) fn form_cursor(&mut self, kind: FormKind) -> &mut Cursor {
         match kind {
             FormKind::Practice => &mut self.practice_cursor,
             FormKind::Race => &mut self.race_cursor,
             FormKind::Settings => &mut self.settings_cursor,
+        }
+    }
+
+    pub(super) fn is_action_line(&self, kind: FormKind, index: usize) -> bool {
+        match kind {
+            FormKind::Practice => {
+                practice::fields(&self.config.practice).get(index) == Some(&practice::Field::Start)
+            }
+            FormKind::Race => matches!(
+                race::fields(&self.config.race).get(index),
+                Some(race::Field::Join | race::Field::Create)
+            ),
+            FormKind::Settings => false,
         }
     }
 

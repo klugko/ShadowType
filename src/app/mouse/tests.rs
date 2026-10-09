@@ -2,7 +2,7 @@ use crossterm::event::KeyModifiers;
 
 use super::*;
 use crate::{
-    app::{Overrides, test_support::type_next},
+    app::{Overrides, practice, test_support::type_next},
     cli::Launch,
     config::{Config, Mode},
     history::History,

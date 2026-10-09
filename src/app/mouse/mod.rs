@@ -9,7 +9,7 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 
-use super::{App, Buffer, Focus, form::Cursor, practice, race, settings};
+use super::{App, Buffer, Focus, forms::FormKind};
 
 /// Lines the wheel scrolls a document by.
 const WHEEL_LINES: usize = 3;
@@ -140,51 +140,20 @@ impl App {
      * it is selected already, or when it is an action such as `▶ start`.
      */
     fn click_form_line(&mut self, index: usize, now: Instant) {
-        let Some((len, action)) = self.form_line(index) else {
+        let Some(form) = FormKind::of(self.buffer) else {
             return;
         };
+        let len = self.form_len(form);
+        if index >= len {
+            return;
+        }
+        let action = self.is_action_line(form, index);
         self.focus_editor();
-        let Some(cursor) = self.form_cursor_mut() else {
-            return;
-        };
+        let cursor = self.form_cursor(form);
         let selected = cursor.index(len) == index;
         cursor.select(index, len);
         if selected || action {
             self.dispatch_key(KeyEvent::from(KeyCode::Enter), now);
-        }
-    }
-
-    /**
-     * The number of lines of the form on screen, and whether its line
-     * `index` is an action, when there is such a line.
-     */
-    fn form_line(&self, index: usize) -> Option<(usize, bool)> {
-        match self.buffer {
-            Buffer::Practice => {
-                let fields = practice::fields(&self.config.practice);
-                let field = *fields.get(index)?;
-                Some((fields.len(), field == practice::Field::Start))
-            }
-            Buffer::Race => {
-                let fields = race::fields(&self.config.race);
-                let field = *fields.get(index)?;
-                let action = matches!(field, race::Field::Join | race::Field::Create);
-                Some((fields.len(), action))
-            }
-            Buffer::Settings => {
-                settings::FIELDS.get(index)?;
-                Some((settings::FIELDS.len(), false))
-            }
-            _ => None,
-        }
-    }
-
-    fn form_cursor_mut(&mut self) -> Option<&mut Cursor> {
-        match self.buffer {
-            Buffer::Practice => Some(&mut self.practice_cursor),
-            Buffer::Race => Some(&mut self.race_cursor),
-            Buffer::Settings => Some(&mut self.settings_cursor),
-            _ => None,
         }
     }
 
