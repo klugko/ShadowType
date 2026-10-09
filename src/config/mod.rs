@@ -168,7 +168,6 @@ fn adopt<T: Clone + PartialEq>(kept: &mut T, before: &T, after: &T) {
     }
 }
 
-/// Where code-racer keeps its files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
     pub config_file: PathBuf,

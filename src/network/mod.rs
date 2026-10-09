@@ -29,7 +29,6 @@ const SERVER_SILENT: &str = "the server stopped responding";
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// How long the connection waits on the server.
 #[derive(Debug, Clone, Copy)]
 struct Timeouts {
     /// Reaching the server and upgrading to WebSocket.
@@ -72,28 +71,25 @@ impl Default for Timeouts {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetworkEvent {
-    /// The server accepted the handshake and assigned this id.
     Connected(PlayerId),
     Message(ServerMessage),
-    /// The connection is over. It is the last event.
+    /// Always the last event.
     Closed {
         reason: String,
     },
 }
 
 /**
- * A connection to a race server.
- *
- * Dropping it never blocks: the background task still sends the messages
- * already queued, such as a last [`ClientMessage::LeaveRoom`], then closes
- * the WebSocket and stops, as long as the runtime runs. A program about to
- * exit waits for that with [`Connection::close`].
+ * Dropping a connection never blocks: the background task still sends the
+ * messages already queued, such as a last [`ClientMessage::LeaveRoom`], then
+ * closes the WebSocket and stops, as long as the runtime runs. A program
+ * about to exit waits for that with [`Connection::close`].
  */
 #[derive(Debug)]
 pub struct Connection {
     outgoing: mpsc::Sender<ClientMessage>,
     events: mpsc::Receiver<NetworkEvent>,
-    /// The background task, `None` when the connection was born closed.
+    /// `None` when the connection was born closed.
     task: Option<JoinHandle<()>>,
 }
 

@@ -4,7 +4,6 @@ use chrono::NaiveDate;
 
 use super::{History, RECENT_SESSIONS, Record};
 
-/// Totals over the whole history.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Summary {
     pub sessions: usize,
@@ -66,7 +65,6 @@ impl History {
         std::iter::successors(start, |day| day.pred_opt().filter(|day| days.contains(day))).count()
     }
 
-    /// Best speed ever reached in this mode and language.
     pub fn personal_best(&self, mode: &str, language: &str) -> Option<f64> {
         self.records
             .iter()

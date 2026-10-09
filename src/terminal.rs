@@ -30,7 +30,6 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Whether the terminal reports the mouse, which restoring turns off.
 static MOUSE: AtomicBool = AtomicBool::new(false);
 
-/// Owns the terminal while the interface runs.
 #[derive(Debug)]
 pub struct TerminalGuard {
     terminal: Terminal<Backend>,

@@ -28,7 +28,6 @@ pub const MAX_RECORDS: usize = 2000;
 /// Sessions averaged into [`Summary::recent_wpm`].
 pub const RECENT_SESSIONS: usize = 10;
 
-/// One finished solo session or race.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Record {
     pub date: DateTime<Local>,
