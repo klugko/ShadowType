@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use code_racer_protocol::Phase;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{
@@ -11,7 +12,6 @@ use super::{
     race::RoomRequest,
     text_event::TextEvent,
 };
-use code_racer_protocol::Phase;
 
 const PAGE: usize = 10;
 
