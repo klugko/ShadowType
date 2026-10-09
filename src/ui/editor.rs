@@ -78,13 +78,7 @@ pub fn render(
         width: area.width.saturating_sub(gutter),
         ..area
     };
-    let shown = rows.iter().skip(scroll).take(usize::from(area.height));
-    for (y, row) in (text.y..).zip(shown) {
-        for (column, width, target) in &row.keys {
-            let key = Rect::new(text.x.saturating_add(*column), y, *width, 1);
-            hits::mark(key.intersection(text), *target);
-        }
-    }
+    mark_keys(rows, scroll, text);
     text
 }
 
@@ -122,6 +116,16 @@ fn buffer_line(row: &Row, gutter: u16, palette: &Palette) -> Line<'static> {
         line.style(palette.cursorline)
     } else {
         line
+    }
+}
+
+fn mark_keys(rows: &[Row], scroll: usize, text: Rect) {
+    let shown = rows.iter().skip(scroll).take(usize::from(text.height));
+    for (y, row) in (text.y..).zip(shown) {
+        for &(column, width, target) in &row.keys {
+            let key = Rect::new(text.x.saturating_add(column), y, width, 1);
+            hits::mark(key.intersection(text), target);
+        }
     }
 }
 
