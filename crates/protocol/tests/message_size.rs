@@ -1,9 +1,3 @@
-/*!
- * Every message either side can legally send fits in [`MAX_MESSAGE_BYTES`],
- * the most a peer accepts: a message over it would cost the receiver its
- * connection, so one player could disconnect a whole room.
- */
-
 use code_racer_engine::{
     CodeLanguage, Language, TextSource, WordOptions,
     corpus::{quotes, snippets},

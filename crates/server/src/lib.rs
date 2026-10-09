@@ -30,11 +30,8 @@ use crate::{
 };
 
 const COMMAND_QUEUE: usize = 1024;
-/// Connections being turned away at once; further ones are dropped without a word.
 const MAX_REFUSALS: usize = 32;
-/// Pause after a failed accept, typically when the process ran out of file descriptors.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
-/// Time connections get to close cleanly once the server stops.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /**

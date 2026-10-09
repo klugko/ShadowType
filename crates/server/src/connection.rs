@@ -38,14 +38,8 @@ type Socket = WebSocketStream<TcpStream>;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_INTERVAL: Duration = Duration::from_secs(30);
-/**
- * Silence after which the client is considered gone: a live client answers
- * pings long before.
- */
 const IDLE_TIMEOUT: Duration = Duration::from_secs(75);
-/// Longest a single write may block before the client is considered stuck.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Time the client gets to acknowledge a close before the socket is dropped.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const OUTBOX_CAPACITY: usize = 256;
 const RATE_LIMIT: usize = 40;
@@ -61,7 +55,6 @@ pub async fn serve_player(stream: TcpStream, id: PlayerId, hub: mpsc::Sender<Com
     }
 }
 
-/// Completes the WebSocket handshake only to refuse the client with `error`.
 pub async fn turn_away(stream: TcpStream, error: ServerError) {
     if let Some(socket) = accept(stream).await {
         refuse(socket, error).await;
@@ -198,7 +191,6 @@ async fn play(mut socket: Socket, id: PlayerId, name: Username, hub: mpsc::Sende
     say_goodbye(stream, writer).await;
 }
 
-/// Forwards client messages to the hub until the client leaves, goes silent or floods.
 async fn read_messages(
     stream: &mut SplitStream<Socket>,
     id: PlayerId,
@@ -291,17 +283,12 @@ fn encode(message: &ServerMessage) -> Message {
     Message::text(message.to_json())
 }
 
-/// Sliding window over the arrival times of the latest messages.
 #[derive(Debug, Default)]
 struct RateLimiter {
     arrivals: VecDeque<Instant>,
 }
 
 impl RateLimiter {
-    /**
-     * Records a message arriving at `now` and tells whether at most
-     * [`RATE_LIMIT`] messages arrived within [`RATE_WINDOW`].
-     */
     fn allow(&mut self, now: Instant) -> bool {
         while self
             .arrivals

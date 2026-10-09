@@ -1,5 +1,3 @@
-//! Validated identifiers shared by clients and the server.
-
 use std::{fmt, str::FromStr};
 
 use rand::{Rng, RngExt};
@@ -8,7 +6,6 @@ use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-/// Identifier the server assigns to each connection. Clients never choose it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PlayerId(pub u64);
@@ -57,7 +54,6 @@ impl RoomCode {
 impl FromStr for RoomCode {
     type Err = InvalidRoomCode;
 
-    /// Accepts lowercase input and surrounding spaces.
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let code = input.trim().to_uppercase();
         if let Some(invalid) = code.chars().find(|c| !Self::ALPHABET.contains(*c)) {
@@ -90,7 +86,6 @@ impl fmt::Display for RoomCode {
     }
 }
 
-/// Display name of a player: 1 to 24 visible characters.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct Username(String);

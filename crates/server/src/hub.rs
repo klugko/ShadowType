@@ -25,12 +25,10 @@ use tracing::warn;
 
 use crate::{config::ServerConfig, room::Room};
 
-/// How often rooms advance and coalesced progress is broadcast (20 Hz).
 const TICK_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Debug)]
 pub enum Command {
-    /// A player completed the handshake. Messages for them go to `outbox`.
     Connected {
         id: PlayerId,
         name: Username,
@@ -57,9 +55,7 @@ pub struct Hub {
     config: ServerConfig,
     players: HashMap<PlayerId, Player>,
     rooms: HashMap<RoomCode, Room>,
-    /// Rooms whose progress changed since the last broadcast.
     dirty: HashSet<RoomCode>,
-    /// Players whose outbox refused a message, dropped once the current command is handled.
     stuck: Vec<PlayerId>,
     rng: StdRng,
 }

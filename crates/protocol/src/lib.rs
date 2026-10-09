@@ -1,5 +1,3 @@
-//! Wire protocol between code-racer clients and the race server.
-
 pub mod ids;
 pub mod message;
 pub mod room;

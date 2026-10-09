@@ -10,14 +10,12 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-/// Open connections per IP address, against an optional limit.
 #[derive(Debug)]
 pub(crate) struct PeerSlots {
     limit: Option<NonZeroUsize>,
     open: Mutex<HashMap<IpAddr, usize>>,
 }
 
-/// One connection slot of an address, given back when dropped.
 #[derive(Debug)]
 pub(crate) struct PeerSlot {
     slots: Arc<PeerSlots>,
@@ -32,7 +30,6 @@ impl PeerSlots {
         }
     }
 
-    /// Takes a slot for `address`, unless it already holds as many as allowed.
     pub(crate) fn claim(self: &Arc<Self>, address: IpAddr) -> Option<PeerSlot> {
         let address = address.to_canonical();
         let mut open = self.lock();

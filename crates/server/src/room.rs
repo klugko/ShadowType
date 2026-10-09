@@ -14,19 +14,12 @@ use code_racer_protocol::{
     ServerError, Username,
 };
 
-/// Fastest typing the server believes, in characters per second (about 360 WPM).
 const MAX_CHARS_PER_SECOND: f64 = 30.0;
-/**
- * Characters a report may run ahead of that pace, for short bursts of fast
- * typing. No allowance is needed for network delays: the server times a race
- * from its own start, which comes before any client can type.
- */
 const SPEED_BURST_CHARS: f64 = 5.0;
 
 #[derive(Debug, Clone)]
 struct Race {
     length: u32,
-    /// What auto-indentation fills in, to check the indentation players report.
     indentation: Indentation,
     announced_at: Instant,
     countdown: Duration,
@@ -37,7 +30,6 @@ impl Race {
         now.saturating_duration_since(self.announced_at) >= self.countdown
     }
 
-    /// Time since the end of the countdown, as measured by the server.
     fn elapsed(&self, now: Instant) -> Duration {
         now.saturating_duration_since(self.announced_at)
             .saturating_sub(self.countdown)
@@ -77,7 +69,6 @@ struct Member {
     ready: bool,
     connected: bool,
     progress: PlayerProgress,
-    /// Counters of the last accepted report, which later reports may not undo.
     counters: Progress,
 }
 
@@ -124,7 +115,6 @@ impl Member {
     }
 }
 
-/// A group of players racing on the same texts, one race at a time.
 #[derive(Debug)]
 pub struct Room {
     code: RoomCode,
@@ -132,7 +122,6 @@ pub struct Room {
     text: TextSource,
     max_players: u8,
     stage: Stage,
-    /// In joining order, which decides who becomes host when the host leaves.
     members: Vec<Member>,
     last_activity: Instant,
 }
@@ -223,7 +212,6 @@ impl Room {
         Ok(())
     }
 
-    /// Announces a race on `text`, which starts once `countdown` has elapsed.
     pub fn start_countdown(
         &mut self,
         by: PlayerId,

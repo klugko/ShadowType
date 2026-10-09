@@ -32,7 +32,6 @@ pub const MAX_MESSAGE_BYTES: usize = 16 * 1024;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// First message of every connection.
     Hello {
         version: u16,
         username: Username,
@@ -47,32 +46,25 @@ pub enum ClientMessage {
     SetReady {
         ready: bool,
     },
-    /// Host only, once every player is ready.
     StartRace,
     /**
      * Sent periodically while racing. The server derives speed, accuracy and
      * finishing time from it.
      */
     Progress(Progress),
-    /// Host only, once the race is finished.
     ReturnToLobby,
 }
 
-/// Cumulative typing counters of a player during a race.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Progress {
-    /// Characters entered, right or wrong, i.e. the cursor position.
     pub typed: u32,
-    /// Characters currently matching the text, auto-filled indentation included.
     pub correct: u32,
     /**
      * Characters of `correct` that auto-indentation filled in. Required
      * since protocol version 3, which stopped counting them as keystrokes.
      */
     pub indentation: u32,
-    /// Keys pressed, corrected mistakes included.
     pub keystrokes: u32,
-    /// Keystrokes that did not match the text.
     pub errors: u32,
 }
 
@@ -93,7 +85,6 @@ pub(crate) fn count(value: u32) -> usize {
 }
 
 impl From<Tally> for Progress {
-    /// Clamps each counter to the range of the wire format.
     fn from(tally: Tally) -> Self {
         let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
         Self {
@@ -109,24 +100,15 @@ impl From<Tally> for Progress {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ServerMessage {
-    Welcome {
-        version: u16,
-        player_id: PlayerId,
-    },
-    /// The room the player is in has changed.
+    Welcome { version: u16, player_id: PlayerId },
     Room(RoomView),
-    /// The race text, sent once when the countdown starts.
-    Countdown {
-        text: String,
-        duration_ms: u32,
-    },
+    Countdown { text: String, duration_ms: u32 },
     Error(ServerError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerError {
     pub code: ErrorCode,
-    /// Human readable explanation, such as `room FK72AD not found`.
     pub message: String,
 }
 
@@ -147,7 +129,6 @@ pub enum ErrorCode {
     RaceNotRunning,
     InvalidProgress,
     InvalidSettings,
-    /// A code introduced by a newer server.
     #[serde(other)]
     Unknown,
 }

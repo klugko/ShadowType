@@ -1,5 +1,3 @@
-//! Command line entry point of the race server.
-
 use std::{ffi::OsStr, io::IsTerminal, num::NonZeroUsize, time::Duration};
 
 use anyhow::Context;
@@ -31,8 +29,7 @@ struct Args {
     /// Seconds of countdown before a race starts.
     #[arg(long, value_name = "SECONDS", default_value_t = 3, value_parser = clap::value_parser!(u64).range(1..=10))]
     countdown: u64,
-    /// Connections one IP address may hold at once; 0 lifts the limit, for
-    /// example behind a proxy or port forward that hides client addresses.
+    /// Connections one IP address may hold at once; 0 lifts the limit.
     #[arg(long, value_name = "COUNT", default_value_t = 16)]
     max_connections_per_address: usize,
 }
@@ -87,7 +84,6 @@ fn colours_wanted(terminal: bool, no_color: Option<&OsStr>) -> bool {
     terminal && no_color.is_none_or(OsStr::is_empty)
 }
 
-/// Windows consoles render ANSI sequences only once asked to.
 #[cfg(windows)]
 fn terminal_renders_ansi() -> bool {
     nu_ansi_term::enable_ansi_support().is_ok()
@@ -98,7 +94,6 @@ fn terminal_renders_ansi() -> bool {
     true
 }
 
-/// Completes on Ctrl+C, or on the SIGTERM sent by `docker stop` and service managers.
 async fn shutdown_signal() {
     let interrupt = async {
         if let Err(error) = tokio::signal::ctrl_c().await {

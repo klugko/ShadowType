@@ -30,24 +30,19 @@ pub fn is_raceable(text: &TextSource) -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
     Lobby,
-    /// The text is known and the race starts when the countdown ends.
     Countdown,
     Racing,
-    /// Everyone finished, left, or the race timed out.
     Finished,
 }
 
-/// Complete state of a room, sent to its members whenever it changes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RoomView {
     pub code: RoomCode,
     pub host: PlayerId,
     pub text: TextSource,
-    /// Characters in the current race text, zero before the first race.
     pub text_length: u32,
     pub phase: Phase,
     pub max_players: u8,
-    /// Players in the order they joined.
     pub players: Vec<PlayerView>,
 }
 
@@ -73,7 +68,6 @@ pub struct PlayerProgress {
     pub errors: u32,
     pub wpm: f64,
     pub accuracy: f64,
-    /// Race time measured by the server, once the whole text is typed.
     pub finish_ms: Option<u64>,
 }
 
@@ -123,7 +117,6 @@ impl RoomView {
         standings
     }
 
-    /// 1-based place of a player in [`Self::standings`].
     pub fn place_of(&self, id: PlayerId) -> Option<usize> {
         self.standings()
             .iter()
